@@ -61,10 +61,19 @@ pub struct Orbit {
     pub epoch: f64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct Site {
     pub lat: f64,
     pub lon: f64,
+}
+
+/// A point on the station's ground track. `t` is Unix seconds.
+#[derive(Clone, Debug, Serialize)]
+pub struct GroundPoint {
+    pub t: f64,
+    pub lat: f64,
+    pub lon: f64,
+    pub alt_km: f64,
 }
 
 /// One pass above the horizon. Times are Unix seconds.
@@ -95,6 +104,18 @@ impl Orbit {
         let g = sgp4::iau_epoch_to_sidereal_time((t - J2000_UNIX) / YEAR_SECS);
         let (s, c) = g.sin_cos();
         Some([c * p[0] + s * p[1], -s * p[0] + c * p[1], p[2]])
+    }
+
+    /// The point under the station at `t`.
+    pub fn ground(&self, t: f64) -> Option<GroundPoint> {
+        let p = self.ecef(t)?;
+        let (lat, lon, h) = crate::sonde::geo::ecef_to_geodetic(p[0] * 1e3, p[1] * 1e3, p[2] * 1e3);
+        Some(GroundPoint { t, lat, lon, alt_km: h / 1e3 })
+    }
+
+    /// Ground points every `step` seconds over `[from, to]`.
+    pub fn track(&self, from: f64, to: f64, step: f64) -> Vec<GroundPoint> {
+        (0..=((to - from) / step) as usize).filter_map(|i| self.ground(from + i as f64 * step)).collect()
     }
 
     /// Degrees above the site's horizon; negative below it.
@@ -185,6 +206,17 @@ mod tests {
         assert!(parse_site("95, 10").is_none());
         assert!(parse_site("Denver").is_none());
         assert!(parse_site("1, 2, 3").is_none());
+    }
+
+    #[test]
+    fn track_steps_evenly_and_crosses_the_date_line() {
+        let o = Orbit::parse(TLE).unwrap();
+        let tr = o.track(o.epoch, o.epoch + 5580.0, 30.0);
+        assert_eq!(tr.len(), 187);
+        assert!(tr.windows(2).all(|w| (w[1].t - w[0].t - 30.0).abs() < 1e-6));
+        // One orbit (~93 min) covers every longitude.
+        assert!(tr.windows(2).any(|w| (w[1].lon - w[0].lon).abs() > 180.0));
+        assert!(tr.iter().all(|p| (380.0..450.0).contains(&p.alt_km)));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 // Space station passes: which one is under way, and how far to trust the orbit data.
 // Times are Unix seconds, as the Rust side sends them.
-import type { IssPass } from './api';
+import type { GroundPoint, IssPass } from './api';
 
 const DAY = 86_400;
 
@@ -72,4 +72,39 @@ export function issTitle(passes: IssPass[], now: number, age: number | null): st
   if (o) return now < o.rise || now > o.set ? 'Space station possibly overhead now' : `Space station overhead now · ${Math.round(o.max_elevation)}° high`;
   const next = upcoming(passes, now)[0];
   return next ? `Space station · next pass ${dayLabel(next.rise, now).toLowerCase()} ${clock(next.rise)}` : 'Space station';
+}
+
+const EARTH_KM = 6371;
+
+/** Where the station is at `t`, interpolated along the track; null outside it. */
+export function groundAt(track: GroundPoint[], t: number): GroundPoint | null {
+  const i = track.findIndex((p) => p.t > t);
+  if (i <= 0) return null;
+  const [a, b] = [track[i - 1], track[i]];
+  const f = (t - a.t) / (b.t - a.t);
+  let dLon = b.lon - a.lon;
+  if (dLon > 180) dLon -= 360;
+  if (dLon < -180) dLon += 360;
+  const lon = a.lon + f * dLon;
+  return { t, lat: a.lat + f * (b.lat - a.lat), lon: ((lon + 540) % 360) - 180, alt_km: a.alt_km + f * (b.alt_km - a.alt_km) };
+}
+
+/** Radius in degrees of arc of the ground the station can be heard from: where it is above the horizon. */
+export function footprintDeg(altKm: number): number {
+  return (Math.acos(EARTH_KM / (EARTH_KM + altKm)) * 180) / Math.PI;
+}
+
+/** dB above the floor that counts as hearing something on the station's channel. Empty channels read 3–10 dB. */
+export const RECEPTION_DB = 12;
+
+/**
+ * Map area as an SVG viewBox over an equirectangular world 360 × 180 (x = lon + 180, y = 90 − lat).
+ * Zoomed to the listener only while a pass is under way and something is heard; the whole world otherwise.
+ */
+export function mapView(site: { lat: number; lon: number } | null, local: boolean): string {
+  if (!site || !local) return '0 0 360 180';
+  const [w, h] = [90, 45];
+  const x = Math.min(360 - w, Math.max(0, site.lon + 180 - w / 2));
+  const y = Math.min(180 - h, Math.max(0, 90 - site.lat - h / 2));
+  return `${x} ${y} ${w} ${h}`;
 }

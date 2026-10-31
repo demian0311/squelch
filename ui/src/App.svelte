@@ -3,14 +3,15 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, quietChannels, setRepeaters } from './lib/channels';
-  import type { Band, BandPlan, Iss, Mode, Setup, Status, Theme } from './lib/api';
+  import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { ageDays, clock, dayLabel, freshness, freshnessNote, issTitle, overhead, until, upcoming } from './lib/iss';
+  import { ageDays, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Tray from './components/Tray.svelte';
+  import IssMap from './components/IssMap.svelte';
   import Icon from './components/Icon.svelte';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000 };
@@ -319,7 +320,20 @@
       return '';
     }
   }
+  // Ground track for the map; it covers 100 min ahead, so it is reloaded well before it runs out.
+  let issTrack = $state<GroundPoint[]>([]);
+  let issHere = $derived(groundAt(issTrack, nowS));
+  // Zoom the map to the listener only while a pass is under way and its channel has signal.
+  let issLocal = $derived(issUp !== null && (status?.channel_snr_db ?? 0) >= RECEPTION_DB);
+  let issMapSummary = $derived(
+    !issHere
+      ? 'No orbit data yet'
+      : `Over ${Math.abs(issHere.lat).toFixed(0)}° ${issHere.lat >= 0 ? 'N' : 'S'}, ${Math.abs(issHere.lon).toFixed(0)}° ${issHere.lon >= 0 ? 'E' : 'W'}` +
+          (issLocal ? ' · zoomed to you while it is heard' : issUp ? ' · overhead, nothing heard yet' : ''),
+  );
+
   async function loadIss() {
+    issTrack = await api.issTrack();
     iss = await api.iss(location);
   }
   // ── weather balloons ────────────────────────────
@@ -486,7 +500,7 @@
     })();
     // The pass list covers two days from when it was asked for; keep it current.
     const tick = setInterval(() => (nowS = Date.now() / 1000), 5000);
-    const reload = setInterval(loadIss, 30 * 60_000);
+    const reload = setInterval(loadIss, 5 * 60_000);
     return () => {
       clearInterval(tick);
       clearInterval(reload);
@@ -691,6 +705,11 @@
           {#if !hd.error && !hdTraffic && !hdPicture}
             <p class="empty hdwait">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
           {/if}
+        </Tray>
+      {/if}
+      {#if band?.id === 'iss'}
+        <Tray id="issmap" title="Space station map" summary={issMapSummary}>
+          <div class="issmap"><IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} /></div>
         </Tray>
       {/if}
     </main>
@@ -1321,5 +1340,11 @@
   }
   .warn {
     color: var(--yellow);
+  }
+  .issmap {
+    flex: 1 1 100%;
+    height: 32vh;
+    min-height: 180px;
+    overflow: hidden;
   }
 </style>

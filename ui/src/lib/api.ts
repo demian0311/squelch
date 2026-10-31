@@ -141,11 +141,20 @@ export interface IssPass {
   max_elevation: number;
 }
 
+/** A point under the station; `t` is Unix seconds. */
+export interface GroundPoint {
+  t: number;
+  lat: number;
+  lon: number;
+  alt_km: number;
+}
+
 export interface Iss {
   /** The location text is not a ZIP code, state or "lat, lon". */
   bad_location: boolean;
   /** The location is a whole state, so times are rougher. */
   approximate: boolean;
+  site: { lat: number; lon: number } | null;
   /** Unix seconds of the orbit data's epoch; null before the first download. */
   tle_epoch: number | null;
   passes: IssPass[];
@@ -183,6 +192,9 @@ export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
 /** Space station passes over a ZIP code, state or "lat, lon" for the next two days. */
 export const iss = (location: string) => invoke<Iss>('iss', { location });
+
+/** The station's ground track, 45 min back to 100 min ahead. */
+export const issTrack = () => invoke<GroundPoint[]>('iss_track');
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
   const rows = new Channel<ArrayBuffer>();

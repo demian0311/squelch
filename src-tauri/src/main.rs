@@ -137,6 +137,7 @@ struct Iss {
     bad_location: bool,
     /// The location is a whole state, so times are rougher.
     approximate: bool,
+    site: Option<radio::iss::Site>,
     /// Unix seconds of the TLE epoch; null with no TLE yet.
     tle_epoch: Option<f64>,
     passes: Vec<radio::iss::Pass>,
@@ -151,12 +152,20 @@ fn iss(location: String) -> Iss {
     Iss {
         bad_location: site.is_none() && !location.trim().is_empty(),
         approximate: radio::iss::place::state(&location).is_some(),
+        site,
         tle_epoch: orbit.as_ref().map(|o| o.epoch),
         passes: match (site, &orbit) {
             (Some(s), Some(o)) => o.passes(s, now, 48.0),
             _ => Vec::new(),
         },
     }
+}
+
+/// The station's ground track from 45 min ago to 100 min ahead, every 30 s; empty with no TLE.
+#[tauri::command]
+fn iss_track() -> Vec<radio::iss::GroundPoint> {
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
+    radio::iss::load_cached().map(|o| o.track(now - 2700.0, now + 6000.0, 30.0)).unwrap_or_default()
 }
 
 /// HD Radio program to decode on the tuned FM station (0 = HD1), or null for off.
@@ -223,7 +232,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }
