@@ -1,13 +1,13 @@
 //! Prints the station's ground point now and its next passes over a place.
-//! Usage: iss <tle file> <zip | lat lon> [hours]
+//! Usage: iss <tle file> <zip | state | lat lon> [hours]
 
-use radio::iss::{zip, Orbit, Site};
+use radio::iss::{parse_site, Orbit, Site};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let orbit = Orbit::parse(&std::fs::read_to_string(&args[0])?)?;
-    let (site, rest) = match zip::lookup(&args[1]) {
+    let (site, rest) = match parse_site(&args[1]) {
         Some(s) => (s, &args[2..]),
         None => (Site { lat: args[1].parse()?, lon: args[2].parse()? }, &args[3..]),
     };

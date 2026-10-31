@@ -119,14 +119,16 @@ fn set_sondes(app: State<App>, on: bool) {
 
 #[derive(Serialize)]
 struct Iss {
-    /// The location text did not parse as a ZIP code or "lat, lon".
+    /// The location text did not parse as a ZIP code, state or "lat, lon".
     bad_location: bool,
+    /// The location is a whole state, so times are rougher.
+    approximate: bool,
     /// Unix seconds of the TLE epoch; null with no TLE yet.
     tle_epoch: Option<f64>,
     passes: Vec<radio::iss::Pass>,
 }
 
-/// Station passes over `location` (ZIP code or "lat, lon") for the next two days, from the cached TLE.
+/// Station passes over `location` (ZIP code, state or "lat, lon") for the next two days, from the cached TLE.
 #[tauri::command]
 fn iss(location: String) -> Iss {
     let site = radio::iss::parse_site(&location);
@@ -134,6 +136,7 @@ fn iss(location: String) -> Iss {
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
     Iss {
         bad_location: site.is_none() && !location.trim().is_empty(),
+        approximate: radio::iss::place::state(&location).is_some(),
         tle_epoch: orbit.as_ref().map(|o| o.epoch),
         passes: match (site, &orbit) {
             (Some(s), Some(o)) => o.passes(s, now, 48.0),

@@ -1,0 +1,53 @@
+# US state centres: land-area-weighted mean of county internal points, Census 2020 Gazetteer, public domain. code lat lon name
+AK 63.9 -152.5 Alaska
+AL 32.8 -86.8 Alabama
+AR 34.9 -92.4 Arkansas
+AZ 34.3 -111.7 Arizona
+CA 37.2 -119.5 California
+CO 39.0 -105.5 Colorado
+CT 41.6 -72.7 Connecticut
+DC 38.9 -77.0 District of Columbia
+DE 39.0 -75.5 Delaware
+FL 28.6 -82.5 Florida
+GA 32.6 -83.4 Georgia
+HI 20.2 -156.4 Hawaii
+IA 42.1 -93.5 Iowa
+ID 44.3 -114.6 Idaho
+IL 40.0 -89.2 Illinois
+IN 39.9 -86.3 Indiana
+KS 38.5 -98.4 Kansas
+KY 37.5 -85.3 Kentucky
+LA 31.1 -92.0 Louisiana
+MA 42.3 -71.8 Massachusetts
+MD 39.0 -76.8 Maryland
+ME 45.4 -69.2 Maine
+MI 44.3 -85.4 Michigan
+MN 46.2 -94.3 Minnesota
+MO 38.4 -92.5 Missouri
+MS 32.7 -89.7 Mississippi
+MT 47.0 -109.6 Montana
+NC 35.6 -79.4 North Carolina
+ND 47.4 -100.5 North Dakota
+NE 41.5 -99.8 Nebraska
+NH 43.7 -71.6 New Hampshire
+NJ 40.2 -74.7 New Jersey
+NM 34.4 -106.1 New Mexico
+NV 39.3 -116.6 Nevada
+NY 43.0 -75.5 New York
+OH 40.3 -82.8 Ohio
+OK 35.6 -97.5 Oklahoma
+OR 43.9 -120.6 Oregon
+PA 40.9 -77.8 Pennsylvania
+PR 18.2 -66.5 Puerto Rico
+RI 41.6 -71.6 Rhode Island
+SC 33.9 -80.9 South Carolina
+SD 44.4 -100.2 South Dakota
+TN 35.9 -86.4 Tennessee
+TX 31.5 -99.4 Texas
+UT 39.3 -111.7 Utah
+VA 37.5 -78.9 Virginia
+VT 44.1 -72.7 Vermont
+WA 47.4 -120.5 Washington
+WI 44.6 -90.0 Wisconsin
+WV 38.6 -80.6 West Virginia
+WY 43.0 -107.5 Wyoming

@@ -130,8 +130,10 @@ export interface IssPass {
 }
 
 export interface Iss {
-  /** The location text is not a ZIP code or "lat, lon". */
+  /** The location text is not a ZIP code, state or "lat, lon". */
   bad_location: boolean;
+  /** The location is a whole state, so times are rougher. */
+  approximate: boolean;
   /** Unix seconds of the orbit data's epoch; null before the first download. */
   tle_epoch: number | null;
   passes: IssPass[];
@@ -166,7 +168,7 @@ export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
-/** Space station passes over a ZIP code or "lat, lon" for the next two days. */
+/** Space station passes over a ZIP code, state or "lat, lon" for the next two days. */
 export const iss = (location: string) => invoke<Iss>('iss', { location });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {

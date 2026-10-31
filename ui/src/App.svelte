@@ -614,10 +614,11 @@
         <aside class="sondes">
           <h2>Space station passes</h2>
           <label class="loc">
-            <span class="dim">Your ZIP code, or latitude, longitude</span>
-            <input value={location} placeholder="80302 or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
+            <span class="dim">Your ZIP code, state, or latitude, longitude</span>
+            <input value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
           </label>
-          {#if iss?.bad_location}<p class="empty err">Not a US ZIP code or “lat, lon”.</p>{/if}
+          {#if iss?.bad_location}<p class="empty err">Not a US ZIP code, state or “lat, lon”.</p>{/if}
+          {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
           {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
           {#if !location}
             <p class="empty">Enter where you are to see when the station passes over.</p>

@@ -1,7 +1,7 @@
 //! Space station passes, offline: SGP4 on a cached TLE (two-line element set).
 //! Accuracy decays with the TLE's age — drag and reboosts — so callers show `age_days`.
 
-pub mod zip;
+pub mod place;
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
@@ -36,10 +36,10 @@ pub fn fetch() -> Result<()> {
     Ok(())
 }
 
-/// A ZIP code, or "lat, lon" in degrees.
+/// A ZIP code, a US state, or "lat, lon" in degrees.
 pub fn parse_site(text: &str) -> Option<Site> {
     let t = text.trim();
-    if let Some(s) = zip::lookup(t) {
+    if let Some(s) = place::zip(t).or_else(|| place::state(t)) {
         return Some(s);
     }
     let mut f = t.split(|c: char| c == ',' || c.is_whitespace()).filter(|v| !v.is_empty()).map(|v| v.parse::<f64>().ok());
@@ -178,6 +178,7 @@ mod tests {
     #[test]
     fn sites_from_zip_or_coordinates() {
         assert!(parse_site(" 80302 ").is_some());
+        assert!(parse_site("Colorado").is_some());
         let s = parse_site("39.74, -104.99").unwrap();
         assert_eq!((s.lat, s.lon), (39.74, -104.99));
         assert!(parse_site("39.74 -104.99").is_some());
