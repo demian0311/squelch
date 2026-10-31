@@ -18,8 +18,8 @@
   import Icon from './components/Icon.svelte';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
-  const CARD_W = 176;
-  const LANE_H = 92;
+  const CARD_W = 128;
+  const LANE_H = 78;
   const SPEC_H = 130;
   // the waterfall's spectrum line while the panel has the screen
   const STRIP_SPEC_H = 24;
@@ -725,7 +725,7 @@
                   <span class="row2">{c.item.sub}</span>
                   <span class="row3 mono">
                     <span>{fmtMHz(c.at)}</span>
-                    <span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>
+                    {#if c.item.tag !== 'HEARD'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
                     {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
                       <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
                     {/if}
@@ -1467,23 +1467,24 @@
   }
   .stem {
     position: absolute;
-    top: 74px;
+    top: 62px;
     bottom: 0;
     width: 1px;
     background: var(--muted);
   }
   .stem.sel {
     background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
   }
   .card {
     position: absolute;
-    top: 8px;
-    height: 66px;
+    top: 6px;
+    height: 56px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 7px 10px;
-    border-radius: 8px;
+    gap: 1px;
+    padding: 5px 8px 7px;
+    border-radius: 7px;
     border: 1px solid var(--muted);
     background: var(--bg-light);
     text-align: left;
@@ -1498,8 +1499,13 @@
     border-style: dashed;
   }
   .card.sel {
+    z-index: 2;
+    overflow: visible;
     border-color: var(--accent);
-    background: var(--sel);
+    background: color-mix(in srgb, var(--accent) 16%, var(--bg-light));
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 16px 3px color-mix(in srgb, var(--accent) 50%, transparent);
   }
   .row1 {
     display: flex;
@@ -1509,6 +1515,7 @@
   }
   .ttl {
     flex: 1;
+    font-size: 13px;
     font-weight: 600;
     color: var(--fg-bright);
     white-space: nowrap;
@@ -1523,7 +1530,7 @@
   }
   .row2 {
     width: 100%;
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--fg-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -1532,7 +1539,7 @@
   .row3 {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     width: 100%;
     font-size: 10px;
     color: var(--fg-dim);
@@ -1569,7 +1576,10 @@
   }
   .card.sel.hdon {
     border-color: var(--orange);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--orange) 45%, transparent);
+    background: color-mix(in srgb, var(--orange) 14%, var(--bg-light));
+    box-shadow:
+      0 0 0 1px var(--orange),
+      0 0 16px 3px color-mix(in srgb, var(--orange) 50%, transparent);
   }
   .hdpic {
     width: 100%;
@@ -1606,16 +1616,18 @@
     background: var(--bg-light);
   }
   .bar {
-    margin-left: auto;
-    width: 36px;
-    height: 3px;
-    border-radius: 2px;
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 3px;
+    height: 2px;
+    border-radius: 1px;
     background: var(--muted);
   }
   .bar span {
     display: block;
-    height: 3px;
-    border-radius: 2px;
+    height: 2px;
+    border-radius: 1px;
     background: var(--green);
   }
   .card.sel .bar span {
