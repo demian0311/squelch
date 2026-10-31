@@ -86,9 +86,11 @@ pub fn km_between((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
     2.0 * 6371.0 * a.sqrt().asin()
 }
 
-/// Merge parsed files (each with the mode its file name gives), drop off-air entries, keep those
-/// within `km` of `near`, and keep one repeater per output frequency: the nearest, or the first.
-pub fn merge(files: Vec<(Option<&str>, Vec<Repeater>)>, near: Option<(f64, f64)>, km: f64) -> Vec<Repeater> {
+/// Repeaters kept around a location given as a ZIP code or "lat, lon"; a state keeps the whole file.
+pub const NEARBY_KM: f64 = 100.0;
+
+/// Merge parsed files (each with the mode its file name gives) and drop off-air entries.
+pub fn merge(files: Vec<(Option<&str>, Vec<Repeater>)>) -> Vec<Repeater> {
     let mut by_id: BTreeMap<String, Repeater> = BTreeMap::new();
     for (mode, list) in files {
         for r in list {
@@ -100,9 +102,16 @@ pub fn merge(files: Vec<(Option<&str>, Vec<Repeater>)>, near: Option<(f64, f64)>
             }
         }
     }
+    let mut list: Vec<_> = by_id.into_values().filter(|r| r.on_air).collect();
+    list.sort_by(|a, b| a.mhz.total_cmp(&b.mhz));
+    list
+}
+
+/// Those within `km` of `near`, one per output frequency: the nearest, or the first without a location.
+pub fn nearby(list: Vec<Repeater>, near: Option<(f64, f64)>, km: f64) -> Vec<Repeater> {
     let dist = |r: &Repeater| near.map_or(0.0, |n| km_between(n, (r.lat, r.lon)));
     let mut by_hz: BTreeMap<u64, Repeater> = BTreeMap::new();
-    for r in by_id.into_values().filter(|r| r.on_air && dist(r) <= km) {
+    for r in list.into_iter().filter(|r| dist(r) <= km) {
         let hz = (r.mhz * 1e6).round() as u64;
         match by_hz.get(&hz) {
             Some(old) if dist(old) <= dist(&r) => {}
@@ -168,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_tags_modes_filters_and_keeps_nearest_per_frequency() {
+    fn merge_tags_modes_and_drops_off_air() {
         let all = parse_kml(
             &[
                 placemark("NEAR", "Denver", "447.00000- 100.0", "Yes", 1, -104.99, 39.74),
@@ -180,13 +189,15 @@ mod tests {
             .concat(),
         );
         let dmr = all.iter().filter(|r| r.call == "DIGI").cloned().collect();
-        let denver = (39.74, -104.99);
-        let r = merge(vec![(None, all.clone()), (Some("DMR"), dmr)], Some(denver), 400.0);
+        let r = merge(vec![(None, all), (Some("DMR"), dmr)]);
         let calls: Vec<_> = r.iter().map(|r| r.call.as_str()).collect();
-        assert_eq!(calls, ["DIGI", "SKI", "NEAR"]);
+        assert_eq!(calls, ["DIGI", "SKI", "NEAR", "FAR"]);
         assert_eq!(r[0].modes, ["DMR"]);
-        let close = merge(vec![(None, all)], Some(denver), 50.0);
-        assert_eq!(close.iter().map(|r| r.call.as_str()).collect::<Vec<_>>(), ["DIGI", "NEAR"]);
+        let denver = (39.74, -104.99);
+        let calls = |l: Vec<Repeater>| l.iter().map(|r| r.call.clone()).collect::<Vec<_>>();
+        assert_eq!(calls(nearby(r.clone(), Some(denver), 400.0)), ["DIGI", "SKI", "NEAR"]);
+        assert_eq!(calls(nearby(r.clone(), Some(denver), 50.0)), ["DIGI", "NEAR"]);
+        assert_eq!(calls(nearby(r, None, f64::INFINITY)), ["DIGI", "SKI", "NEAR"]);
     }
 
     #[test]

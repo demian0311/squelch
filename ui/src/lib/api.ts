@@ -167,7 +167,7 @@ export type Theme = Record<string, string>;
 
 export const setup = () => invoke<Setup>('setup');
 export const bands = () => invoke<Bands>('bands');
-export const repeaters = () => invoke<Repeater[]>('repeaters');
+export const repeaters = (location: string) => invoke<Repeater[]>('repeaters', { location });
 export const theme = () => invoke<Theme>('theme');
 export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { centerHz, tunedHz });
 export const setMode = (mode: Mode) => invoke('set_mode', { mode });
@@ -196,7 +196,7 @@ export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
 }
 
 export const onTheme = (f: (t: Theme) => void) => listen<Theme>('theme', (e) => f(e.payload));
-export const onRepeaters = (f: (r: Repeater[]) => void) => listen<Repeater[]>('repeaters', (e) => f(e.payload));
+export const onRepeaters = (f: () => void) => listen('repeaters', () => f());
 export const onBands = (f: (b: Bands) => void) => listen<Bands>('bands', (e) => f(e.payload));
 /** Fresh orbit data was downloaded. */
 export const onIss = (f: () => void) => listen('iss', () => f());

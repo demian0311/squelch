@@ -5,7 +5,7 @@ use radio::bands::BandPlan;
 use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
-use radio::repeaters::{Repeater, Repeaters};
+use radio::repeaters::{nearby, Repeater, Repeaters, NEARBY_KM};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -54,13 +54,17 @@ fn bands() -> Bands {
     load_bands()
 }
 
-// a broken repeaters file just means no repeater names, not a broken receiver
+/// Repeaters near `location` (ZIP code, state or "lat, lon"); a state keeps the whole file.
+/// A broken repeaters file just means no repeater names, not a broken receiver.
 #[tauri::command]
-fn repeaters() -> Vec<Repeater> {
-    Repeaters::load().unwrap_or_else(|e| {
+fn repeaters(location: String) -> Vec<Repeater> {
+    let list = Repeaters::load().unwrap_or_else(|e| {
         eprintln!("repeaters: {e:#}");
         vec![]
-    })
+    });
+    let near = radio::iss::parse_site(&location).map(|s| (s.lat, s.lon));
+    let km = if radio::iss::place::state(&location).is_some() { f64::INFINITY } else { NEARBY_KM };
+    nearby(list, near, km)
 }
 
 #[tauri::command]
@@ -196,7 +200,7 @@ fn main() {
                     let r = mtime(Repeaters::path());
                     if r != reps {
                         reps = r;
-                        let _ = handle.emit("repeaters", repeaters());
+                        let _ = handle.emit("repeaters", ());
                     }
                 }
             });

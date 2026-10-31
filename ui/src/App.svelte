@@ -276,9 +276,31 @@
     if (next !== undefined) tuneTo(snapTune(next, status?.signals ?? [], saved, span / boxW, mode, band?.id));
   }
 
-  // ── space station ───────────────────────────────
+  // ── location ────────────────────────────────────
+  // one setting for everything that depends on where you are: station passes, nearby repeaters
 
   let location = $state(readText('location'));
+  function setLocation(v: string) {
+    location = v.trim();
+    try {
+      localStorage.setItem('location', location);
+    } catch {
+      // without storage the location lasts until the app closes
+    }
+    loadIss();
+    loadRepeaters();
+  }
+
+  let repeaters: api.Repeater[] = [];
+  async function loadRepeaters() {
+    repeaters = await api.repeaters(location);
+    setRepeaters(repeaters, plan.bands);
+    // channel lookups aren't reactive; a new plan object recomputes everything that uses them
+    plan = { ...plan };
+  }
+
+  // ── space station ───────────────────────────────
+
   let iss = $state<Iss | null>(null);
   let nowS = $state(Date.now() / 1000);
   let issAge = $derived(ageDays(iss?.tle_epoch ?? null, nowS));
@@ -299,16 +321,6 @@
   async function loadIss() {
     iss = await api.iss(location);
   }
-  function setLocation(v: string) {
-    location = v.trim();
-    try {
-      localStorage.setItem('location', location);
-    } catch {
-      // without storage the location lasts until the app closes
-    }
-    loadIss();
-  }
-
   // ── weather balloons ────────────────────────────
 
   let decoding = $derived(band?.decoder === 'radiosonde');
@@ -434,7 +446,7 @@
       setup = await api.setup();
       setTheme(await api.theme());
       const b = await api.bands();
-      let repeaters = await api.repeaters();
+      repeaters = await api.repeaters(location);
       setRepeaters(repeaters, b.plan.bands);
       plan = b.plan;
       bandsPath = b.path;
@@ -467,12 +479,7 @@
         }),
       );
       unsubs.push(
-        api.onRepeaters((r) => {
-          repeaters = r;
-          setRepeaters(r, plan.bands);
-          // channel lookups aren't reactive; a new plan object recomputes everything that uses them
-          plan = { ...plan };
-        }),
+        api.onRepeaters(loadRepeaters),
       );
     })();
     // The pass list covers two days from when it was asked for; keep it current.
@@ -624,15 +631,11 @@
       {#if band?.id === 'iss'}
         <aside class="sondes">
           <h2>Space station passes</h2>
-          <label class="loc">
-            <span class="dim">Your ZIP code, state, or latitude, longitude</span>
-            <input value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
-          </label>
-          {#if iss?.bad_location}<p class="empty err">Not a US ZIP code, state or “lat, lon”.</p>{/if}
+          {#if iss?.bad_location}<p class="empty err">Your location in the controls below is not a US ZIP code, state or “lat, lon”.</p>{/if}
           {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
           {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
           {#if !location}
-            <p class="empty">Enter where you are to see when the station passes over.</p>
+            <p class="empty">Set your location in the controls below (C) to see when the station passes over.</p>
           {:else}
             {#each issNext as p (p.rise)}
               {@const now = p === issUp}
@@ -718,6 +721,10 @@
         <label class="ctl" title="Data and tracking, railroad and military aircraft: bands that have given us nothing so far">
           <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
           Dead air
+        </label>
+        <label class="ctl" title="Your ZIP code, state, or latitude, longitude. Times space station passes and picks nearby repeaters.">
+          Location
+          <input class="loc" value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
         </label>
         <span class="spacer"></span>
         <div class="tools">
@@ -989,23 +996,15 @@
     margin: 0;
     line-height: 1.45;
   }
-  .loc {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-  }
-  .loc .dim {
-    color: var(--fg-dim);
-  }
-  .loc input {
-    min-height: 36px;
+  input.loc {
+    width: 15em;
+    min-height: 34px;
     padding: 0 10px;
     border-radius: 8px;
     border: 1px solid var(--muted);
     background: var(--bg-light);
   }
-  .loc input.bad {
+  input.loc.bad {
     border-color: var(--red);
   }
   .box {
