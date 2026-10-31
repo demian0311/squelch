@@ -15,7 +15,6 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import Level from './components/Level.svelte';
-  import { flip } from 'svelte/animate';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
 
@@ -385,10 +384,10 @@
     }
     return m;
   });
-  // on-air repeaters first, strongest first, so they show in the short list under the map; the rest stay nearest first
-  let repRows = $derived(
-    repNear.filter((p) => p !== repTuned).sort((a, b) => (repLive.get(b.hz) ?? -999) - (repLive.get(a.hz) ?? -999)),
-  );
+  // on-air repeaters first, so they show in the short list under the map; both groups stay nearest first, so a row moves
+  // only when its repeater comes on or off the air. Sorting by signal strength reordered the rows on every status, and the
+  // rows' flip animation measured each one, a full page layout per row
+  let repRows = $derived(repNear.filter((p) => p !== repTuned).sort((a, b) => Number(repLive.has(b.hz)) - Number(repLive.has(a.hz))));
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
     const maybe = repPoints.filter((p) => p.digital).length;
@@ -746,7 +745,7 @@
           onpointerdown={dragSquelch}
           onkeydown={squelchKey}
         >
-          <div class="fill" class:muted style:width="{meter}%"></div>
+          <div class="fill" class:muted style:clip-path="inset(0 {100 - meter}% 0 0 round 4px)"></div>
           <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
         </div>
       </div>
@@ -992,7 +991,7 @@
                   {/if}
                   {#each repRows as p (p.hz)}
                     {@const snr = repLive.get(p.hz)}
-                    <button class="reprow chrow" class:live={snr !== undefined} animate:flip={{ duration: 250 }} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
+                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
                       <span class="dot"></span>
                       <span class="name">{p.call}</span>
                       <span class="dim town">{p.city}</span>
@@ -1194,7 +1193,8 @@
     height: 8px;
     border-radius: 4px;
     background: linear-gradient(90deg, var(--green), var(--yellow));
-    transition: width 200ms;
+    /* clipped, not resized: a width transition lays out the page on every frame */
+    transition: clip-path 200ms;
   }
   .fill.muted {
     background: var(--fg-dim);
@@ -1665,23 +1665,36 @@
     color: var(--orange);
     font-weight: 700;
     cursor: pointer;
+    position: relative;
+  }
+  /* the glow fades in and out by opacity, which WebKit runs on the compositor; animating box-shadow repaints every frame */
+  .hdchip::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 10px var(--orange);
+    opacity: 0;
     animation: hdpulse 2s ease-in-out infinite;
+    pointer-events: none;
   }
   .hdchip.on {
     background: var(--orange);
     color: var(--bg);
-    animation: none;
     box-shadow: 0 0 8px var(--orange);
+  }
+  .hdchip.on::after {
+    animation: none;
   }
   @keyframes hdpulse {
     50% {
-      box-shadow: 0 0 10px var(--orange);
+      opacity: 1;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .hdchip {
+    .hdchip::after {
       animation: none;
-      box-shadow: 0 0 6px var(--orange);
+      opacity: 0.6;
     }
   }
   .card.sel.hdon {
@@ -1808,6 +1821,7 @@
     transition: background 0.3s;
   }
   .chrow .dot {
+    position: relative;
     flex: none;
     width: 8px;
     height: 8px;
@@ -1827,17 +1841,30 @@
   .chrow.live .dot {
     border-color: var(--green);
     background: var(--green);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
+  }
+  /* the ring grows by transform and fades by opacity, which WebKit runs on the compositor; a growing box-shadow repaints every frame */
+  .chrow.live .dot::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--green) 60%, transparent);
     animation: onair 1.6s ease-out infinite;
   }
   @keyframes onair {
+    from {
+      transform: scale(1);
+      opacity: 1;
+    }
     to {
-      box-shadow: 0 0 0 7px transparent;
+      transform: scale(2.4);
+      opacity: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .chrow.live .dot {
+    .chrow.live .dot::after {
       animation: none;
+      opacity: 0;
     }
   }
 

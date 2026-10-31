@@ -165,15 +165,20 @@
     >
       <title>{p.call} · {p.city} · {(p.hz / 1e6).toFixed(4)} MHz · {Math.round(p.km)} km{p.digital ? ` · may be ${p.digital} only` : ''}</title>
       <circle cx={p.x} cy={p.y} r={HIT_PX * kmPerPx} class="hit" />
-      {#if live.has(p.hz)}
-        <circle cx={p.x} cy={p.y} r={DOT_PX * kmPerPx} class="blip" />
-      {/if}
       <circle cx={p.x} cy={p.y} r={(p.hz === tunedHz ? TUNED_PX : DOT_PX) * kmPerPx} class="dot" />
     </g>
   {/each}
   <circle r={TUNED_PX * kmPerPx} class="site" />
   <text x={TUNED_PX * kmPerPx + 2} y="1.8" class="you">You</text>
 </svg>
+<!-- on-air rings sit above the drawing as HTML: WebKit runs their transform and opacity on the compositor, while a ring inside the SVG repaints the whole map every frame -->
+{#if box}
+  <div class="blips" aria-hidden="true">
+    {#each ordered.filter((p) => live.has(p.hz)) as p (p.hz)}
+      <span class="blip" class:tuned={p.hz === tunedHz} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"></span>
+    {/each}
+  </div>
+{/if}
 <!-- outside the drawing, which `slice` crops at the sides -->
 <span class="attrib">{ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census</span>
 
@@ -277,33 +282,39 @@
   .rep:hover .dot {
     stroke: var(--fg-bright);
   }
-  /* a signal on the repeater's output: a ring grows out of the dot and fades */
+  /* a signal on the repeater's output: a ring grows out of the dot and fades. Drawn at its largest (4.5 dots) and scaled down, so the edge ends 1.5 px wide */
+  .blips {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
   .blip {
-    fill: none;
-    stroke: var(--green);
-    stroke-width: 1.5;
-    vector-effect: non-scaling-stroke;
-    transform-box: fill-box;
-    transform-origin: center;
+    position: absolute;
+    width: 27px;
+    height: 27px;
+    margin: -13.5px 0 0 -13.5px;
+    box-sizing: border-box;
+    border: 1.5px solid var(--green);
+    border-radius: 50%;
     animation: blip 1.2s ease-out infinite;
   }
-  .rep.tuned .blip {
-    stroke: var(--orange);
+  .blip.tuned {
+    border-color: var(--orange);
   }
   @keyframes blip {
     from {
-      transform: scale(1);
+      transform: scale(0.222);
       opacity: 0.9;
     }
     to {
-      transform: scale(4.5);
+      transform: scale(1);
       opacity: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .blip {
       animation: none;
-      transform: scale(2);
+      transform: scale(0.444);
     }
   }
   .site {
