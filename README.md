@@ -25,7 +25,7 @@ On Arch:
 
 ```sh
 sudo pacman -S rtl-sdr webkit2gtk-4.1 rust pnpm
-git clone <repo url> squelch && cd squelch
+git clone https://github.com/demian0311/squelch.git && cd squelch
 ./run.sh
 ```
 
