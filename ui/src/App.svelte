@@ -3,13 +3,12 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, MODE_NAMES, modeAt, Persistence, placeCards, snapTune, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, snapTune, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Icon from './components/Icon.svelte';
 
-  const MODES: Mode[] = ['wfm', 'nfm', 'am', 'usb', 'lsb', 'none'];
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000 };
   const CARD_W = 176;
   const LANE_H = 92;
@@ -35,6 +34,23 @@
   let volume = $state(0.7);
   let gain = $state<string>('auto');
   let railOpen = $state(true);
+  let dockOpen = $state(readDock());
+
+  function readDock(): boolean {
+    try {
+      return localStorage.getItem('dock') !== 'closed';
+    } catch {
+      return true;
+    }
+  }
+  function toggleDock() {
+    dockOpen = !dockOpen;
+    try {
+      localStorage.setItem('dock', dockOpen ? 'open' : 'closed');
+    } catch {
+      // remembering the choice is a nicety
+    }
+  }
   let full = $state(false);
   let boxW = $state(1000);
   let waterfall: Waterfall;
@@ -112,11 +128,6 @@
     mode = modeAt(plan, saved, tuned, b.mode);
     api.setMode(mode);
     recenter();
-  }
-
-  function chooseMode(m: Mode) {
-    mode = m;
-    api.setMode(m);
   }
 
   // ── signals ─────────────────────────────────────────
@@ -239,6 +250,7 @@
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleFull();
     else if (e.key === ' ') togglePlay();
+    else if (e.key === 'c') toggleDock();
     else return;
     e.preventDefault();
   }
@@ -293,11 +305,6 @@
     <div class="freq">
       <span class="digits mono">{fmtHz(tuned)}</span>
       <span class="unit mono">MHz</span>
-      <select class="mode" value={mode} onchange={(e) => chooseMode((e.currentTarget as HTMLSelectElement).value as Mode)} aria-label="Mode">
-        {#each MODES as m}
-          <option value={m}>{MODE_NAMES[m]}</option>
-        {/each}
-      </select>
     </div>
     <div class="now">
       <span class="title">{nowTitle}</span>
@@ -306,24 +313,6 @@
     <div class="meter">
       <span>Signal</span>
       <div class="track"><div class="fill" style:width="{meter}%"></div></div>
-    </div>
-    <label class="ctl">
-      Volume
-      <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
-    </label>
-    <label class="ctl">
-      Gain
-      <select bind:value={gain}>
-        <option value="auto">Auto</option>
-        {#each status?.gains ?? [] as g}
-          <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
-        {/each}
-      </select>
-    </label>
-    <div class="transport">
-      <button class="sq" onclick={() => step(-1)} aria-label="Previous signal" title="Previous signal (←)">←</button>
-      <button class="play" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
-      <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
     </div>
   </header>
 
@@ -346,14 +335,6 @@
             {showSteady ? 'Hide steady carriers' : `${steadyCount} steady carrier${steadyCount === 1 ? '' : 's'} hidden · show`}
           </button>
         {/if}
-        <div class="tools">
-          <button onclick={() => zoom(1.5)} aria-label="Zoom out" title="Zoom out (-)">−</button>
-          <button onclick={() => zoom(1 / 1.5)} aria-label="Zoom in" title="Zoom in (+)">+</button>
-          <button class="wide" onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)}>Widest</button>
-          <button class="wide accent" onclick={toggleFull} title="Full screen (F)">
-            <Icon name={full ? 'shrink' : 'expand'} size={16} />{full ? 'Exit full screen' : 'Full screen'}
-          </button>
-        </div>
       </div>
 
       <div class="box" bind:clientWidth={boxW}>
@@ -412,18 +393,66 @@
     </main>
   </div>
 
-  <footer class="mono">
-    <span>1–9 band</span>
-    <span>← → next signal</span>
-    <span>[ ] move · - + zoom</span>
-    <span>f full screen</span>
-    <span>space listen / stop</span>
-    <span class="spacer"></span>
-    {#if status?.error}<span class="err">{status.error}</span>{/if}
-    {#if bandsError}<span class="err">Bands file: {bandsError}</span>{/if}
-    <span class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
-    <span title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</span>
-    <span>Colours: {theme.name ?? 'Omarchy theme'}</span>
+  <footer class:open={dockOpen}>
+    <div class="dockbar">
+      <button class="fold" onclick={toggleDock} aria-expanded={dockOpen} title={dockOpen ? 'Hide controls (C)' : 'Show controls (C)'}>
+        {dockOpen ? '▾' : '▴'}
+      </button>
+      {#if dockOpen}
+        <label class="ctl">
+          Volume
+          <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
+        </label>
+        <label class="ctl">
+          Gain
+          <select bind:value={gain}>
+            <option value="auto">Auto</option>
+            {#each status?.gains ?? [] as g}
+              <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
+            {/each}
+          </select>
+        </label>
+        <div class="transport">
+          <button class="sq" onclick={() => step(-1)} aria-label="Previous signal" title="Previous signal (←)">←</button>
+          <button class="play" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
+          <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
+        </div>
+        <span class="spacer"></span>
+        <div class="tools">
+          <button onclick={() => zoom(1.5)} aria-label="Zoom out" title="Zoom out (-)">−</button>
+          <button onclick={() => zoom(1 / 1.5)} aria-label="Zoom in" title="Zoom in (+)">+</button>
+          <button class="wide" onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)}>Widest</button>
+          <button class="wide accent" onclick={toggleFull} title="Full screen (F)">
+            <Icon name={full ? 'shrink' : 'expand'} size={16} />{full ? 'Exit full screen' : 'Full screen'}
+          </button>
+        </div>
+      {:else}
+        <button class="play small" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
+        <span class="spacer"></span>
+        <span class="info mono" class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
+      {/if}
+    </div>
+    {#if dockOpen}
+      <div class="info mono">
+        <span>1–9 band</span>
+        <span>← → next signal</span>
+        <span>[ ] move · - + zoom</span>
+        <span>f full screen</span>
+        <span>space listen / stop</span>
+        <span>c controls</span>
+        <span class="spacer"></span>
+        {#if status?.error}<span class="err">{status.error}</span>{/if}
+        {#if bandsError}<span class="err">Bands file: {bandsError}</span>{/if}
+        <span class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
+        <span title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</span>
+        <span>Colours: {theme.name ?? 'Omarchy theme'}</span>
+      </div>
+    {:else if status?.error || bandsError}
+      <div class="info mono">
+        {#if status?.error}<span class="err">{status.error}</span>{/if}
+        {#if bandsError}<span class="err">Bands file: {bandsError}</span>{/if}
+      </div>
+    {/if}
   </footer>
 </div>
 
@@ -455,16 +484,6 @@
   }
   .unit {
     color: var(--fg-dim);
-  }
-  .mode {
-    margin-left: 6px;
-    padding: 4px 8px;
-    border: 0;
-    border-radius: 999px;
-    background: var(--sel);
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 13px;
   }
   .now {
     display: flex;
@@ -580,7 +599,6 @@
     font-size: 13px;
   }
   .tools {
-    margin-left: auto;
     display: flex;
     gap: 6px;
   }
@@ -771,11 +789,39 @@
   }
   footer {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px 22px;
-    padding: 8px 18px;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 18px 8px;
     background: var(--bg-dark);
     border-top: 1px solid var(--muted);
+  }
+  .dockbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 22px;
+  }
+  .dockbar .ctl {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .fold {
+    min-width: 34px;
+    min-height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--muted);
+    background: transparent;
+    color: var(--fg-dim);
+  }
+  .play.small {
+    min-height: 34px;
+    min-width: 80px;
+  }
+  .info {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
     color: var(--fg-dim);
     font-size: 12px;
   }
