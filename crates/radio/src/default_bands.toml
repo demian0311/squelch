@@ -1,6 +1,6 @@
 # Bands shown in the receiver's band list.
 #
-# Copied to ~/.config/receiver/bands.toml on first start; edit that copy.
+# Copied to ~/.config/squelch/bands.toml on first start; edit that copy.
 # Each band picks the mode used when you tune inside it. Bookmarks label
 # known frequencies; a bookmark can override the band's mode.
 #

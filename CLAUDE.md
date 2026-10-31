@@ -1,6 +1,8 @@
-# receiver
+# Squelch
 
 RTL-SDR receiver for Omarchy (Hyprland). Tauri 2 shell + Rust engine + Svelte 5 UI.
+
+Repo directory and the `RECEIVER_SIM` env var still carry the old name `receiver`.
 
 ## Layout
 - `crates/radio/` — engine, no UI deps. `device.rs` (librtlsdr FFI + `SimSource`), `dsp.rs`, `demod.rs` (WFM/NFM/AM/USB/LSB → 48 kHz), `spectrum.rs` (FFT rows), `detect.rs` (signals above floor), `bands.rs` + `default_bands.toml`, `theme.rs` (Omarchy colors), `audio.rs` (cpal), `engine.rs` (receive thread, `Command`/`Row`/`Status`).
@@ -29,10 +31,10 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 ## Facts
 - Dongle on eagle: generic RTL2832U + R820T, 24–1766 MHz, no HF. DVB driver blacklisted in `/etc/modprobe.d/blacklist-rtlsdr.conf`.
 - Capture is 2.4 Msps (`SAMPLE_RATE`); UI view span capped at 0.8× that. Wider views would need sweeping — not built.
-- User bands file: `~/.config/receiver/bands.toml`, written from defaults on first start; never overwritten.
+- User bands file: `~/.config/squelch/bands.toml`, written from defaults on first start; never overwritten.
 - Theme source: `~/.local/state/omarchy/current/theme/colors.toml`.
 - Sonde types near eagle (NWS list 09-25): every nearby site flies GRAW DFM-17; Denver (KDNR) lists none. RS41 is the other US type. Simulator includes a DFM-17 at 403.3 MHz.
-- `cargo build` while `pnpm tauri dev` is rebuilding corrupts the shell crate's link (undefined hidden symbol): stop dev, `cargo clean -p receiver`, rebuild.
+- `cargo build` while `pnpm tauri dev` is rebuilding corrupts the shell crate's link (undefined hidden symbol): stop dev, `cargo clean -p squelch`, rebuild.
 - The dongle streams via `rtlsdr_read_async` on its own thread into a `QUEUE`-buffer channel. Blocking `read_sync` dropped 15–25% of samples (found 2026-10-30: rows/s ~24 not 30, pilot phase random, RDS dead).
 - eagle's dongle crystal is ~105 ppm slow (pilot measured at 18997.4 Hz).
 - libnrsc5 is not packaged: build theori-io/nrsc5 with cmake (CLI needs system `libao`), copy `build/src/libnrsc5.so` to `~/.local/lib`. Without it the HD panel shows the install hint. GPL-3; its audio codec is patented.

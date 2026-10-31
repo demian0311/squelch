@@ -1,4 +1,4 @@
-//! The band list, read from ~/.config/receiver/bands.toml.
+//! The band list, read from ~/.config/squelch/bands.toml.
 
 use crate::demod::Mode;
 use anyhow::{Context, Result};
@@ -52,7 +52,7 @@ impl BandPlan {
     }
 
     pub fn path() -> Option<PathBuf> {
-        dirs::config_dir().map(|d| d.join("receiver").join("bands.toml"))
+        dirs::config_dir().map(|d| d.join("squelch").join("bands.toml"))
     }
 
     /// Read the user's file, creating it from the defaults the first time.

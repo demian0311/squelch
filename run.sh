@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the receiver app. `./run.sh sim` uses the simulated receiver instead of the dongle.
+# Start Squelch. `./run.sh sim` uses the simulated receiver instead of the dongle.
 set -euo pipefail
 cd "$(dirname "$0")"
 

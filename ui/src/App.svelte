@@ -458,7 +458,7 @@
 
     <main>
       <div class="toolbar">
-        <h1>{band?.name ?? 'Receiver'}</h1>
+        <h1>{band?.name ?? 'Squelch'}</h1>
         <span class="range mono">{fmtMHz(vs)} – {fmtMHz(ve)} MHz</span>
         {#if decoding}
           <span class="hint">Decoding weather balloons (DFM and RS41) on {status?.decoding_hz.length ?? 0} signal{status?.decoding_hz.length === 1 ? '' : 's'}</span>

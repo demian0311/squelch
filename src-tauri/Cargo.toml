@@ -1,8 +1,8 @@
 [package]
-name = "receiver"
+name = "squelch"
 version = "0.1.0"
 edition = "2021"
-description = "A receiver for RTL-SDR dongles"
+description = "Squelch: an RTL-SDR receiver"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
