@@ -2,6 +2,22 @@
 
 A receiver for RTL-SDR dongles, built for [Omarchy](https://omarchy.org) on Hyprland. Plug in a dongle, pick a band, and click a signal on the waterfall to hear it.
 
+## Install
+
+On Omarchy (or any Arch), paste this in a terminal:
+
+```sh
+sudo pacman -S --needed rtl-sdr fuse2
+mkdir -p ~/.local/bin ~/.local/share/applications
+curl -fL -o ~/.local/bin/squelch https://github.com/demian0311/squelch/releases/latest/download/Squelch-x86_64.AppImage
+chmod +x ~/.local/bin/squelch
+printf '[Desktop Entry]\nName=Squelch\nExec=%s\nType=Application\nCategories=AudioVideo;\n' ~/.local/bin/squelch > ~/.local/share/applications/squelch.desktop
+```
+
+Plug in the dongle, then start Squelch from the app launcher (Super + Space) or run `squelch`. To update, run the `curl` line again.
+
+`rtl-sdr` lets your user open the dongle. `fuse2` lets the AppImage (a single-file Linux app) run. The optional extras and the TV-driver fix below apply here too.
+
 ## What it does
 
 - **Spectrum and waterfall.** Live view of up to about 1.9 MHz around the tuned frequency.
@@ -20,7 +36,7 @@ Any RTL2832U dongle should work. Squelch was built on one with an R820T tuner, w
 
 Only one program can use the dongle at a time, so close gqrx or SDR++ first.
 
-## Build and run
+## Build from source
 
 On Arch:
 
