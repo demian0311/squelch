@@ -10,6 +10,7 @@
   import { ageDays, clock, dayLabel, freshness, freshnessNote, issTitle, overhead, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
+  import Tray from './components/Tray.svelte';
   import Icon from './components/Icon.svelte';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000 };
@@ -359,6 +360,7 @@
   let hdPicture = $derived(hdImages.find((i) => i.kind === 'art') ?? hdImages.find((i) => i.kind === 'logo'));
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
+  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hdState(hd)].filter(Boolean).join(' · ') : '');
   function setHdProgram(p: number | null) {
     const key = String(fmChannel(tuned));
     const next = { ...hdPrefs };
@@ -649,43 +651,48 @@
           {/if}
         </aside>
       {/if}
+      </div>
       {#if hd}
-        <aside class="sondes hdside">
-          <h2 class="hdhead">HD Radio</h2>
-          <div class="sonde">
-            {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
-            {#if hd.name}<span class="name">{hd.name}</span>{/if}
-            {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
-            {#if hd.title}<span class="big">{hd.title}</span>{/if}
-            {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
-            <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
-            {#if hd.message}<span class="dim">{hd.message}</span>{/if}
-          </div>
-          {#if hd.programs.length > 1}
-            <div class="hdprogs">
-              {#each hd.programs as p}
-                <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
-              {/each}
+        <Tray id="hd" title="HD Radio" summary={hdSummary} accent="var(--orange)">
+          <div class="hdcol">
+            <div class="sonde">
+              {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
+              {#if hd.name}<span class="name">{hd.name}</span>{/if}
+              {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
+              {#if hd.title}<span class="big">{hd.title}</span>{/if}
+              {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
+              <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
+              {#if hd.message}<span class="dim">{hd.message}</span>{/if}
             </div>
-          {/if}
+            {#if hd.programs.length > 1}
+              <div class="hdprogs">
+                {#each hd.programs as p}
+                  <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
           {#if hdTraffic}
-            <h2>Traffic</h2>
-            <div class="hdgrid">
-              {#each hdTraffic as t}
-                {#if t}<img src={t} alt="" />{:else}<span></span>{/if}
-              {/each}
+            <div class="hdcol">
+              <h2>Traffic</h2>
+              <div class="hdgrid">
+                {#each hdTraffic as t}
+                  {#if t}<img src={t} alt="" />{:else}<span></span>{/if}
+                {/each}
+              </div>
             </div>
           {/if}
           {#if hdWeather}
-            <h2>Weather radar</h2>
-            <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
+            <div class="hdcol">
+              <h2>Weather radar</h2>
+              <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
+            </div>
           {/if}
           {#if !hd.error && !hdTraffic && !hdPicture}
-            <p class="empty">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
+            <p class="empty hdwait">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
           {/if}
-        </aside>
+        </Tray>
       {/if}
-      </div>
     </main>
   </div>
 
@@ -1167,8 +1174,22 @@
     border-color: var(--orange);
     box-shadow: 0 0 12px color-mix(in srgb, var(--orange) 45%, transparent);
   }
-  .hdhead {
-    color: var(--orange) !important;
+  .hdcol {
+    flex: 0 1 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 180px;
+  }
+  .hdcol h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg-dim);
+  }
+  .hdwait {
+    flex: 1 1 200px;
+    align-self: center;
   }
   .hdpic {
     width: 100%;
