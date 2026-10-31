@@ -170,6 +170,12 @@
     recenter();
   }
 
+  /** Tunes and slides the view so the station sits in the middle. */
+  function tuneCentered(hz: number) {
+    tuneTo(hz);
+    setView(tuned - span / 2, tuned + span / 2);
+  }
+
   $effect(() => {
     if (!band || tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6) return;
     lastHz[band.id] = tuned;
@@ -721,7 +727,7 @@
               {/each}
               {#each cards as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
                   <span class="row1">
                     <span class="ttl">{c.item.title}</span>
                     {#if c.hidden.length}
