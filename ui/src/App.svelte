@@ -12,6 +12,8 @@
   import Waterfall from './components/Waterfall.svelte';
   import Tray from './components/Tray.svelte';
   import IssMap from './components/IssMap.svelte';
+  import RepeaterMap from './components/RepeaterMap.svelte';
+  import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000 };
@@ -293,13 +295,25 @@
     loadRepeaters();
   }
 
-  let repeaters: api.Repeater[] = [];
+  let repeaters = $state<api.Repeater[]>([]);
   async function loadRepeaters() {
     repeaters = await api.repeaters(location);
     setRepeaters(repeaters, plan.bands);
     // channel lookups aren't reactive; a new plan object recomputes everything that uses them
     plan = { ...plan };
   }
+
+  // the repeater tray: only on bands with a reach estimate, centred on the location
+  let repReachKm = $derived(band ? REACH_KM[band.id] : undefined);
+  let repInBand = $derived(band && repReachKm !== undefined ? repeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
+  let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
+  let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
+  let repNear = $derived(repPoints.filter((p) => p.reach));
+  let repSummary = $derived.by(() => {
+    if (!iss?.site) return 'Set your location to see which are near';
+    const maybe = repPoints.filter((p) => p.digital).length;
+    return `${repNear.length} of ${repPoints.length} within ${repReachKm} km` + (maybe ? ` · dashed: ${maybe} may be digital only` : '');
+  });
 
   // ── space station ───────────────────────────────
 
@@ -696,7 +710,7 @@
             <div class="isspasses">
               {#if iss?.bad_location}<p class="empty err">Your location in the controls below is not a US ZIP code, state or “lat, lon”.</p>{/if}
               {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
-              {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
+              <p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>
               {#if !location}
                 <p class="empty">Set your location in the controls below (C) to see when the station passes over.</p>
               {:else}
@@ -712,6 +726,40 @@
               {/if}
             </div>
           </div>
+        </Tray>
+      {/if}
+      {#if repInBand.length && repReachKm !== undefined}
+        <Tray id="repeaters" title="Repeaters" summary={repSummary} fixed>
+          {#if iss?.site}
+            <div class="issrow">
+              <div class="repmap">
+                <RepeaterMap points={repPoints} reachKm={repReachKm} tunedHz={repTuned?.hz ?? null} onTune={(hz) => tuneTo(hz)} />
+                <span class="issage">Rings: about {repReachKm} km, a guess; a mountaintop repeater reaches further</span>
+              </div>
+              <div class="isspasses">
+                {#if repTuned}
+                  <div class="sonde sel">
+                    <span class="name">{repTuned.call}</span>
+                    <span class="dim">{channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km</span>
+                    {#if repTuned.digital}<span class="warn">Listed as {repTuned.digital} too. If it is digital only, it will sound like buzzing.</span>{/if}
+                  </div>
+                {/if}
+                {#each repNear.filter((p) => p !== repTuned) as p (p.hz)}
+                  <button class="reprow" onclick={() => tuneTo(p.hz)}>
+                    <span class="name">{p.call}</span>
+                    <span class="dim town">{p.city}</span>
+                    {#if p.digital}<span class="warn mono">{p.digital}?</span>{/if}
+                    <span class="mono">{(p.hz / 1e6).toFixed(4)}</span>
+                    <span class="mono dim">{Math.round(p.km)} km</span>
+                  </button>
+                {:else}
+                  <p class="empty">None within {repReachKm} km of your location.</p>
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <p class="empty">Set your location in the controls below (C) to see which repeaters are near you.</p>
+          {/if}
         </Tray>
       {/if}
     </main>
@@ -1358,6 +1406,35 @@
     height: 100%;
     max-width: 100%;
     overflow: hidden;
+  }
+  .repmap {
+    position: relative;
+    flex: 2 1 0;
+    min-width: 0;
+    height: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .reprow {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+  }
+  .reprow:hover {
+    background: var(--bg-light);
+  }
+  .reprow .town {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .issage {
     position: absolute;
