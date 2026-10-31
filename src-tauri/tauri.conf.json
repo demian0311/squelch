@@ -15,9 +15,7 @@
       {
         "title": "Receiver",
         "width": 1440,
-        "height": 900,
-        "minWidth": 900,
-        "minHeight": 600
+        "height": 900
       }
     ],
     "security": {

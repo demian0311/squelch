@@ -31,6 +31,10 @@
   let dragging = $state(false);
   let drag: { x: number; vs: number; ve: number; moved: boolean } | null = null;
   let spectrumDirty = false;
+  // drawing happens in device pixels so the picture stays sharp on scaled displays
+  let dpr = 1;
+  let S = 0;
+  let WF = 0;
 
   const AXIS = 22;
   let wfH = $derived(Math.max(60, height - specH - AXIS));
@@ -41,17 +45,20 @@
 
   function resize() {
     if (!canvas) return;
-    const w = Math.max(64, Math.floor(width));
-    const h = specH + wfH;
+    dpr = window.devicePixelRatio || 1;
+    const w = Math.max(64, Math.round(width * dpr));
+    const h = Math.round((specH + wfH) * dpr);
     if (canvas.width === w && canvas.height === h) return;
-    const old = ctx && canvas.width > 0 ? ctx.getImageData(0, specH, canvas.width, Math.min(canvas.height - specH, wfH)) : null;
+    const old = ctx && canvas.width > 0 && WF > 0 ? ctx.getImageData(0, S, canvas.width, Math.min(canvas.height - S, WF)) : null;
     canvas.width = w;
     canvas.height = h;
+    S = Math.round(specH * dpr);
+    WF = h - S;
     ctx = canvas.getContext('2d', { willReadFrequently: false });
     if (!ctx) return;
     ctx.fillStyle = stops[0];
     ctx.fillRect(0, 0, w, h);
-    if (old) ctx.putImageData(old, 0, specH);
+    if (old) ctx.putImageData(old, 0, S);
     img = ctx.createImageData(w, 1);
     avg = new Float32Array(w);
     lastVs = vs;
@@ -74,11 +81,11 @@
     const b = ((lastVs - nvs) / (nve - nvs)) * W;
     const tmp = document.createElement('canvas');
     tmp.width = W;
-    tmp.height = wfH;
-    tmp.getContext('2d')!.drawImage(canvas, 0, specH, W, wfH, 0, 0, W, wfH);
+    tmp.height = WF;
+    tmp.getContext('2d')!.drawImage(canvas, 0, S, W, WF, 0, 0, W, WF);
     ctx.fillStyle = stops[0];
-    ctx.fillRect(0, specH, W, wfH);
-    ctx.drawImage(tmp, 0, 0, W, wfH, b, specH, a * W, wfH);
+    ctx.fillRect(0, S, W, WF);
+    ctx.drawImage(tmp, 0, 0, W, WF, b, S, a * W, WF);
     const na = new Float32Array(W);
     for (let x = 0; x < W; x++) {
       const src = Math.round((x - b) / a);
@@ -120,8 +127,10 @@
       data[x * 4 + 2] = L[k + 2];
       data[x * 4 + 3] = 255;
     }
-    ctx.drawImage(canvas, 0, specH, W, wfH - 1, 0, specH + 1, W, wfH - 1);
-    ctx.putImageData(img, 0, specH);
+    // two device pixels per row on a 2× screen keeps the scroll speed the same as 1×
+    const step = Math.max(1, Math.round(dpr));
+    ctx.drawImage(canvas, 0, S, W, WF - step, 0, S + step, W, WF - step);
+    for (let k = 0; k < step; k++) ctx.putImageData(img, 0, S + k);
     spectrumDirty = true;
   }
 
@@ -130,11 +139,11 @@
     spectrumDirty = false;
     const W = canvas.width;
     ctx.fillStyle = colors.bg;
-    ctx.fillRect(0, 0, W, specH);
+    ctx.fillRect(0, 0, W, S);
     ctx.strokeStyle = colors.grid;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = dpr;
     for (let g = 1; g < 4; g++) {
-      const y = Math.round((specH * g) / 4) + 0.5;
+      const y = Math.round((S * g) / 4) + 0.5;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(W, y);
@@ -145,12 +154,12 @@
     const x0 = ((tuned - bandwidth / 2 - vs) / span) * W;
     const x1 = ((tuned + bandwidth / 2 - vs) / span) * W;
     ctx.fillStyle = colors.fill;
-    ctx.fillRect(x0, 0, Math.max(2, x1 - x0), specH);
-    const y = (x: number) => specH - (avg[x] / 255) * (specH - 10) - 1;
+    ctx.fillRect(x0, 0, Math.max(2 * dpr, x1 - x0), S);
+    const y = (x: number) => S - (avg[x] / 255) * (S - 10 * dpr) - dpr;
     ctx.beginPath();
-    ctx.moveTo(0, specH);
+    ctx.moveTo(0, S);
     for (let x = 0; x < W; x++) ctx.lineTo(x, y(x));
-    ctx.lineTo(W, specH);
+    ctx.lineTo(W, S);
     ctx.closePath();
     ctx.fillStyle = colors.fill;
     ctx.fill();
@@ -200,7 +209,7 @@
     const d = drag;
     drag = null;
     dragging = false;
-    if (d && !d.moved) onTune(freqAt(e.clientX), (ve - vs) / canvas.width);
+    if (d && !d.moved) onTune(freqAt(e.clientX), (ve - vs) / canvas.getBoundingClientRect().width);
   }
   function wheel(e: WheelEvent) {
     e.preventDefault();

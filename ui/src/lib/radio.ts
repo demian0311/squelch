@@ -148,18 +148,20 @@ export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], 
   return placed.sort((a, b) => a.item.hz - b.item.hz);
 }
 
-/** Pick the frequency a click lands on: a nearby signal, a bookmark, or a rounded step. */
+/** Snap distance for clicks, in screen pixels. Further away, a click tunes exactly where it lands. */
+export const SNAP_PX = 8;
+
+/** Pick the frequency a click lands on: a bookmark or signal centre within SNAP_PX, else the click itself. */
 export function snapTune(hz: number, signals: Detected[], saved: Saved[], pxHz: number, mode: Mode): number {
-  const near = signals
-    .filter((s) => Math.abs(s.hz - hz) <= Math.max(s.width_hz / 2, 6 * pxHz))
-    .sort((a, b) => Math.abs(a.hz - hz) - Math.abs(b.hz - hz))[0];
-  const mark = bookmarkNear(saved, near?.hz ?? hz, Math.max(6 * pxHz, 3_000));
+  const reach = SNAP_PX * pxHz;
+  const mark = bookmarkNear(saved, hz, reach);
   if (mark) return mark.mhz * 1e6;
+  const near = signals.filter((s) => Math.abs(s.hz - hz) <= reach).sort((a, b) => Math.abs(a.hz - hz) - Math.abs(b.hz - hz))[0];
   if (near) {
-    // broadcast FM sits on 100 kHz steps; narrow signals on 2.5 kHz
+    // broadcast FM sits on 100 kHz channels
     if (mode === 'wfm') return Math.round(near.hz / 100_000) * 100_000;
-    return Math.round(near.hz / 2_500) * 2_500;
+    return Math.round(near.hz / 500) * 500;
   }
-  const step = mode === 'wfm' ? 100_000 : mode === 'usb' || mode === 'lsb' ? 100 : 2_500;
+  const step = mode === 'wfm' ? 10_000 : mode === 'usb' || mode === 'lsb' ? 10 : 500;
   return Math.round(hz / step) * step;
 }

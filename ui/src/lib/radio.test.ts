@@ -79,9 +79,13 @@ describe('steady carriers', () => {
 });
 
 describe('click to tune', () => {
-  it('snaps to a bookmark, then a signal, then a step', () => {
+  it('snaps only when the click is within a few pixels', () => {
+    // 1 kHz per pixel: a bookmark 3 px away snaps, a signal 3 px away snaps
     expect(snapTune(146_523_000, [], saved, 1000, 'nfm')).toBe(146_520_000);
-    expect(snapTune(147_001_000, [{ hz: 146_998_000, width_hz: 10_000, snr_db: 20 }], saved, 1000, 'nfm')).toBe(146_997_500);
-    expect(snapTune(101_130_000, [], saved, 1000, 'wfm')).toBe(101_100_000);
+    expect(snapTune(147_001_000, [{ hz: 146_998_000, width_hz: 10_000, snr_db: 20 }], saved, 1000, 'nfm')).toBe(146_998_000);
+  });
+  it('tunes where the click lands when nothing is close', () => {
+    expect(snapTune(147_031_200, [{ hz: 146_998_000, width_hz: 60_000, snr_db: 20 }], saved, 1000, 'nfm')).toBe(147_031_000);
+    expect(snapTune(101_133_000, [], saved, 1000, 'wfm')).toBe(101_130_000);
   });
 });
