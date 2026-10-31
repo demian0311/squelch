@@ -66,11 +66,11 @@ To find a control channel near you:
 
 The **Police and fire** panel under the waterfall shows the site and every call it assigns. Encrypted calls and Phase 2 calls (the newer time-slot format) are listed but do not play. How many calls you can hear depends on your area: many cities encrypt.
 
-Squelch plays one call at a time. If your bands file was written before this feature, it has no Public safety group: copy the `safety` group and the `ps700` / `ps800` bands from [the defaults](crates/radio/src/default_bands.toml).
+Squelch plays one call at a time.
 
 ## Configuration
 
-The band list is in `~/.config/squelch/bands.toml`. It is written from the defaults on first start, and Squelch never overwrites it. Edits show up within a few seconds, with no restart.
+The band list is in `~/.config/squelch/bands.toml`. It is written from the defaults on first start. After that, Squelch only adds groups and bands that newer versions bring; your edits are kept, and anything you delete stays deleted. Edits show up within a few seconds, with no restart.
 
 [docs/bands.md](docs/bands.md) describes every field, so you or an AI agent can add your own bands and local repeaters.
 

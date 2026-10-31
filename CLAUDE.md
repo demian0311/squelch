@@ -35,7 +35,7 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 ## Facts
 - Dongle on eagle: generic RTL2832U + R820T, 24–1766 MHz, no HF. DVB driver blacklisted in `/etc/modprobe.d/blacklist-rtlsdr.conf`.
 - Capture is 2.4 Msps (`SAMPLE_RATE`); UI view span capped at 0.8× that. Wider views would need sweeping — not built.
-- User bands file: `~/.config/squelch/bands.toml`, written from defaults on first start; never overwritten.
+- User bands file: `~/.config/squelch/bands.toml`, written from defaults on first start. `bands::add_new_defaults` then adds default groups/bands not listed in `~/.local/state/squelch/default_bands_seen` (ids offered before); with no record yet, only whole missing groups. Edits and deletions are kept.
 - Theme source: `~/.local/state/omarchy/current/theme/colors.toml`.
 - Sonde types near eagle (NWS list 09-25): every nearby site flies GRAW DFM-17; Denver (KDNR) lists none. RS41 is the other US type. Simulator includes a DFM-17 at 403.3 MHz.
 - `cargo build` while `pnpm tauri dev` is rebuilding corrupts the shell crate's link (undefined hidden symbol): stop dev, `cargo clean -p squelch`, rebuild.
