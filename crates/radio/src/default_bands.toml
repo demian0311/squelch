@@ -139,6 +139,16 @@ bookmarks = [
 ]
 
 [[band]]
+id = "murs"
+group = "listen"
+name = "MURS walkie-talkies"
+icon = "walkie"
+mode = "nfm"
+low_mhz = 151.8
+high_mhz = 154.62
+start_mhz = 151.88
+
+[[band]]
 id = "rail"
 group = "listen"
 name = "Railroad"

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
 import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
-import { channelAt, channelTicks, quietChannels, setRepeaters } from './channels';
+import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -160,6 +160,28 @@ describe('repeaters', () => {
   it('leaves fixed channel plans alone', () => {
     setRepeaters([{ ...k0ml, mhz: 27.185 }], cbPlan.bands);
     expect(channelAt('cb', 27_185_000)?.name).toBe('CB 19');
+  });
+});
+
+describe('channel list', () => {
+  it('groups walkie-talkie channels in plan order and marks the ones on air', () => {
+    const list = channelList('frs', [{ hz: 462_587_400 }, { hz: 462_675_200 }]);
+    expect(list.map((s) => s.group)).toEqual(['FRS and GMRS', 'FRS only, low power', 'FRS and GMRS · repeater outputs', 'GMRS repeater inputs']);
+    const live = list.flatMap((s) => s.channels).filter((c) => c.live).map((c) => c.channel.name);
+    expect(live).toEqual(['FRS 2', 'FRS 20']);
+  });
+  it('puts a plan without groups in one section', () => {
+    const [cb, ...rest] = channelList('cb', []);
+    expect(rest).toEqual([]);
+    expect(cb.group).toBeNull();
+    expect(cb.channels.length).toBe(40);
+  });
+  it('has the five MURS channels', () => {
+    expect(channelList('murs', [])[0].channels.map((c) => c.channel.hz)).toEqual([151_820_000, 151_880_000, 151_940_000, 154_570_000, 154_600_000]);
+  });
+  it('lists nothing for bands without a fixed plan', () => {
+    expect(channelList('2m', [])).toEqual([]);
+    expect(channelList(undefined, [])).toEqual([]);
   });
 });
 

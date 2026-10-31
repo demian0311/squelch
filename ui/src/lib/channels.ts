@@ -1,5 +1,5 @@
 // Fixed channel plans for bands where radios pick numbered channels, keyed by band id.
-// Sources (checked 2026-10-30): CB 47 CFR 95.963, FRS 47 CFR 95.563, NOAA weather.gov/nwr,
+// Sources (checked 2026-10-30): CB 47 CFR 95.963, FRS 47 CFR 95.563, MURS 47 CFR 95.2763, NOAA weather.gov/nwr,
 // marine RadioReference "Marine VHF Channels" (US), railroad AAR 007–097 at 15 kHz from 160.215.
 // Ham bands get the user's repeaters file instead (see setRepeaters).
 
@@ -19,6 +19,8 @@ const CB = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055, 27.0
 const FRS = [462.5625, 462.5875, 462.6125, 462.6375, 462.6625, 462.6875, 462.7125, 467.5625, 467.5875, 467.6125, 467.6375, 467.6625, 467.6875, 467.7125, 462.55, 462.575, 462.6, 462.625, 462.65, 462.675, 462.7, 462.725];
 // GMRS repeaters (47 CFR 95.1763) listen 5 MHz above channels 15–22 and repeat on them
 const FRS_GROUPS: [number, string][] = [[7, 'FRS and GMRS'], [14, 'FRS only, low power'], [22, 'FRS and GMRS · repeater outputs']];
+
+const MURS = [151.82, 151.88, 151.94, 154.57, 154.6];
 
 // [channel, ship transmit, ship receive]; duplex channels are heard on both
 const MARINE: [string, number, number][] = [
@@ -43,6 +45,7 @@ export const CHANNELS: Record<string, Channel[]> = {
     ...FRS.map((m, i) => ({ hz: mhz(m), name: `FRS ${i + 1}`, group: FRS_GROUPS.find(([last]) => i < last)![1] })),
     ...FRS.slice(14).map((m, i) => ({ hz: mhz(m) + 5_000_000, name: `GMRS ${i + 15}R`, group: 'GMRS repeater inputs' })),
   ],
+  murs: MURS.map((m, i) => ({ hz: mhz(m), name: `MURS ${i + 1}` })),
   wx: [162.4, 162.425, 162.45, 162.475, 162.5, 162.525, 162.55].map((m, i) => ({ hz: mhz(m), name: `WX${i + 1}` })),
   marine: MARINE.flatMap(([ch, tx, rx]) => {
     const name = `Marine ${ch}`;
@@ -86,6 +89,26 @@ export function channelAt(bandId: string | undefined, hz: number): Channel | und
   let best: Channel | undefined;
   for (const c of plan) if (!best || Math.abs(c.hz - hz) < Math.abs(best.hz - hz)) best = c;
   return best && Math.abs(best.hz - hz) <= halfStep(plan) ? best : undefined;
+}
+
+export interface ChannelSection {
+  /** The channels' shared purpose, or null for a plan without groups. */
+  group: string | null;
+  channels: { channel: Channel; live: boolean }[];
+}
+
+/** A fixed plan as a list to pick from, in plan order, each channel marked live if a signal is on it. */
+export function channelList(bandId: string | undefined, signals: { hz: number }[]): ChannelSection[] {
+  const plan = bandId ? CHANNELS[bandId] : undefined;
+  if (!plan) return [];
+  const live = new Set(signals.map((s) => channelAt(bandId, s.hz)?.hz));
+  const out: ChannelSection[] = [];
+  for (const c of plan) {
+    const group = c.group ?? null;
+    if (out.at(-1)?.group !== group || !out.length) out.push({ group, channels: [] });
+    out.at(-1)!.channels.push({ channel: c, live: live.has(c.hz) });
+  }
+  return out;
 }
 
 /** Channels between `vs` and `ve` with no signal on them, in plan order. */

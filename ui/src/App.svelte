@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
-  import { channelAt, quietChannels, setRepeaters } from './lib/channels';
+  import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, mix, resolve, waterfallStops } from './lib/theme';
@@ -445,7 +445,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters';
+  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels';
   let panelPick = $state<PanelId | null>(null);
   let panels = $derived.by(() => {
     const own: PanelId[] = [];
@@ -454,16 +454,20 @@
     if (p25) own.push('p25');
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
     if (hd) own.push('hd');
+    if (chList.length) own.push('channels');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
     return own;
   });
+  let chList = $derived(channelList(band?.id, status?.signals ?? []));
+  let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
+  let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters' };
+  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : '',
   );
 
   let wfSummary = $derived(
@@ -903,6 +907,19 @@
                   <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
                 {/if}
               </div>
+            </div>
+          {:else if panel === 'channels'}
+            <div class="list chlist">
+              {#each chList as sec, i (i)}
+                {#if sec.group}<h3 class="chgroup">{sec.group}</h3>{/if}
+                {#each sec.channels as { channel: c, live } (c.hz)}
+                  <button class="reprow" class:sel={c.hz === tunedChannel?.hz} onclick={() => tuneTo(c.hz)}>
+                    <span class="name"><span class="dot" class:live></span>{c.name}</span>
+                    <span class="dim town">{live ? 'on air' : ''}</span>
+                    <span class="mono">{(c.hz / 1e6).toFixed(4)}</span>
+                  </button>
+                {/each}
+              {/each}
             </div>
           {:else if panel === 'repeaters'}
             {#if iss?.site}
@@ -1711,6 +1728,34 @@
   }
   .reprow:hover {
     background: var(--bg-light);
+  }
+  .reprow.sel {
+    background: color-mix(in srgb, var(--pane, var(--hue)) 14%, var(--bg-light));
+  }
+  .chlist {
+    gap: 2px;
+    border-top: 0;
+  }
+  .chgroup {
+    margin: 10px 8px 4px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  .chgroup:first-child {
+    margin-top: 2px;
+  }
+  .reprow .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 7px;
+    border-radius: 50%;
+  }
+  .reprow .dot.live {
+    background: var(--green);
   }
   .reprow .town {
     flex: 1 1 auto;
