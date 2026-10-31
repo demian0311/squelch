@@ -20,7 +20,6 @@ const CB = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055, 27.0
 
 const FRS = [462.5625, 462.5875, 462.6125, 462.6375, 462.6625, 462.6875, 462.7125, 467.5625, 467.5875, 467.6125, 467.6375, 467.6625, 467.6875, 467.7125, 462.55, 462.575, 462.6, 462.625, 462.65, 462.675, 462.7, 462.725];
 // GMRS repeaters (47 CFR 95.1763) listen 5 MHz above channels 15–22 and repeat on them
-const FRS_GROUPS: [number, string][] = [[7, 'FRS and GMRS'], [14, 'FRS only, low power'], [22, 'FRS and GMRS · repeater outputs']];
 // power by channel: FRS 47 CFR 95.567, GMRS 95.1767 (checked 2026-10-31)
 const FRS_ONLY_GROUPS: [number, string][] = [[7, 'Up to 2 W'], [14, 'Up to 0.5 W'], [22, 'Up to 2 W']];
 const GMRS_GROUPS: [number, string][] = [[7, 'Up to 5 W'], [14, 'Up to 0.5 W, hand-held'], [22, 'Up to 50 W · repeater outputs']];
@@ -47,7 +46,6 @@ const MARINE: [string, number, number][] = [
 
 export const CHANNELS: Record<string, Channel[]> = {
   cb: CB.map((m, i) => ({ hz: mhz(m), name: `CB ${i + 1}` })),
-  frs: [...walkies('FRS', FRS_GROUPS), ...gmrsInputs],
   frs_only: walkies('FRS', FRS_ONLY_GROUPS),
   gmrs: [...walkies('GMRS', GMRS_GROUPS), ...gmrsInputs],
   murs: MURS.map((m, i) => ({ hz: mhz(m), name: `MURS ${i + 1}` })),

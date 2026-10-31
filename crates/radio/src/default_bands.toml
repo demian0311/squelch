@@ -120,25 +120,6 @@ bookmarks = [
 ]
 
 [[band]]
-id = "frs"
-group = "listen"
-name = "FRS + GMRS"
-icon = "walkie"
-mode = "nfm"
-low_mhz = 462.4
-high_mhz = 467.8
-start_mhz = 462.6
-bookmarks = [
-  { mhz = 462.5625, name = "FRS 1" },
-  { mhz = 462.5875, name = "FRS 2" },
-  { mhz = 462.6125, name = "FRS 3" },
-  { mhz = 462.6375, name = "FRS 4" },
-  { mhz = 462.6625, name = "FRS 5" },
-  { mhz = 462.6875, name = "FRS 6" },
-  { mhz = 462.7125, name = "FRS 7" },
-]
-
-[[band]]
 id = "frs_only"
 group = "listen"
 name = "FRS"

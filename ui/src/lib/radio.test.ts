@@ -164,23 +164,17 @@ describe('repeaters', () => {
 });
 
 describe('channel list', () => {
-  it('groups walkie-talkie channels in plan order and marks the ones on air', () => {
-    const list = channelList('frs', [{ hz: 462_587_400, snr_db: 12 }, { hz: 462_675_200, snr_db: 30 }, { hz: 462_675_000, snr_db: 20 }]);
-    expect(list.map((s) => s.group)).toEqual(['FRS and GMRS', 'FRS only, low power', 'FRS and GMRS · repeater outputs', 'GMRS repeater inputs']);
-    const live = list.flatMap((s) => s.channels).filter((c) => c.live).map((c) => [c.channel.name, c.snr]);
-    expect(live).toEqual([['FRS 2', 12], ['FRS 20', 30]]);
-  });
   it('gives FRS alone its power limits and no repeaters', () => {
     const list = channelList('frs_only', []);
     expect(list.map((s) => s.group)).toEqual(['Up to 2 W', 'Up to 0.5 W', 'Up to 2 W']);
     expect(list.flatMap((s) => s.channels).length).toBe(22);
   });
   it('names GMRS channels as GMRS and keeps the repeater inputs', () => {
-    const list = channelList('gmrs', [{ hz: 467_550_400 }]);
+    const list = channelList('gmrs', [{ hz: 467_550_400, snr_db: 12 }, { hz: 462_675_200, snr_db: 30 }, { hz: 462_675_000, snr_db: 20 }]);
     expect(list.map((s) => s.group)).toEqual(['Up to 5 W', 'Up to 0.5 W, hand-held', 'Up to 50 W · repeater outputs', 'GMRS repeater inputs']);
     const all = list.flatMap((s) => s.channels);
     expect(all[14].channel).toMatchObject({ hz: 462_550_000, name: 'GMRS 15' });
-    expect(all.filter((c) => c.live).map((c) => c.channel.name)).toEqual(['GMRS 15R']);
+    expect(all.filter((c) => c.live).map((c) => [c.channel.name, c.snr])).toEqual([['GMRS 20', 30], ['GMRS 15R', 12]]);
   });
   it('puts a plan without groups in one section', () => {
     const [cb, ...rest] = channelList('cb', []);
@@ -199,12 +193,12 @@ describe('channel list', () => {
 
 describe('quiet channels', () => {
   it('lists every walkie-talkie channel and repeater input without a signal', () => {
-    const all = quietChannels('frs', 462e6, 468e6, []);
+    const all = quietChannels('gmrs', 462e6, 468e6, []);
     expect(all.length).toBe(30);
     expect(all.find((c) => c.hz === 467_550_000)).toMatchObject({ name: 'GMRS 15R', group: 'GMRS repeater inputs' });
-    const left = quietChannels('frs', 462e6, 468e6, [{ hz: 467_551_000 }, { hz: 462_562_000 }]);
+    const left = quietChannels('gmrs', 462e6, 468e6, [{ hz: 467_551_000 }, { hz: 462_562_000 }]);
     expect(left.map((c) => c.name)).not.toContain('GMRS 15R');
-    expect(left.map((c) => c.name)).not.toContain('FRS 1');
+    expect(left.map((c) => c.name)).not.toContain('GMRS 1');
     expect(left.length).toBe(28);
     expect(quietChannels('fm', 88e6, 108e6, [])).toEqual([]);
   });
