@@ -9,6 +9,14 @@ export interface FeedRow {
 
 const text = new TextDecoder();
 
+/** The bytes behind a base64 string. */
+export function bytesFromBase64(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
 export function decodeFeed<S>(buf: ArrayBuffer): { status: S | null; rows: FeedRow[] } {
   const view = new DataView(buf);
   const n = view.getUint32(0, true);

@@ -1,6 +1,6 @@
 // Calls into the Rust side, and the shapes it sends back.
 import { invoke } from '@tauri-apps/api/core';
-import { decodeFeed } from './feed';
+import { bytesFromBase64, decodeFeed } from './feed';
 import { listen } from '@tauri-apps/api/event';
 
 export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25';
@@ -256,12 +256,12 @@ export async function start(onRow: (r: Row) => void, onStatus: (s: Status) => vo
 
 async function pull() {
   for (;;) {
-    const buf = await invoke<ArrayBuffer>('feed').catch(() => null);
-    if (!buf) {
+    const b64 = await invoke<string>('feed').catch(() => null);
+    if (b64 === null) {
       await new Promise((r) => setTimeout(r, 500));
       continue;
     }
-    const { status, rows } = decodeFeed<Status>(buf);
+    const { status, rows } = decodeFeed<Status>(bytesFromBase64(b64));
     if (status) handlers?.onStatus(status);
     for (const r of rows) handlers?.onRow(r);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeFeed } from './feed';
+import { bytesFromBase64, decodeFeed } from './feed';
 
 function encode(status: string, rows: { centerHz: number; bins: number[] }[]): ArrayBuffer {
   const json = new TextEncoder().encode(status);
@@ -37,6 +37,11 @@ describe('decodeFeed', () => {
     const { status, rows } = decodeFeed(encode('', [{ centerHz: 1, bins: [9] }]));
     expect(status).toBeNull();
     expect(rows).toHaveLength(1);
+  });
+
+  it('reads bytes out of base64', () => {
+    expect([...new Uint8Array(bytesFromBase64(btoa(String.fromCharCode(0, 255, 7, 128))))]).toEqual([0, 255, 7, 128]);
+    expect(decodeFeed(bytesFromBase64(btoa(String.fromCharCode(0, 0, 0, 0))))).toEqual({ status: null, rows: [] });
   });
 
   it('answers an empty wait with nothing', () => {

@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tauri::ipc::Response;
+use base64::Engine as _;
 use tauri::{Emitter, State};
 
 #[derive(Default)]
@@ -124,12 +124,13 @@ fn start(app: State<App>) {
 const FEED_WAIT: Duration = Duration::from_millis(500);
 
 /// What the engine produced since the last call, in the layout `Feed::take` describes; each row is an f64 centre (little endian) then one byte per bin.
-/// It waits on a blocking thread, so a slow page simply calls less often.
+/// It waits on a blocking thread, so a slow page simply calls less often. Base64, because Tauri's Linux IPC turns a raw
+/// body into a JSON array of numbers, several times the size and slow to parse.
 #[tauri::command]
-async fn feed(app: State<'_, App>) -> Result<Response, String> {
+async fn feed(app: State<'_, App>) -> Result<String, String> {
     let feed = app.feed.clone();
     let bytes = tauri::async_runtime::spawn_blocking(move || feed.take(FEED_WAIT)).await.map_err(|e| e.to_string())?;
-    Ok(Response::new(bytes))
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 fn send(app: &State<App>, cmd: Command) {
