@@ -54,10 +54,23 @@ export interface Status {
   channel_snr_db: number;
   squelch_db: number | null;
   squelch_open: boolean;
+  /** Station data of the tuned FM station, once any has been decoded. */
+  rds: Rds | null;
   sondes: Sonde[];
   /** Frequencies the balloon decoders are trying. */
   decoding_hz: number[];
   signals: Detected[];
+}
+
+/** RDS station data. `ps` is 8 characters and often scrolls; `call` comes from the PI code. */
+export interface Rds {
+  pi: number | null;
+  call: string | null;
+  ps: string | null;
+  radiotext: string | null;
+  pty: string | null;
+  title: string | null;
+  artist: string | null;
 }
 
 /** A weather balloon heard by the decoders. Position fields are null until a GPS fix arrives. */

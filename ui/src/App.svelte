@@ -3,7 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, snapTune, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -64,6 +64,8 @@
   let full = $state(false);
   let boxW = $state(1000);
   let waterfall: Waterfall;
+  /** Station data per FM channel, kept after tuning away. */
+  let rdsHeard = $state(new Map<number, api.Rds>());
   const persist = new Persistence();
   // status arrives every 200 ms, so a 15 s window holds 75 updates
   const UPDATES_PER_WINDOW = 75;
@@ -144,7 +146,10 @@
 
   let signals = $derived<(Signal & { steady: boolean })[]>(
     withSondes(
-      (status?.signals ?? []).map((d) => label(plan, saved, d)),
+      withRds(
+        (status?.signals ?? []).map((d) => label(plan, saved, d)),
+        rdsHeard,
+      ),
       status?.sondes ?? [],
     ).map((s) => ({ ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) })),
   );
@@ -232,11 +237,12 @@
 
   // ── header text ─────────────────────────────────────
 
-  let nowTitle = $derived(listeningMark?.name ?? listening?.title ?? (band ? band.name : 'Tuned'));
+  let rds = $derived(status?.rds && status.mode === 'wfm' ? status.rds : null);
+  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? listening?.title ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
-    listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
+    rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
   let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / 40) * 100)) : 0);
 
@@ -307,6 +313,11 @@
       await api.start(
         (row) => waterfall?.push(row),
         (s) => {
+          if (s.rds && s.mode === 'wfm') {
+            const ch = fmChannel(s.tuned_hz);
+            const old = rdsHeard.get(ch);
+            if (JSON.stringify(old) !== JSON.stringify(s.rds)) rdsHeard = new Map(rdsHeard).set(ch, s.rds);
+          }
           persist.update(s.signals.map((d) => d.hz), Date.now());
           status = s;
         },

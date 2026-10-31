@@ -60,6 +60,8 @@ pub struct Status {
     pub squelch_db: Option<f32>,
     /// False while the squelch is muting the audio.
     pub squelch_open: bool,
+    /// Station data of the tuned FM station.
+    pub rds: Option<crate::rds::Info>,
     /// Weather balloons heard recently, while sonde decoding is on.
     pub sondes: Vec<Sonde>,
     /// Frequencies the sonde decoders are listening to.
@@ -176,6 +178,9 @@ fn run(
                     }
                     snr = 0.0;
                     squelch.reset();
+                    if let Some(r) = &mut demod.rds {
+                        r.clear();
+                    }
                 }
                 Ok(Command::SetMode(m)) => {
                     mode = m;
@@ -210,7 +215,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, &[]);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[]);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -260,7 +265,7 @@ fn run(
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, &signals);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals);
         }
     }
 }
@@ -296,6 +301,7 @@ fn send_status(
     squelch_db: Option<f32>,
     squelch_open: bool,
     scanner: &Option<Scanner>,
+    rds: Option<crate::rds::Info>,
     signals: &[Detected],
 ) {
     on_status(Status {
@@ -312,6 +318,7 @@ fn send_status(
         channel_snr_db: snr,
         squelch_db,
         squelch_open,
+        rds: rds.filter(|i| *i != crate::rds::Info::default()),
         sondes: scanner.as_ref().map(|s| s.sondes()).unwrap_or_default(),
         decoding_hz: scanner.as_ref().map(|s| s.channels()).unwrap_or_default(),
         signals: signals.to_vec(),

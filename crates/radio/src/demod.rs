@@ -52,6 +52,8 @@ pub struct Demodulator {
     fm: Vec<f32>,
     /// Channel power of the last block, dBFS.
     pub level_db: f32,
+    /// Station data, decoded in wide FM only.
+    pub rds: Option<crate::rds::Rds>,
 }
 
 impl Demodulator {
@@ -89,6 +91,7 @@ impl Demodulator {
             s2: Vec::new(),
             fm: Vec::new(),
             level_db: -120.0,
+            rds: (mode == Mode::Wfm).then(|| crate::rds::Rds::new(mid as u32)),
         }
     }
 
@@ -121,6 +124,9 @@ impl Demodulator {
                 let mut fm = std::mem::take(&mut self.fm);
                 fm.clear();
                 self.discriminate(&s1, mid, 75_000.0, &mut fm);
+                if let Some(r) = &mut self.rds {
+                    r.process(&fm);
+                }
                 for v in fm.iter_mut() {
                     self.deemph += self.deemph_a * (*v - self.deemph);
                     *v = self.deemph;

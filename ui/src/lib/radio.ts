@@ -1,5 +1,5 @@
 // Pure helpers: frequency text, band lookup, labelling detected signals and placing their cards.
-import type { Band, BandPlan, Bookmark, Detected, Mode, Sonde } from './api';
+import type { Band, BandPlan, Bookmark, Detected, Mode, Rds, Sonde } from './api';
 
 export const MODE_NAMES: Record<Mode, string> = {
   wfm: 'Wide FM',
@@ -121,6 +121,32 @@ export class Persistence {
     if (!e || now - e.first < this.minAgeMs) return false;
     return e.hits.length >= updatesPerWindow * 0.9;
   }
+}
+
+/** A station's steady name: call letters, else the name field. */
+export function rdsName(r: Rds): string | null {
+  return r.call ?? r.ps;
+}
+
+/** What is on: tagged artist and title when both came, else the station's text. */
+export function rdsNow(r: Rds): string | null {
+  if (r.title && r.artist && r.radiotext?.includes(r.title)) return `${r.artist} – ${r.title}`;
+  return r.radiotext ?? (r.pty ? r.pty : null);
+}
+
+/** Broadcast FM channel a frequency belongs to (100 kHz steps), for remembering station data. */
+export function fmChannel(hz: number): number {
+  return Math.round(hz / 100_000) * 100_000;
+}
+
+/** Use remembered station data for FM signals. */
+export function withRds<T extends Signal>(signals: T[], heard: Map<number, Rds>): T[] {
+  return signals.map((sig) => {
+    const r = heard.get(fmChannel(sig.hz));
+    const name = r && rdsName(r);
+    if (!r || !name || sig.saved) return sig;
+    return { ...sig, title: `${name} ${(fmChannel(sig.hz) / 1e6).toFixed(1)}`, sub: rdsNow(r) ?? sig.sub };
+  });
 }
 
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];

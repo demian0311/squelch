@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, fmtHz, label, modeAt, Persistence, placeCards, snapTune, sondeDrift, sondeSummary, withSondes } from './radio';
-import type { Sonde } from './api';
+import { allBookmarks, bandAt, fmtHz, label, modeAt, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
+import type { Rds, Sonde } from './api';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -76,6 +76,21 @@ describe('steady carriers', () => {
     expect(p.steady({ ...sig, saved: true }, 30_000, 75)).toBe(false);
     expect(p.steady({ ...sig, widthHz: 180_000 }, 30_000, 75)).toBe(false);
     expect(p.steady({ ...sig, snrDb: 30 }, 30_000, 75)).toBe(false);
+  });
+});
+
+describe('station data', () => {
+  const kbpi: Rds = { pi: 5170, call: 'KBPI', ps: 'KBPI -', radiotext: 'KBPI - Shoot To Thrill - AC/DC', pty: 'Rock', title: 'Shoot To Thrill', artist: 'AC/DC' };
+  it('prefers tagged artist and title, else the text', () => {
+    expect(rdsNow(kbpi)).toBe('AC/DC – Shoot To Thrill');
+    expect(rdsNow({ ...kbpi, title: 'Shoot To Thri', radiotext: 'Something else' })).toBe('Something else');
+    expect(rdsNow({ ...kbpi, title: null, radiotext: null })).toBe('Rock');
+  });
+  it('names FM cards from remembered stations', () => {
+    const sig = label(plan, saved, { hz: 107_903_000, width_hz: 150_000, snr_db: 25 });
+    const [named] = withRds([sig], new Map([[107_900_000, kbpi]]));
+    expect(named.title).toBe('KBPI 107.9');
+    expect(named.sub).toBe('AC/DC – Shoot To Thrill');
   });
 });
 

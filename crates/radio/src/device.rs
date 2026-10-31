@@ -37,20 +37,55 @@ extern "C" {
     fn rtlsdr_set_tuner_gain(dev: *mut rtlsdr_dev_t, gain: c_int) -> c_int;
     fn rtlsdr_set_agc_mode(dev: *mut rtlsdr_dev_t, on: c_int) -> c_int;
     fn rtlsdr_reset_buffer(dev: *mut rtlsdr_dev_t) -> c_int;
-    fn rtlsdr_read_sync(dev: *mut rtlsdr_dev_t, buf: *mut c_void, len: c_int, n_read: *mut c_int) -> c_int;
+    fn rtlsdr_read_async(dev: *mut rtlsdr_dev_t, cb: extern "C" fn(*mut u8, u32, *mut c_void), ctx: *mut c_void, buf_num: u32, buf_len: u32) -> c_int;
+    fn rtlsdr_cancel_async(dev: *mut rtlsdr_dev_t) -> c_int;
 }
+
+/// USB transfers librtlsdr keeps queued, and their size. Streaming keeps them all in flight,
+/// so the dongle never waits on us; blocking reads left gaps that dropped samples.
+const USB_BUFFERS: u32 = 12;
+const USB_BUFFER_BYTES: u32 = 262_144;
+/// Buffers held between the USB thread and the reader: about 1.6 s at 2.4 Msps.
+const QUEUE: usize = 16;
+
+struct Stream {
+    tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    dropped: std::sync::atomic::AtomicU64,
+}
+
+extern "C" fn on_samples(buf: *mut u8, len: u32, ctx: *mut c_void) {
+    let stream = unsafe { &*(ctx as *const Stream) };
+    let data = unsafe { std::slice::from_raw_parts(buf, len as usize) }.to_vec();
+    if stream.tx.try_send(data).is_err() {
+        stream.dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+struct DevPtr(*mut rtlsdr_dev_t);
+// librtlsdr allows control calls from other threads while one thread streams.
+unsafe impl Send for DevPtr {}
 
 pub struct RtlSdr {
     dev: *mut rtlsdr_dev_t,
     name: String,
     rate: u32,
     gains: Vec<i32>,
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    stream: Option<Box<Stream>>,
+    usb: Option<std::thread::JoinHandle<()>>,
+    pending: Vec<u8>,
+    taken: usize,
 }
 
-// The device handle is only ever used from the one thread that owns the source.
+// The handle is used by the owning thread for control and by the USB thread for streaming.
 unsafe impl Send for RtlSdr {}
 
 impl RtlSdr {
+    /// USB buffers lost because the reader fell more than `QUEUE` buffers behind.
+    pub fn dropped(&self) -> u64 {
+        self.stream.as_ref().map_or(0, |s| s.dropped.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     pub fn device_count() -> u32 {
         unsafe { rtlsdr_get_device_count() }
     }
@@ -67,7 +102,8 @@ impl RtlSdr {
         let name = unsafe { CStr::from_ptr(rtlsdr_get_device_name(index)) }
             .to_string_lossy()
             .into_owned();
-        let mut s = RtlSdr { dev, name, rate, gains: Vec::new() };
+        let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
+        let mut s = RtlSdr { dev, name, rate, gains: Vec::new(), rx, stream: None, usb: None, pending: Vec::new(), taken: 0 };
         unsafe {
             if rtlsdr_set_sample_rate(dev, rate) < 0 {
                 bail!("dongle refused sample rate {rate}");
@@ -81,12 +117,26 @@ impl RtlSdr {
             rtlsdr_reset_buffer(dev);
         }
         s.set_gain(Gain::Auto)?;
+        let stream = Box::new(Stream { tx, dropped: std::sync::atomic::AtomicU64::new(0) });
+        let ctx = &*stream as *const Stream as usize;
+        let d = DevPtr(dev);
+        s.stream = Some(stream);
+        s.usb = Some(std::thread::spawn(move || {
+            let d = d;
+            unsafe { rtlsdr_read_async(d.0, on_samples, ctx as *mut c_void, USB_BUFFERS, USB_BUFFER_BYTES) };
+        }));
         Ok(s)
     }
 }
 
 impl Drop for RtlSdr {
     fn drop(&mut self) {
+        unsafe {
+            rtlsdr_cancel_async(self.dev);
+        }
+        if let Some(t) = self.usb.take() {
+            let _ = t.join();
+        }
         unsafe {
             rtlsdr_close(self.dev);
         }
@@ -104,6 +154,9 @@ impl IqSource for RtlSdr {
         if unsafe { rtlsdr_set_center_freq(self.dev, hz) } < 0 {
             bail!("dongle cannot tune to {hz} Hz");
         }
+        // samples already queued were taken at the old frequency
+        while self.rx.try_recv().is_ok() {}
+        self.taken = self.pending.len();
         Ok(())
     }
     fn set_gain(&mut self, gain: Gain) -> Result<()> {
@@ -125,12 +178,21 @@ impl IqSource for RtlSdr {
         self.gains.clone()
     }
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let mut n: c_int = 0;
-        let r = unsafe { rtlsdr_read_sync(self.dev, buf.as_mut_ptr() as *mut c_void, buf.len() as c_int, &mut n) };
-        if r < 0 {
-            bail!("dongle read failed (error {r}); was it unplugged?");
+        let mut filled = 0;
+        while filled < buf.len() {
+            if self.taken == self.pending.len() {
+                self.pending = match self.rx.recv_timeout(std::time::Duration::from_secs(2)) {
+                    Ok(v) => v,
+                    Err(_) => bail!("the dongle stopped sending samples; was it unplugged?"),
+                };
+                self.taken = 0;
+            }
+            let n = (buf.len() - filled).min(self.pending.len() - self.taken);
+            buf[filled..filled + n].copy_from_slice(&self.pending[self.taken..self.taken + n]);
+            filled += n;
+            self.taken += n;
         }
-        Ok(n as usize)
+        Ok(filled)
     }
 }
 
