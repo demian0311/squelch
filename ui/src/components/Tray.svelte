@@ -2,13 +2,15 @@
   import type { Snippet } from 'svelte';
 
   // A panel under the waterfall that folds to one line. Open or closed is remembered per `id`.
+  // `fixed`: the open tray always takes its full share and its content never scrolls; children scroll themselves.
   let {
     id,
     title,
     summary = '',
     accent = 'var(--accent)',
+    fixed = false,
     children,
-  }: { id: string; title: string; summary?: string; accent?: string; children: Snippet } = $props();
+  }: { id: string; title: string; summary?: string; accent?: string; fixed?: boolean; children: Snippet } = $props();
 
   let open = $state(read());
 
@@ -29,7 +31,7 @@
   }
 </script>
 
-<section class="tray" class:open style:--tray={accent}>
+<section class="tray" class:open class:fixed style:--tray={accent}>
   <button class="bar" onclick={toggle} aria-expanded={open} title={open ? `Hide ${title}` : `Show ${title}`}>
     <span class="fold">{open ? '▾' : '▸'}</span>
     <span class="ttl">{title}</span>
@@ -52,6 +54,9 @@
   }
   .tray.open {
     max-height: 40%;
+  }
+  .tray.open.fixed {
+    height: 40%;
   }
   .bar {
     display: flex;
@@ -90,5 +95,10 @@
     padding: 0 12px 12px;
     overflow-y: auto;
     min-height: 0;
+  }
+  .fixed .content {
+    flex: 1;
+    flex-wrap: nowrap;
+    overflow: hidden;
   }
 </style>

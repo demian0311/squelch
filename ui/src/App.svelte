@@ -687,7 +687,7 @@
         </Tray>
       {/if}
       {#if band?.id === 'iss'}
-        <Tray id="issmap" title="Space station" summary={issMapSummary}>
+        <Tray id="issmap" title="Space station" summary={issMapSummary} fixed>
           <div class="issrow">
             <div class="issmap">
               <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
@@ -1346,10 +1346,10 @@
   /* the map keeps its whole globe; passes take what width is left, and go when there is too little */
   .issrow {
     flex: 1 1 100%;
+    align-self: stretch;
     display: flex;
     gap: 12px;
-    height: 32vh;
-    min-height: 180px;
+    min-height: 0;
   }
   .issmap {
     position: relative;
@@ -1376,6 +1376,7 @@
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
   @media (max-width: 1100px) {
     .isspasses {
