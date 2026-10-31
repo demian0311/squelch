@@ -6,6 +6,7 @@
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
+  import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Icon from './components/Icon.svelte';
@@ -52,6 +53,15 @@
       return localStorage.getItem('dock') !== 'closed';
     } catch {
       return true;
+    }
+  }
+  /** HD Radio program chosen per FM station (by channel Hz); a station without an entry plays analog. */
+  let hdPrefs = $state<Record<string, number>>(readHdPrefs());
+  function readHdPrefs(): Record<string, number> {
+    try {
+      return JSON.parse(localStorage.getItem('hd') ?? '{}');
+    } catch {
+      return {};
     }
   }
   /** Last frequency used in each band, so returning to a band picks up where it left off. */
@@ -274,11 +284,40 @@
   // ── header text ─────────────────────────────────────
 
   let rds = $derived(status?.rds && status.mode === 'wfm' ? status.rds : null);
+
+  // ── HD Radio ────────────────────────────────────────
+
+  let hdProgram = $derived(mode === 'wfm' ? (hdPrefs[fmChannel(tuned)] ?? null) : null);
+  $effect(() => {
+    api.setHd(hdProgram);
+  });
+  let hd = $derived(status?.hd && status.mode === 'wfm' ? status.hd : null);
+  let hdImages = $state<api.HdImage[]>([]);
+  let hdPicture = $derived(hdImages.find((i) => i.kind === 'art') ?? hdImages.find((i) => i.kind === 'logo'));
+  let hdTraffic = $derived(trafficGrid(hdImages));
+  let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
+  function setHdProgram(p: number | null) {
+    const key = String(fmChannel(tuned));
+    const next = { ...hdPrefs };
+    if (p === null) delete next[key];
+    else next[key] = p;
+    hdPrefs = next;
+    try {
+      localStorage.setItem('hd', JSON.stringify(next));
+    } catch {
+      // not remembered across restarts
+    }
+  }
+  function toggleHd(e: Event) {
+    e.stopPropagation();
+    setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
+  }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
   let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? listening?.title ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
+    hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
     rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
   let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / 40) * 100)) : 0);
@@ -356,6 +395,8 @@
             if (JSON.stringify(old) !== JSON.stringify(s.rds)) rdsHeard = new Map(rdsHeard).set(ch, s.rds);
           }
           persist.update(s.signals.map((d) => d.hz), Date.now());
+          if (s.hd_images) hdImages = s.hd_images;
+          if (!s.hd) hdImages = [];
           status = s;
         },
       );
@@ -452,6 +493,9 @@
               <span class="row3 mono">
                 <span>{fmtMHz(c.at)}</span>
                 <span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>
+                {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
+                  <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
+                {/if}
                 <span class="bar"><span style:width="{c.meter}%"></span></span>
               </span>
             </button>
@@ -504,6 +548,42 @@
             <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
             <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
           {/each}
+        </aside>
+      {/if}
+      {#if hd}
+        <aside class="sondes hdside">
+          <h2>HD Radio</h2>
+          <div class="sonde">
+            {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
+            {#if hd.name}<span class="name">{hd.name}</span>{/if}
+            {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
+            {#if hd.title}<span class="big">{hd.title}</span>{/if}
+            {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
+            <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
+            {#if hd.message}<span class="dim">{hd.message}</span>{/if}
+          </div>
+          {#if hd.programs.length > 1}
+            <div class="hdprogs">
+              {#each hd.programs as p}
+                <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
+              {/each}
+            </div>
+          {/if}
+          {#if hdTraffic}
+            <h2>Traffic</h2>
+            <div class="hdgrid">
+              {#each hdTraffic as t}
+                {#if t}<img src={t} alt="" />{:else}<span></span>{/if}
+              {/each}
+            </div>
+          {/if}
+          {#if hdWeather}
+            <h2>Weather radar</h2>
+            <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
+          {/if}
+          {#if !hd.error && !hdTraffic && !hdPicture}
+            <p class="empty">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
+          {/if}
         </aside>
       {/if}
       </div>
@@ -934,6 +1014,51 @@
   }
   .tag.saved {
     color: var(--cyan);
+  }
+  .hdchip {
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid var(--muted);
+    color: var(--fg-dim);
+    cursor: pointer;
+  }
+  .hdchip.on {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .hdpic {
+    width: 100%;
+    border-radius: 6px;
+    margin-bottom: 4px;
+  }
+  .hdprogs {
+    display: flex;
+    gap: 6px;
+  }
+  .hdprogs button {
+    flex: 1;
+    padding: 4px 0;
+    border-radius: 6px;
+    border: 1px solid var(--muted);
+    background: var(--bg-light);
+    color: var(--fg);
+  }
+  .hdprogs button.sel {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .hdgrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .hdgrid img,
+  .hdgrid span {
+    width: 100%;
+    aspect-ratio: 1;
+    display: block;
+    background: var(--bg-light);
   }
   .bar {
     margin-left: auto;

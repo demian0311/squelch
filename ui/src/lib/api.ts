@@ -60,6 +60,37 @@ export interface Status {
   /** Frequencies the balloon decoders are trying. */
   decoding_hz: number[];
   signals: Detected[];
+  /** The tuned FM station shows HD Radio sidebands. */
+  hd_sidebands: boolean;
+  /** HD Radio decoding of the tuned station, while it is on. */
+  hd: Hd | null;
+  /** HD pictures; only present on the status that follows a change. */
+  hd_images: HdImage[] | null;
+}
+/** HD Radio decoder state. `program` 0 is HD1. */
+export interface Hd {
+  error: string | null;
+  program: number;
+  programs: number[];
+  synced: boolean;
+  digital: boolean;
+  name: string | null;
+  slogan: string | null;
+  message: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  mer_db: number | null;
+  ber: number | null;
+  images_rev: number;
+}
+/** `kind`: logo, art, traffic (one tile of a 3×3 map, `row`/`col` from 1) or weather. */
+export interface HdImage {
+  kind: 'logo' | 'art' | 'traffic' | 'weather';
+  name: string;
+  row: number;
+  col: number;
+  data_url: string;
 }
 
 /** RDS station data. `ps` is 8 characters and often scrolls; `call` comes from the PI code. */
@@ -115,6 +146,8 @@ export const setPlaying = (playing: boolean) => invoke('set_playing', { playing 
 /** Mute below `db` above the noise floor; null turns squelch off. */
 /** Run the weather-balloon decoders on every narrow signal in the capture. */
 export const setSondes = (on: boolean) => invoke('set_sondes', { on });
+/** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
+export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {

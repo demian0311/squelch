@@ -7,6 +7,7 @@ RTL-SDR receiver for Omarchy (Hyprland). Tauri 2 shell + Rust engine + Svelte 5 
 - `src-tauri/` — commands `setup bands theme start tune set_mode set_gain set_volume set_playing`; polls theme + bands file every 2 s and emits `theme` / `bands` events.
 - `crates/radio/src/sonde/` — weather-balloon decoders. `Scanner` gives each narrow detected signal a `Channel` (mix + 2-stage decimate to 48 kHz FM) and runs every `FrameDecoder` on it; `fsk.rs` symbol recovery; `dfm.rs` (DFM-06/09/17), `rs41.rs` (+ `rs.rs` Reed-Solomon, `geo.rs` ECEF). Channels that decode nothing for `TRY_FOR` are set aside for `RETRY_AFTER`. Engine runs it only after `Command::SetSondes(true)` (UI sends it in bands with `decoder = "radiosonde"`).
 - `crates/radio/src/rds/` — FM station data. `phy.rs`: pilot PLL ×3 → 57 kHz mixdown, Costas for residual phase, PSK-rate timing (reuses `sonde::fsk::Fsk`), biphase pairing by energy, differential decode. `blocks.rs`: sync needs two blocks in order, 2-bit burst correction, loss at >42 bad of 50. `mod.rs`: PS (0A/0B), RadioText (2A/2B), RT+ title/artist. Runs inside the WFM `Demodulator` on the 240 kHz MPX.
+- `crates/radio/src/hd/` — HD Radio. `ffi.rs` dlopens libnrsc5 (loader path, then `~/.local/lib/libnrsc5.so`) and mirrors the header's event layouts — recheck them against `include/nrsc5.h` if nrsc5 is upgraded. `mod.rs`: `Hd` mixes the tuned station out, decimates to 800 kHz, cubic-resamples to 744187.5 S/s and pipes it to nrsc5 on its own thread; digital audio replaces analog after `PRIME_SECS` queued. Engine starts it on `Command::SetHd(Some(program))`; UI remembers the program per station in localStorage `hd`.
 - `BACKLOG.md` — ideas not yet started, one line each. Append when the user says "add to the backlog"; delete the line when it ships.
 - `ui/` — Vite root. `lib/radio.ts` holds pure logic (labels, card placement, snap-to-tune) with tests in `radio.test.ts`. `lib/channels.ts`: fixed channel plans (CB, FRS, NOAA, marine, AAR rail) keyed by band id, so they apply even to an old user bands file; bookmarks still win over channel names.
 
@@ -19,6 +20,7 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - Stage timings: `cargo run -p radio --release --example bench`
 - UI tests / types: `pnpm test`, `pnpm check`
 - Decode a recording: `cargo run -p radio --release --example sonde_file -- <wav>` (mono = FM audio, stereo = I/Q). Verified 2026-10-30 on rs1729's `rs41/wav/20140717_402MHz.wav` (RS41 K1930308, 114 frames) and `iq/dfmIQ.wav` (DFM-06 314377).
+- HD Radio live: `cargo run -p radio --release --example hd_probe -- 106.7 0 60 <dir>` prints decoder state and writes pictures (base64) to `<dir>`.
 - RDS offline: `mpx_dump -- <MHz> <secs> <out.f32>` records MPX, `rds_file -- <out.f32>` prints pilot lock, block stats and decoded info.
 - Live sweep of 400–406 MHz: `cargo run -p radio --release --example sonde_scan -- <secs per step>`.
 - HD Radio sidebands across 88–108 MHz: `cargo run -p radio --release --example hd_scan -- <secs per step> [MHz… to profile]`.
@@ -33,4 +35,5 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - `cargo build` while `pnpm tauri dev` is rebuilding corrupts the shell crate's link (undefined hidden symbol): stop dev, `cargo clean -p receiver`, rebuild.
 - The dongle streams via `rtlsdr_read_async` on its own thread into a `QUEUE`-buffer channel. Blocking `read_sync` dropped 15–25% of samples (found 2026-10-30: rows/s ~24 not 30, pilot phase random, RDS dead).
 - eagle's dongle crystal is ~105 ppm slow (pilot measured at 18997.4 Hz).
+- libnrsc5 is not packaged: build theori-io/nrsc5 with cmake (CLI needs system `libao`), copy `build/src/libnrsc5.so` to `~/.local/lib`. Without it the HD panel shows the install hint. GPL-3; its audio codec is patented.
 - Only one program can hold the dongle; close gqrx/SDR++ first.
