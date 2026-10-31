@@ -354,6 +354,8 @@
 
   let decoding = $derived(band?.decoder === 'radiosonde');
   let sondes = $derived(status?.sondes ?? []);
+  let sondeLatest = $derived(sondes.reduce<(typeof sondes)[number] | null>((a, o) => (a && a.age_s <= o.age_s ? a : o), null));
+  let sondeLine = $derived(sondeLatest ? `${sondes.length} heard · latest ${sondeName(sondeLatest)}, ${sondeSummary(sondeLatest)}` : 'None decoded yet');
   $effect(() => {
     api.setSondes(decoding);
   });
@@ -640,12 +642,12 @@
           </button>
         {/if}
       </div>
+      </div>
       {#if decoding}
-        <aside class="sondes">
-          <h2>Weather balloons</h2>
+        <Tray id="sondes" title="Weather balloons" summary={sondeLine}>
           {#each sondes as o (o.hz)}
             {@const drift = sondeDrift(o)}
-            <button class="sonde" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
+            <button class="sonde balloon" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
               <span class="name">{sondeName(o)}</span>
               <span class="big">{sondeSummary(o)}</span>
               {#if drift}<span class="dim">{drift}</span>{/if}
@@ -653,12 +655,11 @@
               <span class="mono dim">{fmtMHz(o.hz)} MHz{o.time ? ` · ${o.time} UTC` : ''} · {ago(o.age_s)}</span>
             </button>
           {:else}
-            <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
-            <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
+            <p class="empty balloonwait">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
+            <p class="empty balloonwait">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
           {/each}
-        </aside>
+        </Tray>
       {/if}
-      </div>
       {#if hd}
         <Tray id="hd" title="HD Radio" summary={hdSummary} accent="var(--orange)">
           <div class="hdcol">
@@ -1028,18 +1029,12 @@
     display: flex;
     gap: 12px;
   }
-  .sondes {
-    flex: 0 0 260px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
+  .balloon {
+    flex: 0 1 260px;
+    min-width: 200px;
   }
-  .sondes h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--fg-dim);
+  .balloonwait {
+    flex: 1 1 300px;
   }
   .sonde {
     display: flex;
