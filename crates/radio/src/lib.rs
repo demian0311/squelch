@@ -8,6 +8,7 @@ pub mod engine;
 pub mod hd;
 pub mod iss;
 pub mod rds;
+pub mod repeaters;
 pub mod sonde;
 pub mod spectrum;
 pub mod squelch;

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
-  import { channelAt, quietChannels } from './lib/channels';
+  import { channelAt, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
@@ -434,6 +434,8 @@
       setup = await api.setup();
       setTheme(await api.theme());
       const b = await api.bands();
+      let repeaters = await api.repeaters();
+      setRepeaters(repeaters, b.plan.bands);
       plan = b.plan;
       bandsPath = b.path;
       bandsError = b.error;
@@ -458,9 +460,18 @@
       unsubs.push(api.onTheme(setTheme));
       unsubs.push(
         api.onBands((nb) => {
+          setRepeaters(repeaters, nb.plan.bands);
           plan = nb.plan;
           bandsPath = nb.path;
           bandsError = nb.error;
+        }),
+      );
+      unsubs.push(
+        api.onRepeaters((r) => {
+          repeaters = r;
+          setRepeaters(r, plan.bands);
+          // channel lookups aren't reactive; a new plan object recomputes everything that uses them
+          plan = { ...plan };
         }),
       );
     })();

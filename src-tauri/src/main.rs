@@ -5,6 +5,7 @@ use radio::bands::BandPlan;
 use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
+use radio::repeaters::{Repeater, Repeaters};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -51,6 +52,15 @@ fn setup() -> Setup {
 #[tauri::command]
 fn bands() -> Bands {
     load_bands()
+}
+
+// a broken repeaters file just means no repeater names, not a broken receiver
+#[tauri::command]
+fn repeaters() -> Vec<Repeater> {
+    Repeaters::load().unwrap_or_else(|e| {
+        eprintln!("repeaters: {e:#}");
+        vec![]
+    })
 }
 
 #[tauri::command]
@@ -170,6 +180,7 @@ fn main() {
             std::thread::spawn(move || {
                 let mut theme = radio::theme::stamp();
                 let mut bands = mtime(BandPlan::path());
+                let mut reps = mtime(Repeaters::path());
                 loop {
                     std::thread::sleep(Duration::from_secs(2));
                     let t = radio::theme::stamp();
@@ -181,6 +192,11 @@ fn main() {
                     if b != bands {
                         bands = b;
                         let _ = handle.emit("bands", load_bands());
+                    }
+                    let r = mtime(Repeaters::path());
+                    if r != reps {
+                        reps = r;
+                        let _ = handle.emit("repeaters", repeaters());
                     }
                 }
             });
@@ -203,7 +219,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

@@ -1,6 +1,9 @@
 // Fixed channel plans for bands where radios pick numbered channels, keyed by band id.
 // Sources (checked 2026-10-30): CB 47 CFR 95.963, FRS 47 CFR 95.563, NOAA weather.gov/nwr,
 // marine RadioReference "Marine VHF Channels" (US), railroad AAR 007–097 at 15 kHz from 160.215.
+// Ham bands get the user's repeaters file instead (see setRepeaters).
+
+import type { Band, Repeater } from './api';
 
 export interface Channel {
   hz: number;
@@ -46,9 +49,36 @@ export const CHANNELS: Record<string, Channel[]> = {
   rail: Array.from({ length: 91 }, (_, i) => ({ hz: mhz(160.215) + i * 15_000, name: `AAR ${String(i + 7).padStart(3, '0')}` })),
 };
 
+// repeater outputs by band id, for bands without a fixed plan
+let repeaterPlans: Record<string, Channel[]> = {};
+// a lone repeater in a band would otherwise claim every signal in it
+const REPEATER_REACH_HZ = 5_000;
+// standard US input offsets; 6 m varies too much to name
+const SHIFTS: Record<string, string> = { '2m': '600 kHz', '125': '1.6 MHz', '70cm': '5 MHz' };
+
+function repeaterNote(r: Repeater, bandId: string): string {
+  const shift = r.shift === 's' ? 'split' : r.shift ? `${r.shift === '-' ? '−' : '+'}${SHIFTS[bandId] ?? ' offset'}` : null;
+  const tone = /^\d/.test(r.tone) ? `${r.tone} Hz` : r.tone.startsWith('D') ? `DCS ${r.tone.slice(1)}` : r.tone === 'CSQ' ? 'no tone' : null;
+  return [r.city, shift, tone, ...r.modes].filter(Boolean).join(' · ');
+}
+
+/** Use these repeaters as the channel plan of whichever band holds each, unless it has a fixed plan. */
+export function setRepeaters(list: Repeater[], bands: Band[]) {
+  const plans: Record<string, Channel[]> = {};
+  for (const r of list) {
+    const b = bands.find((b) => r.mhz >= b.low_mhz && r.mhz <= b.high_mhz);
+    if (!b || CHANNELS[b.id]) continue;
+    (plans[b.id] ??= []).push({ hz: mhz(r.mhz), name: r.call, group: repeaterNote(r, b.id) });
+  }
+  for (const p of Object.values(plans)) steps.set(p, Math.min(halfStep(p), REPEATER_REACH_HZ));
+  repeaterPlans = plans;
+}
+
+const planFor = (bandId: string | undefined): Channel[] | undefined => (bandId ? CHANNELS[bandId] ?? repeaterPlans[bandId] : undefined);
+
 /** The channel nearest `hz` in a band's plan, if within half the plan's tightest spacing. */
 export function channelAt(bandId: string | undefined, hz: number): Channel | undefined {
-  const plan = bandId ? CHANNELS[bandId] : undefined;
+  const plan = planFor(bandId);
   if (!plan) return undefined;
   let best: Channel | undefined;
   for (const c of plan) if (!best || Math.abs(c.hz - hz) < Math.abs(best.hz - hz)) best = c;
@@ -57,7 +87,7 @@ export function channelAt(bandId: string | undefined, hz: number): Channel | und
 
 /** Channels between `vs` and `ve` with no signal on them, in plan order. */
 export function quietChannels(bandId: string | undefined, vs: number, ve: number, signals: { hz: number }[]): Channel[] {
-  const plan = bandId ? CHANNELS[bandId] : undefined;
+  const plan = planFor(bandId);
   if (!plan) return [];
   const busy = new Set(signals.map((s) => channelAt(bandId, s.hz)?.hz));
   return plan.filter((c) => c.hz >= vs && c.hz <= ve && !busy.has(c.hz));
@@ -76,7 +106,7 @@ export interface ChannelTick {
  * channel gets a mark; numbers are thinned so they sit at least CHANNEL_LABEL_PX apart.
  */
 export function channelTicks(bandId: string | undefined, vs: number, ve: number, widthPx: number): ChannelTick[] {
-  const plan = bandId ? CHANNELS[bandId] : undefined;
+  const plan = planFor(bandId);
   if (!plan || widthPx <= 0) return [];
   const span = ve - vs;
   const inView = plan.filter((c) => c.hz > vs && c.hz < ve).sort((a, b) => a.hz - b.hz);

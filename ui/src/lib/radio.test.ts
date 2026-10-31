@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
 import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
-import { channelTicks, quietChannels } from './channels';
+import { channelAt, channelTicks, quietChannels, setRepeaters } from './channels';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -118,8 +118,9 @@ describe('weather balloons', () => {
   });
 });
 
+const cbPlan: BandPlan = { groups: [], bands: [{ id: 'cb', group: 'x', name: 'CB radio', icon: 'walkie', mode: 'am', low_mhz: 26.95, high_mhz: 27.42, start_mhz: 27.185, bookmarks: [] }] };
+
 describe('channel plans', () => {
-  const cbPlan: BandPlan = { groups: [], bands: [{ id: 'cb', group: 'x', name: 'CB radio', icon: 'walkie', mode: 'am', low_mhz: 26.95, high_mhz: 27.42, start_mhz: 27.185, bookmarks: [] }] };
   it('names a signal after its channel, out-of-order ones included', () => {
     expect(label(cbPlan, [], { hz: 27_186_200, width_hz: 6_000, snr_db: 15 }).title).toBe('CB 19');
     expect(label(cbPlan, [], { hz: 27_255_000, width_hz: 6_000, snr_db: 15 }).title).toBe('CB 23');
@@ -128,6 +129,30 @@ describe('channel plans', () => {
   it('tunes the channel when a click lands near one', () => {
     expect(snapTune(27_187_000, [], [], 1000, 'am', 'cb')).toBe(27_185_000);
     expect(snapTune(27_189_500, [{ hz: 27_186_200, width_hz: 6_000, snr_db: 15 }], [], 500, 'am', 'cb')).toBe(27_185_000);
+  });
+});
+
+describe('repeaters', () => {
+  const k0ml = { call: 'K0ML', city: 'Northglenn', mhz: 147.045, shift: '+', tone: '123.0', modes: [] };
+  const digi = { call: 'W0DMR', city: 'Boulder', mhz: 447.0, shift: '-', tone: 'D023', modes: ['DMR'] };
+  const ham: BandPlan = {
+    groups: [],
+    bands: [...plan.bands, { id: '70cm', group: 'ham', name: '70 cm', icon: 'tower', mode: 'nfm', low_mhz: 420, high_mhz: 450, start_mhz: 446, bookmarks: [] }],
+  };
+  afterEach(() => setRepeaters([], []));
+  it('names a signal on a repeater output, and says where it is and how to reach it', () => {
+    setRepeaters([k0ml, digi], ham.bands);
+    expect(label(ham, saved, { hz: 147_046_000, width_hz: 12_000, snr_db: 20 }).title).toBe('K0ML');
+    expect(channelAt('2m', 147_045_000)?.group).toBe('Northglenn · +600 kHz · 123.0 Hz');
+    expect(channelAt('70cm', 447_000_000)?.group).toBe('Boulder · −5 MHz · DCS 023 · DMR');
+  });
+  it("doesn't let a lone repeater claim the whole band", () => {
+    setRepeaters([k0ml], ham.bands);
+    expect(label(ham, saved, { hz: 146_940_000, width_hz: 12_000, snr_db: 20 }).title).toBe('2 m signal');
+  });
+  it('leaves fixed channel plans alone', () => {
+    setRepeaters([{ ...k0ml, mhz: 27.185 }], cbPlan.bands);
+    expect(channelAt('cb', 27_185_000)?.name).toBe('CB 19');
   });
 });
 

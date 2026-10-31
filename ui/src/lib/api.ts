@@ -34,6 +34,18 @@ export interface Bands {
   error: string | null;
 }
 
+/** One line of the user's repeaters file, from RepeaterBook's KML export. */
+export interface Repeater {
+  call: string;
+  city: string;
+  mhz: number;
+  /** "+", "-", "s" for a non-standard split, or "" */
+  shift: string;
+  /** CTCSS Hz ("123.0"), DCS ("D023"), "CSQ", or "" */
+  tone: string;
+  modes: string[];
+}
+
 export interface Detected {
   hz: number;
   width_hz: number;
@@ -155,6 +167,7 @@ export type Theme = Record<string, string>;
 
 export const setup = () => invoke<Setup>('setup');
 export const bands = () => invoke<Bands>('bands');
+export const repeaters = () => invoke<Repeater[]>('repeaters');
 export const theme = () => invoke<Theme>('theme');
 export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { centerHz, tunedHz });
 export const setMode = (mode: Mode) => invoke('set_mode', { mode });
@@ -183,6 +196,7 @@ export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
 }
 
 export const onTheme = (f: (t: Theme) => void) => listen<Theme>('theme', (e) => f(e.payload));
+export const onRepeaters = (f: (r: Repeater[]) => void) => listen<Repeater[]>('repeaters', (e) => f(e.payload));
 export const onBands = (f: (b: Bands) => void) => listen<Bands>('bands', (e) => f(e.payload));
 /** Fresh orbit data was downloaded. */
 export const onIss = (f: () => void) => listen('iss', () => f());
