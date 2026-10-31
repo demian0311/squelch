@@ -24,6 +24,12 @@ pub const RANGE_DB: f32 = 60.0;
 /// Signals must stand this far above the noise floor to be reported.
 pub const DETECT_DB: f32 = 8.0;
 const READ_BYTES: usize = 131_072;
+/// Seconds of a strong FM station that make one crystal measurement.
+const MEASURE_SECS: f64 = 5.0;
+/// An FM station must be this far above the floor to measure the crystal on.
+const MEASURE_SNR_DB: f32 = 20.0;
+/// Broadcast FM channel spacing; a station tuned on this grid is a known frequency.
+const FM_GRID_HZ: f64 = 100_000.0;
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -39,7 +45,17 @@ pub enum Command {
     SetSondes(bool),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
     SetHd(Option<u32>),
+    /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
+    SetPpm(i32),
     Stop,
+}
+
+/// The dongle's crystal error as last measured, in `Command::SetPpm`'s sign.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Crystal {
+    pub ppm: f64,
+    /// The known frequency it was measured on: an FM station or a P25 control channel.
+    pub hz: f64,
 }
 
 pub struct Row {
@@ -79,6 +95,9 @@ pub struct Status {
     pub hd_images: Option<Vec<HdImage>>,
     /// Trunked radio state, in P25 mode.
     pub p25: Option<crate::p25::Info>,
+    /// Correction applied now.
+    pub ppm: i32,
+    pub crystal: Option<Crystal>,
 }
 
 pub struct Engine {
@@ -144,6 +163,8 @@ fn run(
     let mut mode = Mode::Wfm;
     let mut playing = true;
     let mut volume = 0.7f32;
+    let mut ppm = 0i32;
+    let mut crystal: Option<Crystal> = None;
     let mut error: Option<String> = None;
     let _ = src.set_center(center as u32);
 
@@ -203,6 +224,8 @@ fn run(
                         r.clear();
                     }
                     if moved {
+                        demod.offset_sum = 0.0;
+                        demod.offset_n = 0;
                         p25 = p25_for(mode, tuned);
                         hd = hd_for(hd_program, mode, center, tuned);
                         hd_sidebands = false;
@@ -237,6 +260,21 @@ fn run(
                     }
                     hd_program = p;
                 }
+                Ok(Command::SetPpm(p)) => {
+                    if p != ppm {
+                        ppm = p;
+                        if let Err(e) = src.set_ppm(p) {
+                            error = Some(e.to_string());
+                        }
+                        recent.clear();
+                        demod.offset_sum = 0.0;
+                        demod.offset_n = 0;
+                        // its own measurement was against the old correction
+                        if p25.is_some() {
+                            p25 = p25_for(mode, tuned);
+                        }
+                    }
+                }
                 Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
                 Ok(Command::SetPlaying(p)) => {
                     playing = p;
@@ -252,7 +290,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -309,6 +347,17 @@ fn run(
             chan.extend_from_slice(&iq);
             mixer.process(&mut chan);
             demod.process(&chan, &mut pcm);
+            // a strong station on the FM grid shows how far off the crystal is: its carrier is the discriminator's mean
+            let on_grid = mode == Mode::Wfm && ((tuned / FM_GRID_HZ).round() * FM_GRID_HZ - tuned).abs() < 1.0;
+            if !on_grid || snr < MEASURE_SNR_DB {
+                demod.offset_sum = 0.0;
+                demod.offset_n = 0;
+            } else if demod.offset_n as f64 >= 240_000.0 * MEASURE_SECS {
+                let off_ppm = demod.offset_sum / demod.offset_n as f64 / tuned * 1e6;
+                crystal = Some(Crystal { ppm: ppm as f64 - off_ppm, hz: tuned });
+                demod.offset_sum = 0.0;
+                demod.offset_n = 0;
+            }
             if let Some(h) = &hd {
                 h.fill(&mut pcm);
             }
@@ -320,7 +369,14 @@ fn run(
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25.as_ref().map(P25::info));
+            let p25_info = p25.as_ref().map(P25::info);
+            // P25's ppm is where the control channel was heard against where it says it is, so already this sign's residual
+            if let Some(i) = &p25_info {
+                if let (Some(p), Some(hz)) = (i.ppm, i.control_hz) {
+                    crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
+                }
+            }
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, ppm, crystal);
         }
     }
 }
@@ -362,6 +418,8 @@ fn send_status(
     hd: Option<HdInfo>,
     hd_images: Option<Vec<HdImage>>,
     p25: Option<crate::p25::Info>,
+    ppm: i32,
+    crystal: Option<Crystal>,
 ) {
     on_status(Status {
         device: device.to_string(),
@@ -385,6 +443,8 @@ fn send_status(
         hd,
         hd_images,
         p25,
+        ppm,
+        crystal,
     });
 }
 

@@ -27,6 +27,7 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - RDS offline: `mpx_dump -- <MHz> <secs> <out.f32>` records MPX, `rds_file -- <out.f32>` prints pilot lock, block stats and decoded info.
 - Space station passes: `cargo run -p radio --release --example iss -- <tle file> <zip | state | lat lon> [hours]`. Ground point matched api.wheretheiss.at to 0.01° on 2026-10-31.
 - P25: `p25_scan -- <secs per step>` lists always-on carriers in 769–775 / 851–869 MHz (raw, crystal-uncorrected); `p25_probe -- <secs> <MHz>…` reports frame syncs, NAC, frame types and decoded TSBKs; `p25_live -- <control MHz> <secs> [out.f32]` follows calls and writes 48 kHz voice.
+- Crystal error: `cargo run -p radio --release --example crystal -- 101.1` measures on a strong FM station, applies it, measures again.
 - Live sweep of 400–406 MHz: `cargo run -p radio --release --example sonde_scan -- <secs per step>`.
 - HD Radio sidebands across 88–108 MHz: `cargo run -p radio --release --example hd_scan -- <secs per step> [MHz… to profile]`.
 - Repeaters file: `cargo run -p radio --release --example repeaters -- "Colorado All.kml" "Colorado DMR.kml" …` writes every on-air repeater; the shell keeps those within `NEARBY_KM` of the location (a state keeps all), nearest per output frequency.
@@ -40,6 +41,6 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - Sonde types near eagle (NWS list 09-25): every nearby site flies GRAW DFM-17; Denver (KDNR) lists none. RS41 is the other US type. Simulator includes a DFM-17 at 403.3 MHz.
 - `cargo build` while `pnpm tauri dev` is rebuilding corrupts the shell crate's link (undefined hidden symbol): stop dev, `cargo clean -p squelch`, rebuild.
 - The dongle streams via `rtlsdr_read_async` on its own thread into a `QUEUE`-buffer channel. Blocking `read_sync` dropped 15–25% of samples (found 2026-10-30: rows/s ~24 not 30, pilot phase random, RDS dead).
-- eagle's dongle crystal is ~105 ppm slow (pilot measured at 18997.4 Hz).
+- eagle's dongle crystal runs ~57 ppm fast: FM carrier offset on 101.1 MHz, 2026-10-31 (`crystal` example); after correcting 57, residual ~1 ppm. The engine measures it on any strong FM station tuned on the 100 kHz grid (`MEASURE_SECS`, `MEASURE_SNR_DB`) or a P25 control channel; the UI applies it via `set_ppm` (librtlsdr `rtlsdr_set_freq_correction`, positive = crystal fast) unless set by hand in Settings, localStorage `ppm`, `ppm.hand`.
 - libnrsc5 is not packaged: build theori-io/nrsc5 with cmake (CLI needs system `libao`), copy `build/src/libnrsc5.so` to `~/.local/lib`. Without it the HD panel shows the install hint. GPL-3; its audio codec is patented.
 - Only one program can hold the dongle; close gqrx/SDR++ first.

@@ -82,6 +82,10 @@ export interface Status {
   hd_images: HdImage[] | null;
   /** Trunked radio receiver, in P25 mode. */
   p25: P25 | null;
+  /** Crystal correction applied now, ppm; positive means the crystal runs fast. */
+  ppm: number;
+  /** The crystal error last measured, on a strong FM station or a P25 control channel. */
+  crystal: { ppm: number; hz: number } | null;
 }
 /** A talkgroup call granted by the control channel. */
 export interface P25Call {
@@ -225,6 +229,8 @@ export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
+/** Correct the dongle's crystal by `ppm`, positive when it runs fast. */
+export const setPpm = (ppm: number) => invoke('set_ppm', { ppm });
 
 /** Space station passes over a ZIP code, state or "lat, lon" for the next two days. */
 export const iss = (location: string) => invoke<Iss>('iss', { location });

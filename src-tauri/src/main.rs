@@ -25,11 +25,12 @@ struct Settings {
     gain: Option<Command>,
     volume: Option<Command>,
     squelch: Option<Command>,
+    ppm: Option<Command>,
 }
 
 impl Settings {
     fn commands(&self) -> impl Iterator<Item = Command> + '_ {
-        [&self.gain, &self.volume, &self.squelch].into_iter().flatten().cloned()
+        [&self.gain, &self.volume, &self.squelch, &self.ppm].into_iter().flatten().cloned()
     }
 }
 
@@ -146,6 +147,13 @@ fn set_volume(app: State<App>, volume: f32) {
 fn set_squelch(app: State<App>, db: Option<f32>) {
     app.settings.lock().unwrap().squelch = Some(Command::SetSquelch(db));
     send(&app, Command::SetSquelch(db));
+}
+
+/// Crystal correction, positive when the crystal runs fast.
+#[tauri::command]
+fn set_ppm(app: State<App>, ppm: i32) {
+    app.settings.lock().unwrap().ppm = Some(Command::SetPpm(ppm));
+    send(&app, Command::SetPpm(ppm));
 }
 
 #[tauri::command]
@@ -274,7 +282,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

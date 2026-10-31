@@ -16,6 +16,8 @@ pub trait IqSource: Send {
     fn sample_rate(&self) -> u32;
     fn set_center(&mut self, hz: u32) -> Result<()>;
     fn set_gain(&mut self, gain: Gain) -> Result<()>;
+    /// Crystal correction in librtlsdr's sense: the crystal runs `ppm` fast. Retunes to correct.
+    fn set_ppm(&mut self, ppm: i32) -> Result<()>;
     /// Gains the tuner supports, in tenths of a dB.
     fn gains(&self) -> Vec<i32>;
     /// Fill `buf` with interleaved unsigned 8-bit I/Q. Returns bytes read.
@@ -31,6 +33,7 @@ extern "C" {
     fn rtlsdr_open(dev: *mut *mut rtlsdr_dev_t, index: u32) -> c_int;
     fn rtlsdr_close(dev: *mut rtlsdr_dev_t) -> c_int;
     fn rtlsdr_set_center_freq(dev: *mut rtlsdr_dev_t, freq: u32) -> c_int;
+    fn rtlsdr_set_freq_correction(dev: *mut rtlsdr_dev_t, ppm: c_int) -> c_int;
     fn rtlsdr_set_sample_rate(dev: *mut rtlsdr_dev_t, rate: u32) -> c_int;
     fn rtlsdr_get_tuner_gains(dev: *mut rtlsdr_dev_t, gains: *mut c_int) -> c_int;
     fn rtlsdr_set_tuner_gain_mode(dev: *mut rtlsdr_dev_t, manual: c_int) -> c_int;
@@ -159,6 +162,16 @@ impl IqSource for RtlSdr {
         self.taken = self.pending.len();
         Ok(())
     }
+    fn set_ppm(&mut self, ppm: i32) -> Result<()> {
+        // -2 means it already had this value
+        let r = unsafe { rtlsdr_set_freq_correction(self.dev, ppm) };
+        if r < 0 && r != -2 {
+            bail!("dongle refused a {ppm} ppm correction");
+        }
+        while self.rx.try_recv().is_ok() {}
+        self.taken = self.pending.len();
+        Ok(())
+    }
     fn set_gain(&mut self, gain: Gain) -> Result<()> {
         unsafe {
             match gain {
@@ -252,6 +265,9 @@ impl IqSource for SimSource {
         Ok(())
     }
     fn set_gain(&mut self, _gain: Gain) -> Result<()> {
+        Ok(())
+    }
+    fn set_ppm(&mut self, _ppm: i32) -> Result<()> {
         Ok(())
     }
     fn gains(&self) -> Vec<i32> {

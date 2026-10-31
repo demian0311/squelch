@@ -54,6 +54,9 @@ pub struct Demodulator {
     fm: Vec<f32>,
     /// Channel power of the last block, dBFS.
     pub level_db: f32,
+    /// Sum and count of the WFM discriminator in Hz; its mean is where the carrier sits from the tuned frequency.
+    pub offset_sum: f64,
+    pub offset_n: usize,
     /// Station data, decoded in wide FM only.
     pub rds: Option<crate::rds::Rds>,
 }
@@ -93,6 +96,8 @@ impl Demodulator {
             s2: Vec::new(),
             fm: Vec::new(),
             level_db: -120.0,
+            offset_sum: 0.0,
+            offset_n: 0,
             rds: (mode == Mode::Wfm).then(|| crate::rds::Rds::new(mid as u32)),
         }
     }
@@ -126,6 +131,8 @@ impl Demodulator {
                 let mut fm = std::mem::take(&mut self.fm);
                 fm.clear();
                 self.discriminate(&s1, mid, 75_000.0, &mut fm);
+                self.offset_sum += fm.iter().map(|&v| v as f64 * 75_000.0).sum::<f64>();
+                self.offset_n += fm.len();
                 if let Some(r) = &mut self.rds {
                     r.process(&fm);
                 }

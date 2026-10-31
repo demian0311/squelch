@@ -24,6 +24,8 @@
   // the waterfall's spectrum line while the panel has the screen
   const STRIP_SPEC_H = 24;
   const MIN_SPAN = 25_000;
+  // a measurement past this is a bad one; cheap dongles are within about 100 ppm
+  const MAX_PPM = 200;
   // the signal meter's full scale, dB above the noise floor
   const METER_DB = 40;
   // keep the listened-to frequency off the tuner's centre
@@ -45,6 +47,9 @@
   let playing = $state(true);
   let volume = $state(0.7);
   let gain = $state<string>('auto');
+  // crystal correction: measured unless typed in by hand
+  let ppm = $state(readNumber('ppm', 0));
+  let ppmByHand = $state(readNumber('ppm.hand', 0) === 1);
   let railOpen = $state(readNumber('rail', 1) === 1);
   let settingsOpen = $state(false);
   // dB above the noise floor; 0 means off. Empty channels read 3–10 dB on this dongle.
@@ -670,6 +675,19 @@
   $effect(() => {
     api.setGain(gain === 'auto' ? null : +gain);
   });
+  $effect(() => {
+    api.setPpm(ppm);
+    remember('ppm', String(ppm));
+  });
+  $effect(() => {
+    const m = status?.crystal ? Math.round(status.crystal.ppm) : null;
+    if (!ppmByHand && m !== null && Math.abs(m) <= MAX_PPM && m !== ppm) ppm = m;
+  });
+  function setPpmByHand(v: string) {
+    ppmByHand = v.trim() !== '' && Number.isFinite(+v);
+    remember('ppm.hand', ppmByHand ? '1' : '0');
+    if (ppmByHand) ppm = Math.max(-MAX_PPM, Math.min(MAX_PPM, Math.round(+v)));
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -993,6 +1011,17 @@
         <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
       {/each}
     </select>
+  </label>
+  <label class="field">
+    <span class="lbl">Crystal correction, ppm</span>
+    <input class="loc" type="number" value={ppmByHand ? ppm : ''} placeholder={`${ppm} (measured)`} onchange={(e) => setPpmByHand(e.currentTarget.value)} />
+    <small>{ppmByHand
+      ? 'Set by hand. Clear it to measure again.'
+      : status?.crystal
+        ? `Measured on ${fmtMHz(status.crystal.hz)} MHz: the dongle runs ${Math.abs(status.crystal.ppm).toFixed(0)} ppm ${status.crystal.ppm > 0 ? 'fast' : 'slow'}.`
+        : ppm
+          ? 'Measured earlier. A few seconds on a strong FM station measures it again.'
+          : 'Not measured yet. A few seconds on a strong FM station measures it.'}</small>
   </label>
   <label class="field toggle">
     <span>Show quiet bands<small>Data and tracking, railroad and military aircraft: bands that have given us nothing so far</small></span>
