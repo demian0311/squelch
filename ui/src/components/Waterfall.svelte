@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { channelTicks } from '../lib/channels';
   // Spectrum line on top, scrolling waterfall below. Rows arrive through push();
   // the visible frequency range (view) is owned by the parent.
   import { onMount } from 'svelte';
@@ -16,8 +17,10 @@
     colors: { bg: string; grid: string; line: string; fill: string; accent: string; tick: string };
     onTune: (hz: number, pxHz: number) => void;
     onView: (vs: number, ve: number) => void;
+    /** The band's channel plan, shown on the scale instead of MHz when in view. */
+    bandId?: string;
   }
-  let { vs, ve, rate, stops, tuned, bandwidth, specH, colors, onTune, onView }: Props = $props();
+  let { vs, ve, rate, stops, tuned, bandwidth, specH, colors, onTune, onView, bandId }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let width = $state(800);
@@ -249,6 +252,7 @@
     }
     return out;
   });
+  let chTicks = $derived(channelTicks(bandId, vs, ve, width));
   let markerLeft = $derived(((tuned - vs) / (ve - vs)) * 100);
 </script>
 
@@ -268,9 +272,16 @@
     <div class="marker" style:left="{markerLeft}%" style:height="{specH + wfH}px" style:background={colors.accent}></div>
   {/if}
   <div class="axis" style:top="{specH + wfH}px">
-    {#each ticks as t (t.text)}
-      <span class="mono" style:left="{t.left}%" style:color={colors.tick}>{t.text}</span>
-    {/each}
+    {#if chTicks.length}
+      {#each chTicks as t (t.left)}
+        <i class="mark" style:left="{t.left}%" style:background={colors.tick}></i>
+        {#if t.text}<span class="mono ch" style:left="{t.left}%" style:color={colors.tick}>{t.text}</span>{/if}
+      {/each}
+    {:else}
+      {#each ticks as t (t.text)}
+        <span class="mono" style:left="{t.left}%" style:color={colors.tick}>{t.text}</span>
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -311,5 +322,15 @@
     transform: translateX(-50%);
     font-size: 11px;
     white-space: nowrap;
+  }
+  .axis .ch {
+    top: 6px;
+  }
+  .axis .mark {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 4px;
+    opacity: 0.6;
   }
 </style>

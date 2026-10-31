@@ -443,6 +443,7 @@
             colors={wfColors}
             onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
             onView={setView}
+            bandId={band?.id}
           />
         </div>
         {#if leftEdge}

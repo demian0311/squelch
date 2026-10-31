@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
 import { allBookmarks, bandAt, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
 import type { Rds, Sonde } from './api';
+import { channelTicks } from './channels';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -120,6 +121,17 @@ describe('channel plans', () => {
   it('tunes the channel when a click lands near one', () => {
     expect(snapTune(27_187_000, [], [], 1000, 'am', 'cb')).toBe(27_185_000);
     expect(snapTune(27_189_500, [{ hz: 27_186_200, width_hz: 6_000, snr_db: 15 }], [], 500, 'am', 'cb')).toBe(27_185_000);
+  });
+});
+
+describe('channel scale', () => {
+  it('marks every channel and thins the numbers to fit', () => {
+    // all 40 CB channels across 440 px: 10 kHz is 10 px, so every third number shows
+    const t = channelTicks('cb', 26_960_000, 27_400_000 + 10_000, 450);
+    expect(t.length).toBe(40);
+    const shown = t.filter((x) => x.text).map((x) => x.text);
+    expect(shown.length).toBeLessThan(16);
+    expect(channelTicks('fm', 88e6, 108e6, 800)).toEqual([]);
   });
 });
 

@@ -48,6 +48,32 @@ export function channelAt(bandId: string | undefined, hz: number): Channel | und
   return best && Math.abs(best.hz - hz) <= halfStep(plan) ? best : undefined;
 }
 
+/** Minimum gap between channel numbers on the frequency scale, in pixels. */
+export const CHANNEL_LABEL_PX = 30;
+
+export interface ChannelTick {
+  left: number;
+  text: string | null;
+}
+
+/**
+ * Channel marks for the frequency scale between `vs` and `ve`, as % from the left. Every
+ * channel gets a mark; numbers are thinned so they sit at least CHANNEL_LABEL_PX apart.
+ */
+export function channelTicks(bandId: string | undefined, vs: number, ve: number, widthPx: number): ChannelTick[] {
+  const plan = bandId ? CHANNELS[bandId] : undefined;
+  if (!plan || widthPx <= 0) return [];
+  const span = ve - vs;
+  const inView = plan.filter((c) => c.hz > vs && c.hz < ve).sort((a, b) => a.hz - b.hz);
+  let lastPx = -Infinity;
+  return inView.map((c) => {
+    const px = ((c.hz - vs) / span) * widthPx;
+    const fits = px - lastPx >= CHANNEL_LABEL_PX && px > 12 && px < widthPx - 12;
+    if (fits) lastPx = px;
+    return { left: (px / widthPx) * 100, text: fits ? c.name.replace(/^\S+ /, '') : null };
+  });
+}
+
 const steps = new WeakMap<Channel[], number>();
 function halfStep(plan: Channel[]): number {
   let s = steps.get(plan);
