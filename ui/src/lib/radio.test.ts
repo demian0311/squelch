@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
+import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelTicks, quietChannels } from './channels';
 
@@ -172,5 +172,19 @@ describe('click to tune', () => {
   it('tunes where the click lands when nothing is close', () => {
     expect(snapTune(147_031_200, [{ hz: 146_998_000, width_hz: 60_000, snr_db: 20 }], saved, 1000, 'nfm')).toBe(147_031_000);
     expect(snapTune(101_133_000, [], saved, 1000, 'wfm')).toBe(101_130_000);
+  });
+});
+
+describe('dead air', () => {
+  const b = (id: string, group: string) => ({ id, group, name: id, icon: 'radio', mode: 'nfm' as const, low_mhz: 1, high_mhz: 2, start_mhz: 1, bookmarks: [] });
+  const p: BandPlan = {
+    groups: [{ id: 'listen', name: 'Listen' }, { id: 'data', name: 'Data and tracking' }],
+    bands: [b('fm', 'listen'), b('rail', 'listen'), b('mil', 'listen'), b('adsb', 'data'), b('sonde', 'data')],
+  } as BandPlan;
+
+  it('drops the data group, railroad and military aircraft', () => {
+    const out = withoutDeadAir(p);
+    expect(out.bands.map((x) => x.id)).toEqual(['fm']);
+    expect(out.groups.map((g) => g.id)).toEqual(['listen']);
   });
 });

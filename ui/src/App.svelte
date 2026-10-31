@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, quietChannels } from './lib/channels';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import BandRail from './components/BandRail.svelte';
@@ -46,6 +46,17 @@
       return v === null ? fallback : +v;
     } catch {
       return fallback;
+    }
+  }
+  // bands that rarely give us anything stay off the rail until someone wants to investigate them
+  let showDeadAir = $state(readNumber('deadAir', 0) === 1);
+  let railPlan = $derived(showDeadAir ? plan : withoutDeadAir(plan));
+  function toggleDeadAir() {
+    showDeadAir = !showDeadAir;
+    try {
+      localStorage.setItem('deadAir', showDeadAir ? '1' : '0');
+    } catch {
+      // remembering the choice is a nicety
     }
   }
   function readDock(): boolean {
@@ -363,7 +374,7 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-    const keyed = plan.groups.flatMap((g) => plan.bands.filter((b) => b.group === g.id)).slice(0, 9);
+    const keyed = railPlan.groups.flatMap((g) => railPlan.bands.filter((b) => b.group === g.id)).slice(0, 9);
     if (/^[1-9]$/.test(e.key) && keyed[+e.key - 1]) pickBand(keyed[+e.key - 1]);
     else if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'ArrowLeft') step(-1);
@@ -459,7 +470,7 @@
 
   <div class="body">
     {#if !full}
-      <BandRail {plan} current={bandId} open={railOpen} onPick={pickBand} onToggle={() => (railOpen = !railOpen)} />
+      <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={() => (railOpen = !railOpen)} />
     {/if}
 
     <main>
@@ -625,6 +636,10 @@
           <button class="play" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
           <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
         </div>
+        <label class="ctl" title="Data and tracking, railroad and military aircraft: bands that have given us nothing so far">
+          <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
+          Dead air
+        </label>
         <span class="spacer"></span>
         <div class="tools">
           <button onclick={() => zoom(1.5)} aria-label="Zoom out" title="Zoom out (-)">−</button>

@@ -41,6 +41,18 @@ export interface Saved extends Bookmark {
   band: Band;
 }
 
+/**
+ * Bands that have given us nothing on eagle so far: the whole data group, railroad and military
+ * aircraft. Keyed by id so they apply to an old user bands file too.
+ */
+export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil'] };
+
+/** The band list without the dead-air bands, and without any group left empty. */
+export function withoutDeadAir(plan: BandPlan): BandPlan {
+  const bands = plan.bands.filter((b) => !DEAD_AIR.groups.includes(b.group) && !DEAD_AIR.bands.includes(b.id));
+  return { ...plan, groups: plan.groups.filter((g) => bands.some((b) => b.group === g.id)), bands };
+}
+
 export function allBookmarks(plan: BandPlan): Saved[] {
   const out: Saved[] = [];
   for (const band of plan.bands) for (const b of band.bookmarks) out.push({ ...b, band });
