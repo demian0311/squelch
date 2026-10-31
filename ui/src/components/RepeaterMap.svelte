@@ -2,7 +2,7 @@
   // Repeaters around the listener: a ring of likely reach on each, the tuned one in orange.
   import type { RepeaterPoint } from '../lib/repeaters';
   import { townLabels } from '../lib/repeaters';
-  import { linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
+  import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
     points: RepeaterPoint[];
@@ -27,17 +27,24 @@
     if (!lines) loadLines().then((l) => (lines = l));
   });
 
-  // shaded terrain: best effort, from cached or downloaded tiles; without them the lines draw alone
+  // shaded terrain: best effort. Memory, then the disk cache, then drawn from tiles and saved; without tiles the lines draw alone
   let ground = $state<string | null>(null);
   $effect(() => {
-    const key = `${frame.site.lat.toFixed(3)},${frame.site.lon.toFixed(3)},${Object.values(palette).join()}`;
+    const f = frame;
+    const p = { ...palette };
+    const key = groundKey(f, p);
     let stale = false;
     ground = groundCache.get(key) ?? null;
     if (!ground)
-      drawGround(frame, palette).then((url) => {
+      (async () => {
+        let url = await api.ground(key).catch(() => null);
+        if (!url) {
+          url = await drawGround(f, p);
+          if (url) api.saveGround(key, url).catch(() => {});
+        }
         if (url) groundCache.set(key, url);
         if (!stale) ground = url;
-      });
+      })();
     return () => (stale = true);
   });
 

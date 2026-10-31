@@ -2,6 +2,8 @@
 // Same flat projection as repeaterPoints: x east, y south, km.
 
 export const TILE = 256;
+// bump when the shading changes, so saved maps are drawn again
+const SHADE_VERSION = 1;
 const EARTH_KM = 6371;
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -41,6 +43,18 @@ export function tilesFor(f: Frame, z: number): { x: number; y: number }[] {
   const out = [];
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push({ x, y });
   return out;
+}
+
+/** A file-name-safe key for a shaded map: place (to ~100 m), frame and colours. */
+export function groundKey(f: Frame, p: Palette): string {
+  const text = [SHADE_VERSION, f.site.lat.toFixed(3), f.site.lon.toFixed(3), f.halfWKm, f.halfHKm, p.plain, p.peak, p.shadow, p.light].join('|');
+  // two FNV-1a passes with different seeds: 64 bits, as hex
+  const fnv = (seed: number) => {
+    let h = seed;
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+    return h.toString(16).padStart(8, '0');
+  };
+  return fnv(0x811c9dc5) + fnv(0x2f6b3c1d);
 }
 
 /** Metres from a terrarium pixel. */

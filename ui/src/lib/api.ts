@@ -233,6 +233,9 @@ export const iss = (location: string) => invoke<Iss>('iss', { location });
 export const issTrack = () => invoke<GroundPoint[]>('iss_track');
 /** One elevation tile (terrarium PNG) as a data URL, or null when neither cached nor downloadable. */
 export const terrainTile = (z: number, x: number, y: number) => invoke<string | null>('terrain_tile', { z, x, y });
+/** A shaded local map saved on disk under `key`, or null. */
+export const ground = (key: string) => invoke<string | null>('ground', { key });
+export const saveGround = (key: string, dataUrl: string) => invoke<void>('save_ground', { key, dataUrl });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
   const rows = new Channel<ArrayBuffer>();

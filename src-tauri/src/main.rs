@@ -174,6 +174,20 @@ async fn terrain_tile(z: u8, x: u32, y: u32) -> Option<String> {
     tauri::async_runtime::spawn_blocking(move || radio::terrain::tile_url(z, x, y)).await.ok().flatten()
 }
 
+/// The local map's shading saved earlier under `key`, as a data URL; null when there is none.
+#[tauri::command]
+fn ground(key: String) -> Option<String> {
+    radio::terrain::ground(&key)
+}
+
+/// Saves the local map's shading (a PNG data URL) under `key`; best effort.
+#[tauri::command]
+fn save_ground(key: String, data_url: String) {
+    if let Err(e) = radio::terrain::save_ground(&key, &data_url) {
+        eprintln!("saving the map: {e:#}");
+    }
+}
+
 /// HD Radio program to decode on the tuned FM station (0 = HD1), or null for off.
 #[tauri::command]
 fn set_hd(app: State<App>, program: Option<u32>) {
@@ -238,7 +252,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track, terrain_tile])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

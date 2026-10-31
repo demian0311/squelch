@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fromKm, linePaths, mercator, shade, terrarium, tilesFor, toKm } from './terrain';
+import { fromKm, groundKey, linePaths, mercator, shade, terrarium, tilesFor, toKm } from './terrain';
 
 const boulder = { lat: 40.015, lon: -105.27 };
 const palette = { plain: '#202833', peak: '#404850', shadow: '#0c1014', light: '#9aa5b1' };
@@ -58,5 +58,14 @@ describe('terrain', () => {
     expect(p.states.startsWith('M')).toBe(true);
     expect(p.major.startsWith('M')).toBe(true);
     expect(p.minor).toBe('');
+  });
+
+  it('keys a shaded map by place, frame and colours', () => {
+    const f = { site: boulder, halfWKm: 200, halfHKm: 75 };
+    const k = groundKey(f, palette);
+    expect(k).toMatch(/^[0-9a-f]{16}$/);
+    expect(groundKey({ ...f }, { ...palette })).toBe(k);
+    expect(groundKey({ ...f, site: { lat: 40.1, lon: -105.27 } }, palette)).not.toBe(k);
+    expect(groundKey(f, { ...palette, plain: '#000000' })).not.toBe(k);
   });
 });
