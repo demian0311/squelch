@@ -17,7 +17,7 @@
   // The viewBox is in km around the listener; `slice` fills the panel and crops east and west.
   const HALF_H_KM = 75;
   const HALF_W_KM = 200;
-  const DISTANCES_KM = [25, 50, 100];
+  const DISTANCES_KM = [100];
   let frame = $derived<Frame>({ site: { lat: site.lat, lon: site.lon }, halfWKm: HALF_W_KM, halfHKm: HALF_H_KM });
 
   // state lines and highways ship with the app; loaded on first use, then kept
