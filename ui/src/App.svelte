@@ -7,6 +7,7 @@
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
+  import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -16,7 +17,7 @@
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
 
-  const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000 };
+  const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
   const CARD_W = 176;
   const LANE_H = 92;
   const SPEC_H = 130;
@@ -390,6 +391,7 @@
   let hdPicture = $derived(hdImages.find((i) => i.kind === 'art') ?? hdImages.find((i) => i.kind === 'logo'));
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
+  let p25 = $derived(status?.mode === 'p25' ? (status.p25 ?? null) : null);
   let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hdState(hd)].filter(Boolean).join(' · ') : '');
   function setHdProgram(p: number | null) {
     const key = String(fmChannel(tuned));
@@ -699,6 +701,32 @@
           {#if !hd.error && !hdTraffic && !hdPicture}
             <p class="empty hdwait">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
           {/if}
+        </Tray>
+      {/if}
+      {#if p25}
+        <Tray id="p25" title="Police and fire" summary={p25Summary(p25)} accent="var(--red)">
+          <div class="hdcol">
+            <div class="sonde">
+              <span class="name">{p25Site(p25) ?? (p25.state === 'searching' ? 'Looking for a control channel near this frequency…' : 'Reading the site…')}</span>
+              {#if p25.control_hz !== null}<span class="mono dim">control {fmtMHz(p25.control_hz)} MHz · {p25.messages_per_sec.toFixed(0)} messages/s{p25.ppm !== null ? ` · dongle ${p25.ppm.toFixed(0)} ppm` : ''}</span>{/if}
+              {#if p25.voice_error}<span class="dim">{p25.voice_error}</span>{/if}
+              <span class="dim">Plays unencrypted Phase 1 calls as the site assigns them, one at a time.</span>
+            </div>
+          </div>
+          <div class="hdcol">
+            <h2>Calls</h2>
+            {#each p25.recent as c (c.at_secs + ':' + c.hz)}
+              {@const block = callBlock(c, p25.voice_error)}
+              {@const live = p25.call?.group === c.group && p25.call?.hz === c.hz}
+              <div class="sonde" class:sel={live}>
+                <span class="name">Talkgroup {c.group}{c.emergency ? ' · EMERGENCY' : ''}</span>
+                <span class="dim">{live ? `Playing${p25.voice_errors_pct > 20 ? ` · ${p25.voice_errors_pct.toFixed(0)}% damaged` : ''}` : (block ?? 'Ended')}</span>
+                <span class="mono dim">{fmtMHz(c.hz)} MHz{c.source ? ` · radio ${c.source}` : ''} · {callAge(c, p25.now_secs)}</span>
+              </div>
+            {:else}
+              <p class="empty hdwait">No calls yet. Busy sites assign several a minute; quiet ones can go minutes between.</p>
+            {/each}
+          </div>
         </Tray>
       {/if}
       {#if band?.id === 'iss'}

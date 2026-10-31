@@ -9,6 +9,7 @@ export const MODE_NAMES: Record<Mode, string> = {
   usb: 'USB',
   lsb: 'LSB',
   none: 'No audio',
+  p25: 'P25 digital',
 };
 
 /** 146520000 → "146.520.000" */

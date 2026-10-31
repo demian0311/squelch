@@ -2,7 +2,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none';
+export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25';
 
 export interface Bookmark {
   mhz: number;
@@ -80,6 +80,40 @@ export interface Status {
   hd: Hd | null;
   /** HD pictures; only present on the status that follows a change. */
   hd_images: HdImage[] | null;
+  /** Trunked radio receiver, in P25 mode. */
+  p25: P25 | null;
+}
+/** A talkgroup call granted by the control channel. */
+export interface P25Call {
+  group: number;
+  /** Radio ID of the talker; 0 until a grant names it. */
+  source: number;
+  /** Voice channel, true frequency. */
+  hz: number;
+  encrypted: boolean;
+  /** Phase 2 (TDMA) channel, which the receiver cannot play. */
+  tdma: boolean;
+  emergency: boolean;
+  /** Receiver clock (`P25.now_secs`) when granted. */
+  at_secs: number;
+}
+export interface P25 {
+  state: 'searching' | 'control' | 'voice';
+  now_secs: number;
+  nac: number | null;
+  wacn: number | null;
+  system: number | null;
+  rfss: number | null;
+  site: number | null;
+  control_hz: number | null;
+  /** Dongle frequency error measured on the control channel. */
+  ppm: number | null;
+  messages_per_sec: number;
+  call: P25Call | null;
+  recent: P25Call[];
+  /** Why voice cannot play (mbelib missing). */
+  voice_error: string | null;
+  voice_errors_pct: number;
 }
 /** HD Radio decoder state. `program` 0 is HD1. */
 export interface Hd {

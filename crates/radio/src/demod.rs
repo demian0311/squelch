@@ -17,6 +17,8 @@ pub enum Mode {
     Lsb,
     /// No audio; the band is only for decoders or looking.
     None,
+    /// P25 Phase 1 trunked radio; tune the control channel. The engine runs `p25::P25` instead.
+    P25,
 }
 
 impl Mode {
@@ -24,7 +26,7 @@ impl Mode {
     pub fn bandwidth(self) -> f32 {
         match self {
             Mode::Wfm => 200_000.0,
-            Mode::Nfm => 12_500.0,
+            Mode::Nfm | Mode::P25 => 12_500.0,
             Mode::Am => 8_000.0,
             Mode::Usb | Mode::Lsb => 2_800.0,
             Mode::None => 10_000.0,
@@ -111,7 +113,7 @@ impl Demodulator {
 
     pub fn process(&mut self, input: &[C32], audio: &mut Vec<f32>) {
         audio.clear();
-        if self.mode == Mode::None {
+        if matches!(self.mode, Mode::None | Mode::P25) {
             return;
         }
         let mid = self.in_rate / (self.in_rate / 240_000.0).round().max(1.0);
@@ -166,7 +168,7 @@ impl Demodulator {
                 }
                 self.s2 = s2;
             }
-            Mode::None => {}
+            Mode::None | Mode::P25 => {}
         }
         self.s1 = s1;
     }

@@ -48,7 +48,7 @@ Bands show under their group, in file order. The first nine in the rail get the 
 | `group` | yes | The `id` of a `[[group]]`. A band whose group does not exist is left out of the rail, with no error. |
 | `name` | yes | Label in the rail. |
 | `icon` | yes | One of `radio plane cloud anchor walkie train wave tower pin msg balloon key mesh dish star therm`. An unknown name draws `radio`. |
-| `mode` | yes | How to demodulate inside the band: `wfm` (broadcast FM), `nfm` (narrow FM, most two-way radio), `am`, `usb`, `lsb`, or `none` (no audio, look only). |
+| `mode` | yes | How to demodulate inside the band: `wfm` (broadcast FM), `nfm` (narrow FM, most two-way radio), `am`, `usb`, `lsb`, `none` (no audio, look only), or `p25` (digital trunked police and fire: tune a control channel and its unencrypted Phase 1 calls play; needs mbelib). |
 | `low_mhz` | yes | Bottom edge, in MHz. |
 | `high_mhz` | yes | Top edge, in MHz. |
 | `start_mhz` | yes | Where to tune the first time the band opens. Keep it between `low_mhz` and `high_mhz`. |

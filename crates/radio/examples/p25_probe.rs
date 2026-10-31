@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
         }
         println!("{mhz:.4} MHz: {syncs} syncs in {secs} s{}", if inverted > 0 { format!(" ({inverted} inverted)") } else { String::new() });
         let mut top: Vec<_> = nacs.into_iter().collect();
-        top.sort_by(|x, y| y.1.cmp(&x.1));
+        top.sort_by_key(|x| std::cmp::Reverse(x.1));
         for (nac, n) in top.iter().take(3) {
             println!("    NAC {nac:03X} ×{n}");
         }

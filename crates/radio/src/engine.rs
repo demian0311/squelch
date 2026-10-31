@@ -6,6 +6,7 @@ use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::hd::{Hd, HdImage, HdInfo};
+use crate::p25::P25;
 use crate::spectrum::{noise_floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
 use crate::squelch::Squelch;
@@ -76,6 +77,8 @@ pub struct Status {
     pub hd: Option<HdInfo>,
     /// The HD pictures, sent only when they change.
     pub hd_images: Option<Vec<HdImage>>,
+    /// Trunked radio state, in P25 mode.
+    pub p25: Option<crate::p25::Info>,
 }
 
 pub struct Engine {
@@ -172,6 +175,8 @@ fn run(
     let hd_for = |program: Option<u32>, mode: Mode, center: f64, tuned: f64| -> Option<Hd> {
         program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p))
     };
+    let p25_for = |mode: Mode, tuned: f64| (mode == Mode::P25).then(|| P25::new(rate, tuned));
+    let mut p25: Option<P25> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
 
     loop {
@@ -198,6 +203,7 @@ fn run(
                         r.clear();
                     }
                     if moved {
+                        p25 = p25_for(mode, tuned);
                         hd = hd_for(hd_program, mode, center, tuned);
                         hd_sidebands = false;
                     }
@@ -205,6 +211,7 @@ fn run(
                 Ok(Command::SetMode(m)) => {
                     mode = m;
                     demod = Demodulator::new(mode, rate);
+                    p25 = p25_for(mode, tuned);
                     hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
@@ -245,7 +252,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -288,21 +295,32 @@ fn run(
             sc.process(&iq);
         }
 
-        chan.clear();
-        chan.extend_from_slice(&iq);
-        mixer.process(&mut chan);
-        demod.process(&chan, &mut pcm);
-        if let Some(h) = &hd {
-            h.fill(&mut pcm);
+        if let Some(p) = &mut p25 {
+            // the receiver opens and closes on calls itself, so the squelch stays out of it
+            if let Some(c) = p.process(&iq, center, &signals, &mut pcm) {
+                center = c;
+                if let Err(e) = src.set_center(center as u32) {
+                    error = Some(e.to_string());
+                }
+                recent.clear();
+            }
+        } else {
+            chan.clear();
+            chan.extend_from_slice(&iq);
+            mixer.process(&mut chan);
+            demod.process(&chan, &mut pcm);
+            if let Some(h) = &hd {
+                h.fill(&mut pcm);
+            }
+            squelch.apply(&mut pcm);
         }
-        squelch.apply(&mut pcm);
         if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
         }
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images));
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25.as_ref().map(P25::info));
         }
     }
 }
@@ -343,6 +361,7 @@ fn send_status(
     hd_sidebands: bool,
     hd: Option<HdInfo>,
     hd_images: Option<Vec<HdImage>>,
+    p25: Option<crate::p25::Info>,
 ) {
     on_status(Status {
         device: device.to_string(),
@@ -365,6 +384,7 @@ fn send_status(
         hd_sidebands,
         hd,
         hd_images,
+        p25,
     });
 }
 

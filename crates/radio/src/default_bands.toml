@@ -5,12 +5,16 @@
 # Each band picks the mode used when you tune inside it. Bookmarks label
 # known frequencies; a bookmark can override the band's mode.
 #
-# icon: radio plane cloud anchor walkie train wave tower pin msg balloon key mesh dish star therm
-# mode: wfm nfm am usb lsb none
+# icon: radio plane cloud anchor walkie train wave tower pin msg balloon key mesh dish star therm siren
+# mode: wfm nfm am usb lsb none p25
 
 [[group]]
 id = "listen"
 name = "Listen"
+
+[[group]]
+id = "safety"
+name = "Public safety"
 
 [[group]]
 id = "ham"
@@ -143,6 +147,32 @@ mode = "nfm"
 low_mhz = 160.2
 high_mhz = 161.6
 start_mhz = 160.9
+
+# ── Public safety ──────────────────────────────────────
+# P25 trunked radio: tune a control channel (always on) and calls are followed from it.
+
+[[band]]
+id = "ps700"
+group = "safety"
+name = "Police and fire 700"
+icon = "siren"
+mode = "p25"
+low_mhz = 769.0
+high_mhz = 775.0
+start_mhz = 773.79375
+bookmarks = [
+  { mhz = 773.79375, name = "Colorado statewide, site 3-55 control" },
+]
+
+[[band]]
+id = "ps800"
+group = "safety"
+name = "Police and fire 800"
+icon = "siren"
+mode = "p25"
+low_mhz = 851.0
+high_mhz = 869.0
+start_mhz = 853.9375
 
 # ── Ham ────────────────────────────────────────────────
 
