@@ -1,0 +1,363 @@
+# Bands shown in the receiver's band list.
+#
+# Copied to ~/.config/receiver/bands.toml on first start; edit that copy.
+# Each band picks the mode used when you tune inside it. Bookmarks label
+# known frequencies; a bookmark can override the band's mode.
+#
+# icon: radio plane cloud anchor walkie train wave tower pin msg balloon key mesh dish star therm
+# mode: wfm nfm am usb lsb none
+
+[[group]]
+id = "listen"
+name = "Listen"
+
+[[group]]
+id = "ham"
+name = "Ham"
+
+[[group]]
+id = "data"
+name = "Data and tracking"
+
+[[group]]
+id = "space"
+name = "Space"
+
+# ── Listen ─────────────────────────────────────────────
+
+[[band]]
+id = "fm"
+group = "listen"
+name = "FM radio"
+icon = "radio"
+mode = "wfm"
+low_mhz = 87.8
+high_mhz = 108.0
+start_mhz = 101.1
+
+[[band]]
+id = "air"
+group = "listen"
+name = "Aircraft"
+icon = "plane"
+mode = "am"
+low_mhz = 118.0
+high_mhz = 137.0
+start_mhz = 119.0
+bookmarks = [
+  { mhz = 121.5, name = "Emergency guard" },
+]
+
+[[band]]
+id = "mil"
+group = "listen"
+name = "Military aircraft"
+icon = "plane"
+mode = "am"
+low_mhz = 225.0
+high_mhz = 400.0
+start_mhz = 243.0
+bookmarks = [
+  { mhz = 243.0, name = "UHF emergency guard" },
+]
+
+[[band]]
+id = "wx"
+group = "listen"
+name = "NOAA weather"
+icon = "cloud"
+mode = "nfm"
+low_mhz = 162.3
+high_mhz = 162.65
+start_mhz = 162.475
+bookmarks = [
+  { mhz = 162.400, name = "WX1" },
+  { mhz = 162.425, name = "WX2" },
+  { mhz = 162.450, name = "WX3" },
+  { mhz = 162.475, name = "WX4" },
+  { mhz = 162.500, name = "WX5" },
+  { mhz = 162.525, name = "WX6" },
+  { mhz = 162.550, name = "WX7" },
+]
+
+[[band]]
+id = "marine"
+group = "listen"
+name = "Marine"
+icon = "anchor"
+mode = "nfm"
+low_mhz = 156.0
+high_mhz = 162.1
+start_mhz = 156.8
+bookmarks = [
+  { mhz = 156.300, name = "Ch 6 safety" },
+  { mhz = 156.450, name = "Ch 9 calling" },
+  { mhz = 156.650, name = "Ch 13 bridge to bridge" },
+  { mhz = 156.800, name = "Ch 16 distress" },
+  { mhz = 157.100, name = "Ch 22A Coast Guard" },
+  { mhz = 161.975, name = "AIS 1", mode = "none" },
+  { mhz = 162.025, name = "AIS 2", mode = "none" },
+]
+
+[[band]]
+id = "cb"
+group = "listen"
+name = "CB radio"
+icon = "walkie"
+mode = "am"
+low_mhz = 26.95
+high_mhz = 27.42
+start_mhz = 27.185
+bookmarks = [
+  { mhz = 27.065, name = "Ch 9 emergency" },
+  { mhz = 27.185, name = "Ch 19 highway" },
+  { mhz = 27.385, name = "Ch 38 sideband", mode = "lsb" },
+]
+
+[[band]]
+id = "frs"
+group = "listen"
+name = "Walkie-talkies"
+icon = "walkie"
+mode = "nfm"
+low_mhz = 462.4
+high_mhz = 467.8
+start_mhz = 462.6
+bookmarks = [
+  { mhz = 462.5625, name = "FRS 1" },
+  { mhz = 462.5875, name = "FRS 2" },
+  { mhz = 462.6125, name = "FRS 3" },
+  { mhz = 462.6375, name = "FRS 4" },
+  { mhz = 462.6625, name = "FRS 5" },
+  { mhz = 462.6875, name = "FRS 6" },
+  { mhz = 462.7125, name = "FRS 7" },
+]
+
+[[band]]
+id = "rail"
+group = "listen"
+name = "Railroad"
+icon = "train"
+mode = "nfm"
+low_mhz = 160.2
+high_mhz = 161.6
+start_mhz = 160.9
+
+# ── Ham ────────────────────────────────────────────────
+
+[[band]]
+id = "10m"
+group = "ham"
+name = "10 m"
+icon = "wave"
+mode = "usb"
+low_mhz = 28.0
+high_mhz = 29.7
+start_mhz = 28.4
+bookmarks = [
+  { mhz = 28.074, name = "FT8" },
+  { mhz = 28.400, name = "Voice calling" },
+  { mhz = 29.600, name = "FM calling", mode = "nfm" },
+]
+
+[[band]]
+id = "6m"
+group = "ham"
+name = "6 m"
+icon = "wave"
+mode = "usb"
+low_mhz = 50.0
+high_mhz = 54.0
+start_mhz = 50.2
+bookmarks = [
+  { mhz = 50.125, name = "Voice calling" },
+  { mhz = 50.313, name = "FT8" },
+  { mhz = 52.525, name = "FM simplex", mode = "nfm" },
+]
+
+[[band]]
+id = "2m"
+group = "ham"
+name = "2 m"
+icon = "tower"
+mode = "nfm"
+low_mhz = 144.0
+high_mhz = 148.0
+start_mhz = 146.52
+bookmarks = [
+  { mhz = 144.390, name = "APRS" },
+  { mhz = 145.800, name = "Space station" },
+  { mhz = 146.520, name = "Simplex calling" },
+]
+
+[[band]]
+id = "125"
+group = "ham"
+name = "1.25 m"
+icon = "tower"
+mode = "nfm"
+low_mhz = 222.0
+high_mhz = 225.0
+start_mhz = 223.5
+bookmarks = [
+  { mhz = 223.500, name = "Simplex calling" },
+]
+
+[[band]]
+id = "70cm"
+group = "ham"
+name = "70 cm"
+icon = "tower"
+mode = "nfm"
+low_mhz = 420.0
+high_mhz = 450.0
+start_mhz = 446.0
+bookmarks = [
+  { mhz = 446.000, name = "Simplex calling" },
+]
+
+[[band]]
+id = "33cm"
+group = "ham"
+name = "33 cm"
+icon = "tower"
+mode = "nfm"
+low_mhz = 902.0
+high_mhz = 928.0
+start_mhz = 927.5
+
+[[band]]
+id = "23cm"
+group = "ham"
+name = "23 cm"
+icon = "tower"
+mode = "nfm"
+low_mhz = 1240.0
+high_mhz = 1300.0
+start_mhz = 1294.5
+bookmarks = [
+  { mhz = 1294.500, name = "FM simplex" },
+  { mhz = 1296.100, name = "SSB calling", mode = "usb" },
+]
+
+# ── Data and tracking ──────────────────────────────────
+
+[[band]]
+id = "adsb"
+group = "data"
+name = "Aircraft tracking"
+icon = "pin"
+mode = "none"
+low_mhz = 1088.8
+high_mhz = 1091.2
+start_mhz = 1090.0
+decoder = "adsb"
+bookmarks = [
+  { mhz = 1090.0, name = "ADS-B" },
+]
+
+[[band]]
+id = "acars"
+group = "data"
+name = "Aircraft messages"
+icon = "msg"
+mode = "am"
+low_mhz = 129.0
+high_mhz = 131.7
+start_mhz = 130.4
+decoder = "acars"
+bookmarks = [
+  { mhz = 129.125, name = "ACARS" },
+  { mhz = 130.025, name = "ACARS" },
+  { mhz = 130.450, name = "ACARS" },
+  { mhz = 131.550, name = "ACARS" },
+]
+
+[[band]]
+id = "sonde"
+group = "data"
+name = "Weather balloons"
+icon = "balloon"
+mode = "none"
+low_mhz = 400.0
+high_mhz = 406.0
+start_mhz = 403.0
+decoder = "radiosonde"
+
+[[band]]
+id = "ism315"
+group = "data"
+name = "Sensors 315"
+icon = "key"
+mode = "none"
+low_mhz = 314.4
+high_mhz = 315.6
+start_mhz = 315.0
+decoder = "rtl433"
+
+[[band]]
+id = "ism433"
+group = "data"
+name = "Sensors 433"
+icon = "therm"
+mode = "none"
+low_mhz = 433.05
+high_mhz = 434.79
+start_mhz = 433.92
+decoder = "rtl433"
+
+[[band]]
+id = "ism915"
+group = "data"
+name = "915 MHz devices"
+icon = "mesh"
+mode = "none"
+low_mhz = 902.0
+high_mhz = 928.0
+start_mhz = 907.0
+bookmarks = [
+  { mhz = 906.875, name = "Meshtastic" },
+]
+
+# ── Space ──────────────────────────────────────────────
+
+[[band]]
+id = "sat"
+group = "space"
+name = "Weather satellites"
+icon = "dish"
+mode = "none"
+low_mhz = 136.9
+high_mhz = 138.1
+start_mhz = 137.5
+bookmarks = [
+  { mhz = 137.100, name = "Meteor-M" },
+  { mhz = 137.900, name = "Meteor-M" },
+]
+
+[[band]]
+id = "iss"
+group = "space"
+name = "Space station"
+icon = "star"
+mode = "nfm"
+low_mhz = 145.6
+high_mhz = 146.0
+start_mhz = 145.8
+bookmarks = [
+  { mhz = 145.800, name = "Voice and SSTV pictures" },
+  { mhz = 145.825, name = "APRS" },
+]
+
+[[band]]
+id = "hline"
+group = "space"
+name = "Hydrogen line"
+icon = "star"
+mode = "none"
+low_mhz = 1419.2
+high_mhz = 1421.6
+start_mhz = 1420.405
+bookmarks = [
+  { mhz = 1420.405, name = "Milky Way hydrogen" },
+]

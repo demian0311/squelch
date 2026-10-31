@@ -1,0 +1,14 @@
+[package]
+name = "radio"
+version = "0.1.0"
+edition = "2021"
+description = "Receiver engine: RTL-SDR access, spectrum, detection, demodulation, audio"
+
+[dependencies]
+anyhow = "1"
+cpal = "0.18"
+dirs = "7"
+num-complex = "0.4"
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"

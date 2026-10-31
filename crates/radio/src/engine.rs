@@ -1,0 +1,281 @@
+//! The receive loop: reads the dongle, produces spectrum rows, finds signals and plays audio.
+
+use crate::audio::AudioOut;
+use crate::demod::{Demodulator, Mode};
+use crate::detect::{detect, Detected};
+use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
+use crate::dsp::{u8_to_iq, Mixer, C32};
+use crate::spectrum::{noise_floor, Spectrum};
+use serde::Serialize;
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
+pub const SAMPLE_RATE: u32 = 2_400_000;
+pub const FFT_SIZE: usize = 2048;
+pub const ROWS_PER_SEC: u32 = 30;
+/// Spectrum rows are sent as bytes: 0 is `floor - BELOW_FLOOR_DB`, 255 is `RANGE_DB` above that.
+pub const BELOW_FLOOR_DB: f32 = 8.0;
+pub const RANGE_DB: f32 = 60.0;
+/// Signals must stand this far above the noise floor to be reported.
+pub const DETECT_DB: f32 = 8.0;
+const READ_BYTES: usize = 131_072;
+
+#[derive(Debug, Clone)]
+pub enum Command {
+    /// Hardware centre and the frequency being listened to, both in Hz.
+    Tune { center_hz: f64, tuned_hz: f64 },
+    SetMode(Mode),
+    SetGain(Gain),
+    SetVolume(f32),
+    SetPlaying(bool),
+    Stop,
+}
+
+pub struct Row {
+    pub center_hz: f64,
+    pub bins: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Status {
+    pub device: String,
+    pub simulated: bool,
+    pub error: Option<String>,
+    pub sample_rate: u32,
+    pub center_hz: f64,
+    pub tuned_hz: f64,
+    pub mode: Mode,
+    pub playing: bool,
+    pub gains: Vec<i32>,
+    pub floor_db: f32,
+    /// Strongest bin inside the tuned channel, dB above the floor.
+    pub channel_snr_db: f32,
+    pub signals: Vec<Detected>,
+}
+
+pub struct Engine {
+    tx: Sender<Command>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl Engine {
+    /// Open the first dongle, or a simulated receiver if none answers or `RECEIVER_SIM` is set.
+    pub fn open_source() -> (Box<dyn IqSource>, Option<String>) {
+        if std::env::var_os("RECEIVER_SIM").is_none() {
+            match RtlSdr::open(0, SAMPLE_RATE) {
+                Ok(d) => return (Box::new(d), None),
+                Err(e) => return (Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true)), Some(e.to_string())),
+            }
+        }
+        (Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true)), None)
+    }
+
+    pub fn start(
+        source: Box<dyn IqSource>,
+        simulated_because: Option<String>,
+        on_row: impl Fn(Row) + Send + 'static,
+        on_status: impl Fn(Status) + Send + 'static,
+    ) -> Self {
+        let (tx, rx) = channel();
+        let handle = std::thread::Builder::new()
+            .name("radio".into())
+            .spawn(move || run(source, simulated_because, rx, on_row, on_status))
+            .expect("spawn radio thread");
+        Engine { tx, handle: Some(handle) }
+    }
+
+    pub fn send(&self, cmd: Command) {
+        let _ = self.tx.send(cmd);
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        let _ = self.tx.send(Command::Stop);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+fn run(
+    mut src: Box<dyn IqSource>,
+    simulated_because: Option<String>,
+    rx: Receiver<Command>,
+    on_row: impl Fn(Row),
+    on_status: impl Fn(Status),
+) {
+    let rate = src.sample_rate();
+    let simulated = src.name() == "Simulated receiver";
+    let device = match (&simulated_because, simulated) {
+        (Some(why), _) => format!("Simulated receiver ({why})"),
+        _ => src.name(),
+    };
+    let mut center = 101_100_000.0f64 + 300_000.0;
+    let mut tuned = 101_100_000.0f64;
+    let mut mode = Mode::Wfm;
+    let mut playing = true;
+    let mut volume = 0.7f32;
+    let mut error: Option<String> = None;
+    let _ = src.set_center(center as u32);
+
+    let audio = match AudioOut::open() {
+        Ok(a) => Some(a),
+        Err(e) => {
+            error = Some(format!("no audio: {e}"));
+            None
+        }
+    };
+    let mut demod = Demodulator::new(mode, rate);
+    let mut mixer = Mixer::new(tuned - center, rate as f64);
+    let mut spectrum = Spectrum::new(FFT_SIZE, rate, ROWS_PER_SEC);
+    let mut raw = vec![0u8; READ_BYTES];
+    let mut iq: Vec<C32> = Vec::new();
+    let mut chan: Vec<C32> = Vec::new();
+    let mut pcm: Vec<f32> = Vec::new();
+    let mut rows: Vec<Vec<f32>> = Vec::new();
+    let mut floor = -60.0f32;
+    let mut recent: Vec<Vec<f32>> = Vec::new();
+    let mut signals: Vec<Detected> = Vec::new();
+    let mut snr = 0.0f32;
+    let mut last_status = Instant::now() - Duration::from_secs(1);
+
+    loop {
+        loop {
+            match rx.try_recv() {
+                Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return,
+                Ok(Command::Tune { center_hz, tuned_hz }) => {
+                    if (center_hz - center).abs() > 1.0 {
+                        center = center_hz;
+                        if let Err(e) = src.set_center(center as u32) {
+                            error = Some(e.to_string());
+                        }
+                        recent.clear();
+                    }
+                    tuned = tuned_hz;
+                    mixer.set(tuned - center, rate as f64);
+                    if let Some(a) = &audio {
+                        a.clear();
+                    }
+                }
+                Ok(Command::SetMode(m)) => {
+                    mode = m;
+                    demod = Demodulator::new(mode, rate);
+                }
+                Ok(Command::SetGain(g)) => {
+                    if let Err(e) = src.set_gain(g) {
+                        error = Some(e.to_string());
+                    }
+                }
+                Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
+                Ok(Command::SetPlaying(p)) => {
+                    playing = p;
+                    if let (false, Some(a)) = (p, &audio) {
+                        a.clear();
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+            }
+        }
+
+        let n = match src.read(&mut raw) {
+            Ok(n) => n,
+            Err(e) => {
+                error = Some(e.to_string());
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, &[]);
+                std::thread::sleep(Duration::from_millis(500));
+                continue;
+            }
+        };
+        u8_to_iq(&raw[..n], &mut iq);
+
+        rows.clear();
+        spectrum.process(&iq, &mut rows);
+        for row in rows.drain(..) {
+            floor = 0.9 * floor + 0.1 * noise_floor(&row);
+            let lo = floor - BELOW_FLOOR_DB;
+            let bins = row.iter().map(|&db| (((db - lo) / RANGE_DB) * 255.0).clamp(0.0, 255.0) as u8).collect();
+            on_row(Row { center_hz: center, bins });
+            recent.push(row);
+        }
+        if recent.len() >= 6 {
+            let n = recent[0].len();
+            let mut avg = vec![0.0f32; n];
+            for r in &recent {
+                for (a, v) in avg.iter_mut().zip(r) {
+                    *a += v / recent.len() as f32;
+                }
+            }
+            signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
+            let bin_hz = rate as f64 / n as f64;
+            let half = (mode.bandwidth() as f64 / 2.0).max(bin_hz);
+            let lo = (((tuned - half - (center - rate as f64 / 2.0)) / bin_hz).floor().max(0.0)) as usize;
+            let hi = (((tuned + half - (center - rate as f64 / 2.0)) / bin_hz).ceil() as usize).min(n - 1);
+            snr = if lo <= hi { avg[lo..=hi].iter().cloned().fold(f32::MIN, f32::max) - floor } else { 0.0 };
+            recent.clear();
+        }
+
+        chan.clear();
+        chan.extend_from_slice(&iq);
+        mixer.process(&mut chan);
+        demod.process(&chan, &mut pcm);
+        if let (true, Some(a)) = (playing, &audio) {
+            a.push(&pcm, volume);
+        }
+
+        if last_status.elapsed() >= Duration::from_millis(200) {
+            last_status = Instant::now();
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, &signals);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn send_status(
+    on_status: &impl Fn(Status),
+    device: &str,
+    simulated: bool,
+    error: &Option<String>,
+    rate: u32,
+    center: f64,
+    tuned: f64,
+    mode: Mode,
+    playing: bool,
+    gains: Vec<i32>,
+    floor: f32,
+    snr: f32,
+    signals: &[Detected],
+) {
+    on_status(Status {
+        device: device.to_string(),
+        simulated,
+        error: error.clone(),
+        sample_rate: rate,
+        center_hz: center,
+        tuned_hz: tuned,
+        mode,
+        playing,
+        gains,
+        floor_db: floor,
+        channel_snr_db: snr,
+        signals: signals.to_vec(),
+    });
+}
+
+/// What the simulated receiver transmits when no dongle is plugged in.
+pub fn demo_signals() -> Vec<SimSignal> {
+    let fm = |mhz: f64, amp: f32| SimSignal { hz: mhz * 1e6, amp, fm_dev: 60_000.0, am_depth: 0.0, tone_hz: 440.0 };
+    let nfm = |mhz: f64, amp: f32, tone: f64| SimSignal { hz: mhz * 1e6, amp, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: tone };
+    vec![
+        fm(100.3, 0.25),
+        fm(100.7, 0.08),
+        fm(101.1, 0.35),
+        fm(101.9, 0.15),
+        fm(102.3, 0.1),
+        nfm(146.52, 0.2, 600.0),
+        nfm(146.94, 0.3, 800.0),
+        nfm(162.55, 0.3, 1_000.0),
+        SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0 },
+    ]
+}

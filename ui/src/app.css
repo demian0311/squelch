@@ -1,0 +1,50 @@
+:root {
+  --bg: #161b22;
+  --bg-dark: #11151b;
+  --bg-darker: #0c1014;
+  --bg-light: #202833;
+  --sel: #29323e;
+  --muted: #38424f;
+  --fg: #e6eaef;
+  --fg-dim: #9aa5b1;
+  --fg-bright: #f4f7fa;
+  --accent: #5b9bd5;
+  --green: #74b56e;
+  --yellow: #d9bd5a;
+  --orange: #e0975a;
+  --cyan: #45b3a3;
+  --red: #e07b6e;
+  --mono: 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace;
+  --sans: Inter, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.mono {
+  font-family: var(--mono);
+}
