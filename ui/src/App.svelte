@@ -15,6 +15,7 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import Level from './components/Level.svelte';
+  import { flip } from 'svelte/animate';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
 
@@ -384,6 +385,10 @@
     }
     return m;
   });
+  // on-air repeaters first, strongest first, so they show in the short list under the map; the rest stay nearest first
+  let repRows = $derived(
+    repNear.filter((p) => p !== repTuned).sort((a, b) => (repLive.get(b.hz) ?? -999) - (repLive.get(a.hz) ?? -999)),
+  );
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
     const maybe = repPoints.filter((p) => p.digital).length;
@@ -985,9 +990,9 @@
                       {#if repTuned.digital}<span class="warn">Listed as {repTuned.digital} too. If it is digital only, it will sound like buzzing.</span>{/if}
                     </div>
                   {/if}
-                  {#each repNear.filter((p) => p !== repTuned) as p (p.hz)}
+                  {#each repRows as p (p.hz)}
                     {@const snr = repLive.get(p.hz)}
-                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
+                    <button class="reprow chrow" class:live={snr !== undefined} animate:flip={{ duration: 250 }} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
                       <span class="dot"></span>
                       <span class="name">{p.call}</span>
                       <span class="dim town">{p.city}</span>
