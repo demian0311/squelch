@@ -3,6 +3,7 @@ name = "radio"
 version = "0.1.0"
 edition = "2021"
 description = "Receiver engine: RTL-SDR access, spectrum, detection, demodulation, audio"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 anyhow = "1"

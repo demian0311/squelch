@@ -3,6 +3,7 @@ name = "squelch"
 version = "0.1.0"
 edition = "2021"
 description = "Squelch: an RTL-SDR receiver"
+license = "GPL-3.0-or-later"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
