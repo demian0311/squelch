@@ -173,7 +173,24 @@
   /** Tunes and slides the view so the station sits in the middle. */
   function tuneCentered(hz: number) {
     tuneTo(hz);
-    setView(tuned - span / 2, tuned + span / 2);
+    slideView(tuned - span / 2, tuned + span / 2);
+  }
+
+  // an eased glide to a new view; dragging or zooming meanwhile stops it
+  const SLIDE_MS = 260;
+  let slideFrame = 0;
+  function slideView(nvs: number, nve: number) {
+    cancelAnimationFrame(slideFrame);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return setView(nvs, nve);
+    const [a, b] = [vs, ve];
+    const t0 = performance.now();
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - t0) / SLIDE_MS);
+      const k = 1 - (1 - t) ** 3;
+      setView(a + (nvs - a) * k, b + (nve - b) * k);
+      if (t < 1) slideFrame = requestAnimationFrame(frame);
+    };
+    slideFrame = requestAnimationFrame(frame);
   }
 
   $effect(() => {
@@ -763,7 +780,10 @@
               specH={maxPane === 'panel' ? STRIP_SPEC_H : SPEC_H}
               colors={wfColors}
               onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
-              onView={setView}
+              onView={(a, b) => {
+                cancelAnimationFrame(slideFrame);
+                setView(a, b);
+              }}
               bandId={band?.id}
             />
           </div>
