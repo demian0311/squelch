@@ -105,6 +105,15 @@ mod tests {
     }
 
     #[test]
+    fn docs_example_parses() {
+        let doc = include_str!("../../../docs/bands.md");
+        let toml = doc.split("```toml\n").nth(1).and_then(|s| s.split("```").next()).unwrap();
+        let plan = BandPlan::parse(toml).unwrap();
+        assert_eq!(plan.bands[0].group, plan.groups[0].id);
+        assert_eq!(plan.bands[0].bookmarks.len(), 2);
+    }
+
+    #[test]
     fn narrowest_band_wins_on_overlap() {
         let plan = BandPlan::parse(DEFAULT_BANDS).unwrap();
         assert_eq!(plan.band_at(145.8).unwrap().id, "iss");

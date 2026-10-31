@@ -1,6 +1,7 @@
 # Bands shown in the receiver's band list.
 #
 # Copied to ~/.config/squelch/bands.toml on first start; edit that copy.
+# Full format: docs/bands.md in https://github.com/demian0311/squelch
 # Each band picks the mode used when you tune inside it. Bookmarks label
 # known frequencies; a bookmark can override the band's mode.
 #

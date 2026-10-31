@@ -45,6 +45,8 @@ For HD Radio, install `nrsc5-git` from the AUR, or build nrsc5 and put `libnrsc5
 
 The band list is in `~/.config/squelch/bands.toml`. It is written from the defaults on first start, and Squelch never overwrites it. Edits show up within a few seconds, with no restart.
 
+[docs/bands.md](docs/bands.md) describes every field, so you or an AI agent can add your own bands and local repeaters.
+
 ## Development
 
 ```sh
