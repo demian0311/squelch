@@ -282,7 +282,7 @@
   .rep:hover .dot {
     stroke: var(--fg-bright);
   }
-  /* a signal on the repeater's output: a ring grows out of the dot and fades. Drawn at its largest (4.5 dots) and scaled down, so the edge ends 1.5 px wide */
+  /* a signal on the repeater's output: a ring around the dot. Steady, not pulsing: a running animation redraws the whole window 60 times a second here */
   .blips {
     position: absolute;
     inset: 0;
@@ -290,32 +290,16 @@
   }
   .blip {
     position: absolute;
-    width: 27px;
-    height: 27px;
-    margin: -13.5px 0 0 -13.5px;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
     box-sizing: border-box;
     border: 1.5px solid var(--green);
     border-radius: 50%;
-    animation: blip 1.2s ease-out infinite;
+    opacity: 0.8;
   }
   .blip.tuned {
     border-color: var(--orange);
-  }
-  @keyframes blip {
-    from {
-      transform: scale(0.222);
-      opacity: 0.9;
-    }
-    to {
-      transform: scale(1);
-      opacity: 0;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .blip {
-      animation: none;
-      transform: scale(0.444);
-    }
   }
   .site {
     fill: var(--yellow);

@@ -745,7 +745,7 @@
           onpointerdown={dragSquelch}
           onkeydown={squelchKey}
         >
-          <div class="fill" class:muted style:clip-path="inset(0 {100 - meter}% 0 0 round 4px)"></div>
+          <div class="fillclip"><div class="fill" class:muted style:transform="translateX({meter - 100}%)"></div></div>
           <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
         </div>
       </div>
@@ -1189,12 +1189,18 @@
     cursor: ew-resize;
     touch-action: none;
   }
+  .fillclip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 4px;
+  }
+  /* slid, not resized, and not eased: a transition would keep the compositor running between the five updates a second */
   .fill {
+    width: 100%;
     height: 8px;
     border-radius: 4px;
     background: linear-gradient(90deg, var(--green), var(--yellow));
-    /* clipped, not resized: a width transition lays out the page on every frame */
-    transition: clip-path 200ms;
   }
   .fill.muted {
     background: var(--fg-dim);
@@ -1665,37 +1671,13 @@
     color: var(--orange);
     font-weight: 700;
     cursor: pointer;
-    position: relative;
-  }
-  /* the glow fades in and out by opacity, which WebKit runs on the compositor; animating box-shadow repaints every frame */
-  .hdchip::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    box-shadow: 0 0 10px var(--orange);
-    opacity: 0;
-    animation: hdpulse 2s ease-in-out infinite;
-    pointer-events: none;
+    /* a steady glow: any running animation, even on the compositor, redraws the whole window 60 times a second here */
+    box-shadow: 0 0 6px var(--orange);
   }
   .hdchip.on {
     background: var(--orange);
     color: var(--bg);
     box-shadow: 0 0 8px var(--orange);
-  }
-  .hdchip.on::after {
-    animation: none;
-  }
-  @keyframes hdpulse {
-    50% {
-      opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hdchip::after {
-      animation: none;
-      opacity: 0.6;
-    }
   }
   .card.sel.hdon {
     border-color: var(--orange);
@@ -1841,31 +1823,8 @@
   .chrow.live .dot {
     border-color: var(--green);
     background: var(--green);
-  }
-  /* the ring grows by transform and fades by opacity, which WebKit runs on the compositor; a growing box-shadow repaints every frame */
-  .chrow.live .dot::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--green) 60%, transparent);
-    animation: onair 1.6s ease-out infinite;
-  }
-  @keyframes onair {
-    from {
-      transform: scale(1);
-      opacity: 1;
-    }
-    to {
-      transform: scale(2.4);
-      opacity: 0;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .chrow.live .dot::after {
-      animation: none;
-      opacity: 0;
-    }
+    /* a steady halo, not a pulse: a running animation redraws the whole window 60 times a second here */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 35%, transparent);
   }
 
   .reprow .town {

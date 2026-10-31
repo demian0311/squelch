@@ -207,18 +207,8 @@
     height: 9px;
     border-radius: 50%;
     background: var(--yellow);
+    /* steady: a running animation redraws the whole window 60 times a second here */
     box-shadow: 0 0 0 2px var(--bg-dark);
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    50% {
-      opacity: 0.35;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .live {
-      animation: none;
-    }
   }
   .text {
     display: flex;

@@ -4,6 +4,7 @@
   // the visible frequency range (view) is owned by the parent.
   import { onMount } from 'svelte';
   import { lut as makeLut } from '../lib/theme';
+  import { makeRenderer, type Renderer } from '../lib/waterfall/renderer';
   import type { Row } from '../lib/api';
 
   interface Props {
@@ -22,125 +23,139 @@
   }
   let { vs, ve, rate, stops, tuned, bandwidth, specH, colors, onTune, onView, bandId }: Props = $props();
 
-  let canvas: HTMLCanvasElement;
+  let wrap: HTMLDivElement;
+  let specCanvas: HTMLCanvasElement;
+  let wfCanvas: HTMLCanvasElement;
   let width = $state(800);
   let height = $state(500);
   let ctx: CanvasRenderingContext2D | null = null;
-  let img: ImageData | null = null;
+  let renderer: Renderer | null = null;
+  // the spectrum line, one point per screen pixel, smoothed over rows
   let avg = new Float32Array(0);
   let lastVs = 0;
   let lastVe = 0;
-  let lutCache: Uint8ClampedArray = new Uint8ClampedArray(256 * 3);
   let dragging = $state(false);
   let drag: { x: number; vs: number; ve: number; moved: boolean } | null = null;
-  let spectrumDirty = false;
   // drawing happens in device pixels so the picture stays sharp on scaled displays
   let dpr = 1;
   let S = 0;
-  let WF = 0;
+  let W = 0;
+  /** device pixels per waterfall row and per spectrum point: whole screen pixels */
+  let step = 1;
 
   const AXIS = 22;
   let wfH = $derived(Math.max(60, height - specH - AXIS));
 
   $effect(() => {
-    lutCache = makeLut(stops);
+    renderer?.setPalette(makeLut(stops));
+    renderer?.draw(vs, ve);
   });
 
   function resize() {
-    if (!canvas) return;
+    if (!specCanvas || !wfCanvas) return;
     dpr = window.devicePixelRatio || 1;
-    const w = Math.max(64, Math.round(width * dpr));
-    const h = Math.round((specH + wfH) * dpr);
-    if (canvas.width === w && canvas.height === h) return;
-    const old = ctx && canvas.width > 0 && WF > 0 ? ctx.getImageData(0, S, canvas.width, Math.min(canvas.height - S, WF)) : null;
-    canvas.width = w;
-    canvas.height = h;
+    step = Math.max(1, Math.round(dpr));
+    W = Math.max(64, Math.round(width * dpr));
     S = Math.round(specH * dpr);
-    WF = h - S;
-    ctx = canvas.getContext('2d', { willReadFrequently: false });
-    if (!ctx) return;
-    ctx.fillStyle = stops[0];
-    ctx.fillRect(0, 0, w, h);
-    if (old) ctx.putImageData(old, 0, S);
-    img = ctx.createImageData(w, 1);
-    avg = new Float32Array(w);
-    lastVs = vs;
-    lastVe = ve;
+    if (specCanvas.width !== W || specCanvas.height !== S) {
+      specCanvas.width = W;
+      specCanvas.height = S;
+      ctx = specCanvas.getContext('2d');
+    }
+    renderer?.resize(W, Math.round(wfH * dpr), step);
+    const points = Math.floor(W / step) + 1;
+    if (avg.length !== points) {
+      avg = new Float32Array(points);
+      lastVs = vs;
+      lastVe = ve;
+      rangeKey = '';
+    }
+    drawSpectrum();
+    renderer?.draw(vs, ve);
   }
+
+  onMount(() => {
+    renderer = makeRenderer(wfCanvas);
+    renderer.setPalette(makeLut(stops));
+    resize();
+  });
 
   $effect(() => {
     void width;
     void wfH;
+    void specH;
     resize();
   });
 
-  // When the view moves or zooms, stretch and shift the history so it stays lined up.
+  // When the view moves or zooms, stretch and shift the line's history so it stays lined up; the waterfall does its own.
   $effect(() => {
     const nvs = vs;
     const nve = ve;
-    if (!ctx || (nvs === lastVs && nve === lastVe)) return;
-    const W = canvas.width;
-    const a = (lastVe - lastVs) / (nve - nvs);
-    const b = ((lastVs - nvs) / (nve - nvs)) * W;
-    const tmp = document.createElement('canvas');
-    tmp.width = W;
-    tmp.height = WF;
-    tmp.getContext('2d')!.drawImage(canvas, 0, S, W, WF, 0, 0, W, WF);
-    ctx.fillStyle = stops[0];
-    ctx.fillRect(0, S, W, WF);
-    ctx.drawImage(tmp, 0, 0, W, WF, b, S, a * W, WF);
-    const na = new Float32Array(W);
-    for (let x = 0; x < W; x++) {
-      const src = Math.round((x - b) / a);
-      na[x] = src >= 0 && src < W ? avg[src] : 0;
+    if (nvs === lastVs && nve === lastVe) return;
+    if (lastVe > lastVs) {
+      const P = avg.length;
+      const a = (lastVe - lastVs) / (nve - nvs);
+      const b = ((lastVs - nvs) / (nve - nvs)) * P;
+      const na = new Float32Array(P);
+      for (let x = 0; x < P; x++) {
+        const src = Math.round((x - b) / a);
+        na[x] = src >= 0 && src < P ? avg[src] : 0;
+      }
+      avg = na;
     }
-    avg = na;
     lastVs = nvs;
     lastVe = nve;
-    spectrumDirty = true;
+    rangeKey = '';
+    renderer?.draw(nvs, nve);
+    drawSpectrum();
   });
 
-  /** Add one spectrum row, mapped from its capture window into the current view. */
-  export function push(row: Row) {
-    if (!ctx || !img) return;
-    const W = canvas.width;
-    const n = row.bins.length;
-    const lo = row.centerHz - rate / 2;
+  // which bins each spectrum point covers; recomputed only when the view, the capture or the width changes
+  let b0s = new Int32Array(0);
+  let b1s = new Int32Array(0);
+  let rangeKey = '';
+  function binRanges(lo: number, n: number) {
+    const P = avg.length;
+    const key = `${P} ${lo} ${n} ${rate} ${vs} ${ve}`;
+    if (key === rangeKey) return;
+    rangeKey = key;
+    if (b0s.length !== P) {
+      b0s = new Int32Array(P);
+      b1s = new Int32Array(P);
+    }
     const binHz = rate / n;
     const span = ve - vs;
-    const data = img.data;
-    const L = lutCache;
-    for (let x = 0; x < W; x++) {
-      const f0 = vs + (x / W) * span;
-      const f1 = vs + ((x + 1) / W) * span;
-      let b0 = Math.floor((f0 - lo) / binHz);
-      let b1 = Math.floor((f1 - lo) / binHz);
-      let v = 0;
+    for (let i = 0; i < P; i++) {
+      const b0 = Math.floor((vs + ((i - 0.5) / (P - 1)) * span - lo) / binHz);
+      const b1 = Math.floor((vs + ((i + 0.5) / (P - 1)) * span - lo) / binHz);
+      // b1 < 0 marks a point outside the capture
       if (b1 < 0 || b0 >= n) {
-        v = 0;
+        b1s[i] = -1;
       } else {
-        b0 = Math.max(0, b0);
-        b1 = Math.min(n - 1, Math.max(b0, b1));
-        for (let b = b0; b <= b1; b++) if (row.bins[b] > v) v = row.bins[b];
+        b0s[i] = Math.max(0, b0);
+        b1s[i] = Math.min(n - 1, Math.max(b0, b1));
       }
-      avg[x] = avg[x] * 0.6 + v * 0.4;
-      const k = v * 3;
-      data[x * 4] = L[k];
-      data[x * 4 + 1] = L[k + 1];
-      data[x * 4 + 2] = L[k + 2];
-      data[x * 4 + 3] = 255;
     }
-    // two device pixels per row on a 2× screen keeps the scroll speed the same as 1×
-    const step = Math.max(1, Math.round(dpr));
-    ctx.drawImage(canvas, 0, S, W, WF - step, 0, S + step, W, WF - step);
-    for (let k = 0; k < step; k++) ctx.putImageData(img, 0, S + k);
-    spectrumDirty = true;
+  }
+
+  /** Add one spectrum row. */
+  export function push(row: Row) {
+    if (!renderer) return;
+    const bins = row.bins;
+    binRanges(row.centerHz - rate / 2, bins.length);
+    for (let i = 0; i < avg.length; i++) {
+      const b1 = b1s[i];
+      let v = 0;
+      if (b1 >= 0) for (let b = b0s[i]; b <= b1; b++) if (bins[b] > v) v = bins[b];
+      avg[i] = avg[i] * 0.6 + v * 0.4;
+    }
+    renderer.push(bins, row.centerHz, rate, vs, ve);
+    renderer.draw(vs, ve);
+    drawSpectrum();
   }
 
   function drawSpectrum() {
-    if (!ctx || !spectrumDirty) return;
-    spectrumDirty = false;
-    const W = canvas.width;
+    if (!ctx) return;
     ctx.fillStyle = colors.bg;
     ctx.fillRect(0, 0, W, S);
     ctx.strokeStyle = colors.grid;
@@ -158,44 +173,37 @@
     const x1 = ((tuned + bandwidth / 2 - vs) / span) * W;
     ctx.fillStyle = colors.fill;
     ctx.fillRect(x0, 0, Math.max(2 * dpr, x1 - x0), S);
-    const y = (x: number) => S - (avg[x] / 255) * (S - 10 * dpr) - dpr;
-    ctx.beginPath();
-    ctx.moveTo(0, S);
-    for (let x = 0; x < W; x++) ctx.lineTo(x, y(x));
-    ctx.lineTo(W, S);
-    ctx.closePath();
+    const P = avg.length;
+    if (P < 2) return;
+    const y = (i: number) => S - (avg[i] / 255) * (S - 10 * dpr) - dpr;
+    // one path for both the fill and the line
+    const curve = new Path2D();
+    curve.moveTo(0, y(0));
+    for (let i = 1; i < P; i++) curve.lineTo((i / (P - 1)) * W, y(i));
+    const under = new Path2D(curve);
+    under.lineTo(W, S);
+    under.lineTo(0, S);
+    under.closePath();
     ctx.fillStyle = colors.fill;
-    ctx.fill();
-    ctx.beginPath();
-    for (let x = 0; x < W; x++) (x === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, x, y(x));
+    ctx.fill(under);
     ctx.strokeStyle = colors.line;
-    ctx.stroke();
+    ctx.stroke(curve);
   }
-
-  onMount(() => {
-    let raf = 0;
-    const loop = () => {
-      drawSpectrum();
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  });
 
   $effect(() => {
     void tuned;
     void bandwidth;
     void colors;
-    spectrumDirty = true;
+    drawSpectrum();
   });
 
   function freqAt(clientX: number) {
-    const r = canvas.getBoundingClientRect();
+    const r = wrap.getBoundingClientRect();
     return vs + Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * (ve - vs);
   }
 
   function down(e: PointerEvent) {
-    canvas.setPointerCapture(e.pointerId);
+    wrap.setPointerCapture(e.pointerId);
     drag = { x: e.clientX, vs, ve, moved: false };
     dragging = true;
   }
@@ -204,7 +212,7 @@
     const dx = e.clientX - drag.x;
     if (Math.abs(dx) > 4) drag.moved = true;
     if (!drag.moved) return;
-    const r = canvas.getBoundingClientRect();
+    const r = wrap.getBoundingClientRect();
     const df = (-dx / r.width) * (drag.ve - drag.vs);
     onView(drag.vs + df, drag.ve + df);
   }
@@ -212,7 +220,7 @@
     const d = drag;
     drag = null;
     dragging = false;
-    if (d && !d.moved) onTune(freqAt(e.clientX), (ve - vs) / canvas.getBoundingClientRect().width);
+    if (d && !d.moved) onTune(freqAt(e.clientX), (ve - vs) / wrap.getBoundingClientRect().width);
   }
   /** Zoom per pixel scrolled: 100 px is about 20 %. Touchpads send many small events, wheels a few big ones. */
   const ZOOM_PER_PX = 0.002;
@@ -221,12 +229,12 @@
   // vertical scroll zooms around the pointer; sideways scroll moves the view
   function wheel(e: WheelEvent) {
     e.preventDefault();
-    const unit = e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? canvas.clientHeight : 1;
+    const unit = e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? wrap.clientHeight : 1;
     const dx = e.deltaX * unit;
     const dy = e.deltaY * unit;
     const span = ve - vs;
     if (Math.abs(dx) > Math.abs(dy)) {
-      const shift = (dx / canvas.getBoundingClientRect().width) * span;
+      const shift = (dx / wrap.getBoundingClientRect().width) * span;
       onView(vs + shift, ve + shift);
       return;
     }
@@ -256,18 +264,23 @@
   let markerLeft = $derived(((tuned - vs) / (ve - vs)) * 100);
 </script>
 
-<div class="wrap" bind:clientWidth={width} bind:clientHeight={height} style:background={colors.bg}>
-  <canvas
-    bind:this={canvas}
-    class:dragging
-    style:height="{specH + wfH}px"
-    onpointerdown={down}
-    onpointermove={move}
-    onpointerup={up}
-    onpointercancel={() => ((drag = null), (dragging = false))}
-    onwheel={wheel}
-    aria-label="Spectrum and waterfall. Drag to move, scroll to zoom, click to tune."
-  ></canvas>
+<div
+  class="wrap"
+  class:dragging
+  bind:this={wrap}
+  bind:clientWidth={width}
+  bind:clientHeight={height}
+  style:background={colors.bg}
+  onpointerdown={down}
+  onpointermove={move}
+  onpointerup={up}
+  onpointercancel={() => ((drag = null), (dragging = false))}
+  onwheel={wheel}
+  role="img"
+  aria-label="Spectrum and waterfall. Drag to move, scroll to zoom, click to tune."
+>
+  <canvas bind:this={specCanvas} class="spec" style:height="{specH}px"></canvas>
+  <canvas bind:this={wfCanvas} class="wf" style:top="{specH}px" style:height="{wfH}px"></canvas>
   {#if markerLeft >= 0 && markerLeft <= 100}
     <div class="marker" style:left="{markerLeft}%" style:height="{specH + wfH}px" style:background={colors.accent}></div>
   {/if}
@@ -291,15 +304,20 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .wrap.dragging {
+    cursor: grabbing;
   }
   canvas {
     display: block;
     width: 100%;
-    cursor: crosshair;
-    touch-action: none;
+    pointer-events: none;
   }
-  canvas.dragging {
-    cursor: grabbing;
+  .wf {
+    position: absolute;
+    left: 0;
   }
   .marker {
     position: absolute;
