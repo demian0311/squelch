@@ -5,13 +5,13 @@
   import { channelAt, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
-  import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
+  import { apply as applyTheme, groupHue, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
-  import Tray from './components/Tray.svelte';
+  import Pane from './components/Pane.svelte';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
@@ -21,7 +21,11 @@
   const CARD_W = 176;
   const LANE_H = 92;
   const SPEC_H = 130;
+  // the waterfall's spectrum line while the panel has the screen
+  const STRIP_SPEC_H = 24;
   const MIN_SPAN = 25_000;
+  // the signal meter's full scale, dB above the noise floor
+  const METER_DB = 40;
   // keep the listened-to frequency off the tuner's centre
   const DC_OFFSET = 60_000;
 
@@ -41,8 +45,8 @@
   let playing = $state(true);
   let volume = $state(0.7);
   let gain = $state<string>('auto');
-  let railOpen = $state(true);
-  let dockOpen = $state(readDock());
+  let railOpen = $state(readNumber('rail', 1) === 1);
+  let settingsOpen = $state(false);
   // dB above the noise floor; 0 means off. Empty channels read 3–10 dB on this dongle.
   let squelch = $state(readNumber('squelch', 12));
 
@@ -65,13 +69,6 @@
       // remembering the choice is a nicety
     }
   }
-  function readDock(): boolean {
-    try {
-      return localStorage.getItem('dock') !== 'closed';
-    } catch {
-      return true;
-    }
-  }
   /** HD Radio program chosen per FM station (by channel Hz); a station without an entry plays analog. */
   let hdPrefs = $state<Record<string, number>>(readHdPrefs());
   function readHdPrefs(): Record<string, number> {
@@ -90,13 +87,16 @@
       return {};
     }
   }
-  function toggleDock() {
-    dockOpen = !dockOpen;
+  function remember(key: string, v: string) {
     try {
-      localStorage.setItem('dock', dockOpen ? 'open' : 'closed');
+      localStorage.setItem(key, v);
     } catch {
       // remembering the choice is a nicety
     }
+  }
+  function toggleRail() {
+    railOpen = !railOpen;
+    remember('rail', railOpen ? '1' : '0');
   }
   let full = $state(false);
   let boxW = $state(1000);
@@ -182,6 +182,7 @@
 
   function pickBand(b: Band) {
     bandId = b.id;
+    panelPick = null;
     const s = Math.min(maxSpan, (b.high_mhz - b.low_mhz) * 1e6);
     const start = bandEntryHz(b, lastHz);
     let nvs = start - s / 2;
@@ -339,7 +340,7 @@
     issTrack = await api.issTrack();
     iss = await api.iss(location);
   }
-  // the repeater tray: only on bands with a reach estimate, centred on the location
+  // the repeater panel: only on bands with a reach estimate, centred on the location
   let repReachKm = $derived(band ? REACH_KM[band.id] : undefined);
   let repInBand = $derived(band && repReachKm !== undefined ? repeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
   let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
@@ -417,19 +418,116 @@
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
     rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
-  let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / 40) * 100)) : 0);
+  let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / METER_DB) * 100)) : 0);
 
   // ── theme ───────────────────────────────────────────
 
-  let stops = $derived(waterfallStops(theme));
+  let hues = $derived(Object.fromEntries(plan.groups.map((g) => [g.id, groupHue(theme, g.id, plan.groups.map((x) => x.id))])));
+  let hue = $derived((band && hues[band.group]) ?? theme.accent);
+  let stops = $derived(waterfallStops(theme, hue));
   let wfColors = $derived({
     bg: theme.darker_background,
     grid: theme.lighter_background,
     line: theme.foreground,
-    fill: theme.accent + '2e',
-    accent: theme.accent,
+    fill: hue + '2e',
+    accent: hue,
     tick: theme.light_foreground,
   });
+
+  // ── panels ──────────────────────────────────────────
+  // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
+
+  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters';
+  let panelPick = $state<PanelId | null>(null);
+  let panels = $derived.by(() => {
+    const own: PanelId[] = [];
+    if (band?.id === 'iss') own.push('iss');
+    if (decoding) own.push('sondes');
+    if (p25) own.push('p25');
+    if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
+    if (hd) own.push('hd');
+    // a pass overhead is worth a tab on any band, but never opens a panel by itself
+    if (own.length && issUp && !own.includes('iss')) own.push('iss');
+    return own;
+  });
+  let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
+  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters' };
+  let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
+  const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
+  let panelSummary = $derived(
+    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : '',
+  );
+
+  let wfSummary = $derived(
+    `${band?.name ?? 'Tuned'} · ${fmtMHz(vs)} – ${fmtMHz(ve)} MHz` +
+      (decoding ? ` · decoding weather balloons on ${status?.decoding_hz.length ?? 0} signal${status?.decoding_hz.length === 1 ? '' : 's'}` : band?.decoder ? ` · the ${band.decoder} decoder is not built yet; this is the raw signal` : ''),
+  );
+
+  // which pane has the screen; it lets go when the panel changes
+  let maxed = $state<{ pane: 'wf' | 'panel'; panel: PanelId } | null>(null);
+  let maxPane = $derived(maxed && maxed.panel === panel ? maxed.pane : null);
+  function toggleMax(pane: 'wf' | 'panel') {
+    if (!panel) return;
+    maxed = maxPane === pane ? null : { pane, panel };
+  }
+
+  // the panel's share of the width (or height when stacked), dragged at the divider
+  let panelShare = $state(readNumber('panel.share', 38));
+  let stacked = $state(false);
+  let mainEl: HTMLElement;
+  function startDivider(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    grip.setPointerCapture(e.pointerId);
+    const r = mainEl.getBoundingClientRect();
+    const move = (m: PointerEvent) => {
+      const v = stacked ? ((r.bottom - m.clientY) / r.height) * 100 : ((r.right - m.clientX) / r.width) * 100;
+      panelShare = Math.round(Math.min(75, Math.max(20, v)));
+    };
+    const stop = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', stop);
+      remember('panel.share', String(panelShare));
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', stop);
+  }
+
+  // drag, zoom and tune are shown once, until dismissed
+  let hintSeen = $state(readNumber('hint.seen', 0) === 1);
+  function dismissHint() {
+    hintSeen = true;
+    remember('hint.seen', '1');
+  }
+
+  // ── squelch on the signal meter ─────────────────────
+  // the mark is the squelch level, and far left turns it off
+
+  function dragSquelch(e: PointerEvent) {
+    if (e.button !== 0) return;
+    const track = e.currentTarget as HTMLElement;
+    track.setPointerCapture(e.pointerId);
+    const r = track.getBoundingClientRect();
+    const set = (m: PointerEvent) => {
+      const db = Math.round(((m.clientX - r.left) / r.width) * METER_DB);
+      squelch = db < 1 ? 0 : Math.min(METER_DB, db);
+    };
+    set(e);
+    const stop = () => {
+      track.removeEventListener('pointermove', set);
+      track.removeEventListener('pointerup', stop);
+    };
+    track.addEventListener('pointermove', set);
+    track.addEventListener('pointerup', stop);
+  }
+  function squelchKey(e: KeyboardEvent) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') squelch = Math.min(METER_DB, squelch + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') squelch = Math.max(0, squelch - 1);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   function setTheme(t: Theme) {
     theme = resolve(t);
@@ -462,9 +560,12 @@
     else if (e.key === ']') setView(vs + span / 4, ve + span / 4);
     else if (e.key === '-') zoom(1.5);
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
-    else if (e.key === 'f') toggleFull();
+    else if (e.key === 'f') toggleMax('panel');
+    else if (e.key === 'F11') toggleFull();
+    else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
+    else if (e.key === 'Escape' && maxPane) maxed = null;
     else if (e.key === ' ') togglePlay();
-    else if (e.key === 'c') toggleDock();
+    else if (e.key === 's') settingsOpen = !settingsOpen;
     else return;
     e.preventDefault();
   }
@@ -544,340 +645,341 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="app">
-  <header>
-    <div class="freq">
-      <span class="digits mono">{fmtHz(tuned)}</span>
-      <span class="unit mono">MHz</span>
-    </div>
-    <div class="now">
-      <span class="title">{nowTitle}</span>
-      <span class="sub">{nowSub}</span>
-    </div>
-    <div class="meter">
-      <span>Signal</span>
-      <div class="track">
-        <div class="fill" class:muted style:width="{meter}%"></div>
-        {#if squelch > 0}<span class="sq-mark" style:left="{Math.min(100, (squelch / 40) * 100)}%" title="Squelch level"></span>{/if}
+<div class="app" style:--accent={hue} style:--hue={hue}>
+  {#if !full}
+    <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+  {/if}
+
+  <div class="right">
+    <header>
+      <div class="freq">
+        <span class="digits mono"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</span>
+        <span class="unit mono">MHz</span>
       </div>
-    </div>
-  </header>
-
-  <div class="body">
-    {#if !full}
-      <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={() => (railOpen = !railOpen)} marks={railMarks} />
-    {/if}
-
-    <main>
-      <div class="toolbar">
-        <h1>{band?.name ?? 'Squelch'}</h1>
-        <span class="range mono">{fmtMHz(vs)} – {fmtMHz(ve)} MHz</span>
-        {#if decoding}
-          <span class="hint">Decoding weather balloons (DFM and RS41) on {status?.decoding_hz.length ?? 0} signal{status?.decoding_hz.length === 1 ? '' : 's'}</span>
-        {:else if band?.decoder}
-          <span class="note">The {band.decoder} decoder is not built yet — this shows the raw signal.</span>
-        {:else}
-          <span class="hint">Drag or swipe sideways to move · scroll up or down to zoom · click to tune</span>
-        {/if}
-        {#if steadyCount || showSteady}
-          <button class="steadybtn" onclick={() => (showSteady = !showSteady)} title="Narrow carriers that never switch off are usually interference from nearby electronics">
-            {showSteady ? 'Hide steady carriers' : `${steadyCount} steady carrier${steadyCount === 1 ? '' : 's'} hidden · show`}
-          </button>
-        {/if}
+      <div class="now">
+        <span class="title">{nowTitle}</span>
+        <span class="sub">{nowSub}</span>
       </div>
-
-      <div class="stage">
-      <div class="box" class:panning bind:clientWidth={boxW}>
-        <div class="lane" style:height="{LANE_H}px">
-          {#each dots as d}
-            <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
-          {/each}
-          {#each cards as c (c.at)}
-            <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-            <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
-              <span class="row1">
-                <span class="ttl">{c.item.title}</span>
-                {#if c.hidden.length}
-                  <span class="more mono" title={c.hidden.map((h) => `${fmtMHz(h.hz)} ${h.title}`).join(', ') + ' — zoom in to separate'}>+{c.hidden.length}</span>
-                {/if}
-              </span>
-              <span class="row2">{c.item.sub}</span>
-              <span class="row3 mono">
-                <span>{fmtMHz(c.at)}</span>
-                <span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>
-                {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
-                  <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
-                {/if}
-                <span class="bar"><span style:width="{c.meter}%"></span></span>
-              </span>
-            </button>
-          {/each}
+      <div class="transport">
+        <button class="sq" onclick={() => step(-1)} aria-label="Previous signal" title="Previous signal (←)">←</button>
+        <button class="play" class:on={playing} onclick={togglePlay} title="Listen or stop (space)">{playing ? 'Stop' : 'Listen'}</button>
+        <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
+      </div>
+      <label class="ctl">
+        <span>Volume</span>
+        <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
+      </label>
+      <div class="ctl meter">
+        <span>Signal · squelch {squelch > 0 ? `${squelch} dB` : 'off'}</span>
+        <div
+          class="track"
+          role="slider"
+          tabindex="0"
+          aria-label="Squelch"
+          aria-valuemin={0}
+          aria-valuemax={METER_DB}
+          aria-valuenow={squelch}
+          aria-valuetext={squelch > 0 ? `${squelch} dB` : 'Off'}
+          title="Squelch: drag the mark. Audio stays muted while the signal is left of it. Far left turns it off."
+          onpointerdown={dragSquelch}
+          onkeydown={squelchKey}
+        >
+          <div class="fill" class:muted style:width="{meter}%"></div>
+          <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
         </div>
-        <div class="wf">
-          <Waterfall
-            bind:this={waterfall}
-            {vs}
-            {ve}
-            {rate}
-            {stops}
-            {tuned}
-            bandwidth={BANDWIDTH[mode]}
-            specH={SPEC_H}
-            colors={wfColors}
-            onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
-            onView={setView}
-            bandId={band?.id}
-          />
-        </div>
-        {#if leftEdge}
-          {@const e = leftEdge}
-          <button class="edge left" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the left">
-            <span class="arrow">‹</span>
-            <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
-          </button>
-        {/if}
-        {#if rightEdge}
-          {@const e = rightEdge}
-          <button class="edge right" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the right">
-            <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
-            <span class="arrow">›</span>
-          </button>
-        {/if}
       </div>
-      </div>
-      {#if decoding}
-        <Tray id="sondes" title="Weather balloons" summary={sondeLine}>
-          {#each sondes as o (o.hz)}
-            {@const drift = sondeDrift(o)}
-            <button class="sonde balloon" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
-              <span class="name">{sondeName(o)}</span>
-              <span class="big">{sondeSummary(o)}</span>
-              {#if drift}<span class="dim">{drift}</span>{/if}
-              {#if o.lat !== null && o.lon !== null}<span class="mono dim">{o.lat.toFixed(4)}, {o.lon.toFixed(4)}</span>{/if}
-              <span class="mono dim">{fmtMHz(o.hz)} MHz{o.time ? ` · ${o.time} UTC` : ''} · {ago(o.age_s)}</span>
+      {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
+      {#if status?.error || bandsError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? ''}>Problem · details</button>{/if}
+      <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
+        <Icon name={full ? 'shrink' : 'expand'} size={18} />
+      </button>
+    </header>
+
+    <main bind:this={mainEl} bind:clientWidth={null, (w) => (stacked = (w ?? 0) < 1000)} class:stacked class:has-panel={panel} class:max-wf={maxPane === 'wf'} class:max-panel={maxPane === 'panel'} style:--share="{panelShare}%">
+      <Pane title="Spectrum" summary={wfSummary} maxed={maxPane === 'wf'} onMax={panel ? () => toggleMax('wf') : undefined}>
+        {#snippet tools()}
+          {#if steadyCount || showSteady}
+            <button class:on={!showSteady} onclick={() => (showSteady = !showSteady)} title="Narrow carriers that never switch off are usually interference from nearby electronics">
+              {showSteady ? 'Hide steady carriers' : `${steadyCount} steady hidden`}
             </button>
-          {:else}
-            <p class="empty balloonwait">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
-            <p class="empty balloonwait">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
-          {/each}
-        </Tray>
-      {/if}
-      {#if hd}
-        <Tray id="hd" title="HD Radio" summary={hdSummary} accent="var(--orange)">
-          <div class="hdcol">
-            <div class="sonde">
-              {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
-              {#if hd.name}<span class="name">{hd.name}</span>{/if}
-              {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
-              {#if hd.title}<span class="big">{hd.title}</span>{/if}
-              {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
-              <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
-              {#if hd.message}<span class="dim">{hd.message}</span>{/if}
+          {/if}
+          <button onclick={() => zoom(1.5)} aria-label="Zoom out" title="Zoom out (-)">−</button>
+          <button onclick={() => zoom(1 / 1.5)} aria-label="Zoom in" title="Zoom in (+)">+</button>
+          <button onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)} title="Show as much of the band as fits">Widest</button>
+        {/snippet}
+        <div class="box" class:panning class:strip={maxPane === 'panel'} bind:clientWidth={boxW}>
+          {#if maxPane !== 'panel'}
+            <div class="lane" style:height="{LANE_H}px">
+              {#each dots as d}
+                <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
+              {/each}
+              {#each cards as c (c.at)}
+                <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+                  <span class="row1">
+                    <span class="ttl">{c.item.title}</span>
+                    {#if c.hidden.length}
+                      <span class="more mono" title={c.hidden.map((h) => `${fmtMHz(h.hz)} ${h.title}`).join(', ') + ' — zoom in to separate'}>+{c.hidden.length}</span>
+                    {/if}
+                  </span>
+                  <span class="row2">{c.item.sub}</span>
+                  <span class="row3 mono">
+                    <span>{fmtMHz(c.at)}</span>
+                    <span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>
+                    {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
+                      <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
+                    {/if}
+                    <span class="bar"><span style:width="{c.meter}%"></span></span>
+                  </span>
+                </button>
+              {/each}
             </div>
-            {#if hd.programs.length > 1}
-              <div class="hdprogs">
-                {#each hd.programs as p}
-                  <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
-                {/each}
+          {/if}
+          <div class="wf">
+            <Waterfall
+              bind:this={waterfall}
+              {vs}
+              {ve}
+              {rate}
+              {stops}
+              {tuned}
+              bandwidth={BANDWIDTH[mode]}
+              specH={maxPane === 'panel' ? STRIP_SPEC_H : SPEC_H}
+              colors={wfColors}
+              onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
+              onView={setView}
+              bandId={band?.id}
+            />
+          </div>
+          {#if maxPane !== 'panel'}
+            {#if leftEdge}
+              {@const e = leftEdge}
+              <button class="edge left" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the left">
+                <span class="arrow">‹</span>
+                <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
+              </button>
+            {/if}
+            {#if rightEdge}
+              {@const e = rightEdge}
+              <button class="edge right" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the right">
+                <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
+                <span class="arrow">›</span>
+              </button>
+            {/if}
+            {#if !hintSeen}
+              <div class="hint">
+                <span>Drag sideways to move · scroll to zoom · click a signal to tune</span>
+                <button onclick={dismissHint}>Got it</button>
               </div>
             {/if}
-          </div>
-          {#if hdTraffic}
-            <div class="hdcol">
-              <h2>Traffic</h2>
-              <div class="hdgrid">
-                {#each hdTraffic as t}
-                  {#if t}<img src={t} alt="" />{:else}<span></span>{/if}
-                {/each}
-              </div>
-            </div>
           {/if}
-          {#if hdWeather}
-            <div class="hdcol">
-              <h2>Weather radar</h2>
-              <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
-            </div>
-          {/if}
-          {#if !hd.error && !hdTraffic && !hdPicture}
-            <p class="empty hdwait">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
-          {/if}
-        </Tray>
-      {/if}
-      {#if p25}
-        <Tray id="p25" title="Police and fire" summary={p25Summary(p25)} accent="var(--red)">
-          <div class="hdcol">
-            <div class="sonde">
-              <span class="name">{p25Site(p25) ?? (p25.state === 'searching' ? 'Looking for a control channel near this frequency…' : 'Reading the site…')}</span>
-              {#if p25.control_hz !== null}<span class="mono dim">control {fmtMHz(p25.control_hz)} MHz · {p25.messages_per_sec.toFixed(0)} messages/s{p25.ppm !== null ? ` · dongle ${p25.ppm.toFixed(0)} ppm` : ''}</span>{/if}
-              {#if p25.voice_error}<span class="dim">{p25.voice_error}</span>{/if}
-              <span class="dim">Plays unencrypted Phase 1 calls as the site assigns them, one at a time.</span>
-            </div>
-          </div>
-          <div class="hdcol">
-            <h2>Calls</h2>
-            {#each p25.recent as c (c.at_secs + ':' + c.hz)}
-              {@const block = callBlock(c, p25.voice_error)}
-              {@const live = p25.call?.group === c.group && p25.call?.hz === c.hz}
-              <div class="sonde" class:sel={live}>
-                <span class="name">Talkgroup {c.group}{c.emergency ? ' · EMERGENCY' : ''}</span>
-                <span class="dim">{live ? `Playing${p25.voice_errors_pct > 20 ? ` · ${p25.voice_errors_pct.toFixed(0)}% damaged` : ''}` : (block ?? 'Ended')}</span>
-                <span class="mono dim">{fmtMHz(c.hz)} MHz{c.source ? ` · radio ${c.source}` : ''} · {callAge(c, p25.now_secs)}</span>
-              </div>
-            {:else}
-              <p class="empty hdwait">No calls yet. Busy sites assign several a minute; quiet ones can go minutes between.</p>
+        </div>
+      </Pane>
+
+      {#if panel}
+        <button class="divider" aria-label="Resize the panel" title="Drag to give the panel or the waterfall more room" onpointerdown={startDivider}></button>
+        <Pane title={PANEL_TITLE[panel]} summary={panelSummary} accent={panelHue(panel)} maxed={maxPane === 'panel'} mini={maxPane === 'wf'} onMax={() => toggleMax(maxPane === 'wf' ? 'wf' : 'panel')}>
+          {#snippet tabs()}
+            {#each panels.filter((p) => p !== panel) as p (p)}
+              <button class="ptab" style:--c={panelHue(p)} onclick={() => (panelPick = p)} title="Also relevant now: show {PANEL_TITLE[p]}">
+                {PANEL_TITLE[p]}{#if p === 'iss' && issUp}<b> • now</b>{/if}
+              </button>
             {/each}
-          </div>
-        </Tray>
-      {/if}
-      {#if band?.id === 'iss'}
-        <Tray id="issmap" title="Space station" summary={issMapSummary} fixed>
-          <div class="issrow">
-            <div class="issmap">
-              <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
-              <span class="issage" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
-            </div>
-            <div class="isspasses">
-              {#if iss?.bad_location}<p class="empty err">Your location in the controls below is not a US ZIP code, state or “lat, lon”.</p>{/if}
-              {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
-              <p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>
-              {#if !location}
-                <p class="empty">Set your location in the controls below (C) to see when the station passes over.</p>
+          {/snippet}
+          {#if panel === 'sondes'}
+            <div class="pbody wrap">
+              {#each sondes as o (o.hz)}
+                {@const drift = sondeDrift(o)}
+                <button class="item balloon" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
+                  <span class="name">{sondeName(o)}</span>
+                  <span class="big">{sondeSummary(o)}</span>
+                  {#if drift}<span class="dim">{drift}</span>{/if}
+                  {#if o.lat !== null && o.lon !== null}<span class="mono dim">{o.lat.toFixed(4)}, {o.lon.toFixed(4)}</span>{/if}
+                  <span class="mono dim">{fmtMHz(o.hz)} MHz{o.time ? ` · ${o.time} UTC` : ''} · {ago(o.age_s)}</span>
+                </button>
               {:else}
-                {#each issNext as p (p.rise)}
-                  {@const now = p === issUp}
-                  <div class="sonde" class:sel={now}>
-                    <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
-                    <span class="big">{Math.round(p.max_elevation)}° high</span>
-                    <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
-                  </div>
-                {/each}
-                <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
-              {/if}
+                <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
+                <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
+              {/each}
             </div>
-          </div>
-        </Tray>
-      {/if}
-      {#if repInBand.length && repReachKm !== undefined}
-        <Tray id="repeaters" title="Repeaters" summary={repSummary} fixed>
-          {#if iss?.site}
-            <div class="issrow">
-              <div class="repmap">
-                <RepeaterMap points={repPoints} reachKm={repReachKm} tunedHz={repTuned?.hz ?? null} onTune={(hz) => tuneTo(hz)} />
-                <span class="issage">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
-              </div>
-              <div class="isspasses">
-                {#if repTuned}
-                  <div class="sonde sel">
-                    <span class="name">{repTuned.call}</span>
-                    <span class="dim">{channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km</span>
-                    {#if repTuned.digital}<span class="warn">Listed as {repTuned.digital} too. If it is digital only, it will sound like buzzing.</span>{/if}
+          {:else if panel === 'hd' && hd}
+            <div class="pbody wrap">
+              <div class="col">
+                <div class="item">
+                  {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
+                  {#if hd.name}<span class="name">{hd.name}</span>{/if}
+                  {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
+                  {#if hd.title}<span class="big">{hd.title}</span>{/if}
+                  {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
+                  <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
+                  {#if hd.message}<span class="dim">{hd.message}</span>{/if}
+                </div>
+                {#if hd.programs.length > 1}
+                  <div class="hdprogs">
+                    {#each hd.programs as p}
+                      <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
+                    {/each}
                   </div>
                 {/if}
-                {#each repNear.filter((p) => p !== repTuned) as p (p.hz)}
-                  <button class="reprow" onclick={() => tuneTo(p.hz)}>
-                    <span class="name">{p.call}</span>
-                    <span class="dim town">{p.city}</span>
-                    {#if p.digital}<span class="warn mono">{p.digital}?</span>{/if}
-                    <span class="mono">{(p.hz / 1e6).toFixed(4)}</span>
-                    <span class="mono dim">{Math.round(p.km)} km</span>
-                  </button>
+              </div>
+              {#if hdTraffic}
+                <div class="col">
+                  <h2>Traffic</h2>
+                  <div class="hdgrid">
+                    {#each hdTraffic as t}
+                      {#if t}<img src={t} alt="" />{:else}<span></span>{/if}
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if hdWeather}
+                <div class="col">
+                  <h2>Weather radar</h2>
+                  <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
+                </div>
+              {/if}
+              {#if !hd.error && !hdTraffic && !hdPicture}
+                <p class="empty col">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
+              {/if}
+            </div>
+          {:else if panel === 'p25' && p25}
+            <div class="pbody wrap">
+              <div class="col">
+                <div class="item">
+                  <span class="name">{p25Site(p25) ?? (p25.state === 'searching' ? 'Looking for a control channel near this frequency…' : 'Reading the site…')}</span>
+                  {#if p25.control_hz !== null}<span class="mono dim">control {fmtMHz(p25.control_hz)} MHz · {p25.messages_per_sec.toFixed(0)} messages/s{p25.ppm !== null ? ` · dongle ${p25.ppm.toFixed(0)} ppm` : ''}</span>{/if}
+                  {#if p25.voice_error}<span class="dim">{p25.voice_error}</span>{/if}
+                  <span class="dim">Plays unencrypted Phase 1 calls as the site assigns them, one at a time.</span>
+                </div>
+              </div>
+              <div class="col">
+                <h2>Calls</h2>
+                {#each p25.recent as c (c.at_secs + ':' + c.hz)}
+                  {@const block = callBlock(c, p25.voice_error)}
+                  {@const live = p25.call?.group === c.group && p25.call?.hz === c.hz}
+                  <div class="item" class:sel={live}>
+                    <span class="name">Talkgroup {c.group}{c.emergency ? ' · EMERGENCY' : ''}</span>
+                    <span class="dim">{live ? `Playing${p25.voice_errors_pct > 20 ? ` · ${p25.voice_errors_pct.toFixed(0)}% damaged` : ''}` : (block ?? 'Ended')}</span>
+                    <span class="mono dim">{fmtMHz(c.hz)} MHz{c.source ? ` · radio ${c.source}` : ''} · {callAge(c, p25.now_secs)}</span>
+                  </div>
                 {:else}
-                  <p class="empty">None within {repReachKm} km of your location.</p>
+                  <p class="empty">No calls yet. Busy sites assign several a minute; quiet ones can go minutes between.</p>
                 {/each}
               </div>
             </div>
-          {:else}
-            <p class="empty">Set your location in the controls below (C) to see which repeaters are near you.</p>
+          {:else if panel === 'iss'}
+            <div class="split">
+              <div class="mapbox issmap">
+                <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
+                <span class="maplabel" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
+              </div>
+              <div class="list">
+                {#if iss?.bad_location}<p class="empty err">Your location in Settings is not a US ZIP code, state or “lat, lon”.</p>{/if}
+                {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
+                <p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>
+                {#if !location}
+                  <p class="empty">Set your location in Settings (S) to see when the station passes over.</p>
+                {:else}
+                  {#each issNext as p (p.rise)}
+                    {@const now = p === issUp}
+                    <div class="item" class:sel={now}>
+                      <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
+                      <span class="big">{Math.round(p.max_elevation)}° high</span>
+                      <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
+                    </div>
+                  {/each}
+                  <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
+                {/if}
+              </div>
+            </div>
+          {:else if panel === 'repeaters'}
+            {#if iss?.site}
+              <div class="split">
+                <div class="mapbox repmap">
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} onTune={(hz) => tuneTo(hz)} />
+                  <span class="maplabel">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
+                </div>
+                <div class="list">
+                  {#if repTuned}
+                    <div class="item sel">
+                      <span class="name">{repTuned.call}</span>
+                      <span class="dim">{channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km</span>
+                      {#if repTuned.digital}<span class="warn">Listed as {repTuned.digital} too. If it is digital only, it will sound like buzzing.</span>{/if}
+                    </div>
+                  {/if}
+                  {#each repNear.filter((p) => p !== repTuned) as p (p.hz)}
+                    <button class="reprow" onclick={() => tuneTo(p.hz)}>
+                      <span class="name">{p.call}</span>
+                      <span class="dim town">{p.city}</span>
+                      {#if p.digital}<span class="warn mono">{p.digital}?</span>{/if}
+                      <span class="mono">{(p.hz / 1e6).toFixed(4)}</span>
+                      <span class="mono dim">{Math.round(p.km)} km</span>
+                    </button>
+                  {:else}
+                    <p class="empty">None within {repReachKm} km of your location.</p>
+                  {/each}
+                </div>
+              </div>
+            {:else}
+              <p class="empty pbody">Set your location in Settings (S) to see which repeaters are near you.</p>
+            {/if}
           {/if}
-        </Tray>
+        </Pane>
       {/if}
     </main>
   </div>
-
-  <footer class:open={dockOpen}>
-    <div class="dockbar">
-      <button class="fold" onclick={toggleDock} aria-expanded={dockOpen} title={dockOpen ? 'Hide controls (C)' : 'Show controls (C)'}>
-        {dockOpen ? '▾' : '▴'}
-      </button>
-      {#if dockOpen}
-        <label class="ctl">
-          Volume
-          <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
-        </label>
-        <label class="ctl" title="Mutes the audio while the signal is weaker than this. Far left turns it off.">
-          Squelch
-          <input type="range" min="0" max="40" step="1" bind:value={squelch} />
-          <span class="val mono">{squelch > 0 ? `${squelch} dB` : 'Off'}</span>
-        </label>
-        <label class="ctl">
-          Gain
-          <select bind:value={gain}>
-            <option value="auto">Auto</option>
-            {#each status?.gains ?? [] as g}
-              <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
-            {/each}
-          </select>
-        </label>
-        <div class="transport">
-          <button class="sq" onclick={() => step(-1)} aria-label="Previous signal" title="Previous signal (←)">←</button>
-          <button class="play" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
-          <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
-        </div>
-        <label class="ctl" title="Data and tracking, railroad and military aircraft: bands that have given us nothing so far">
-          <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
-          Dead air
-        </label>
-        <label class="ctl" title="Your ZIP code, state, or latitude, longitude. Times space station passes and picks nearby repeaters.">
-          Location
-          <input class="loc" value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
-        </label>
-        <span class="spacer"></span>
-        <div class="tools">
-          <button onclick={() => zoom(1.5)} aria-label="Zoom out" title="Zoom out (-)">−</button>
-          <button onclick={() => zoom(1 / 1.5)} aria-label="Zoom in" title="Zoom in (+)">+</button>
-          <button class="wide" onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)}>Widest</button>
-          <button class="wide accent" onclick={toggleFull} title="Full screen (F)">
-            <Icon name={full ? 'shrink' : 'expand'} size={16} />{full ? 'Exit full screen' : 'Full screen'}
-          </button>
-        </div>
-      {:else}
-        <button class="play small" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
-        <span class="spacer"></span>
-        <span class="info mono" class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
-        <div class="tools">
-          <button class="wide accent" onclick={toggleFull} title="Full screen (F)">
-            <Icon name={full ? 'shrink' : 'expand'} size={16} />{full ? 'Exit full screen' : 'Full screen'}
-          </button>
-        </div>
-      {/if}
-    </div>
-    {#if dockOpen}
-      <div class="info mono">
-        <span>1–9 band</span>
-        <span>← → next signal</span>
-        <span>[ ] move · - + zoom</span>
-        <span>f full screen</span>
-        <span>space listen / stop</span>
-        <span>c controls</span>
-        <span class="spacer"></span>
-        {#if status?.error}<span class="err">{status.error}</span>{/if}
-        {#if bandsError}<span class="err">Bands file: {bandsError}</span>{/if}
-        <span class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
-        <span title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</span>
-        <span>Colours: {theme.name ?? 'Omarchy theme'}</span>
-      </div>
-    {:else if status?.error || bandsError}
-      <div class="info mono">
-        {#if status?.error}<span class="err">{status.error}</span>{/if}
-        {#if bandsError}<span class="err">Bands file: {bandsError}</span>{/if}
-      </div>
-    {/if}
-  </footer>
 </div>
+
+{#snippet settings()}
+  <label class="field">
+    <span class="lbl">Location</span>
+    <input class="loc" value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
+    <small class:err={iss?.bad_location}>{iss?.bad_location ? 'Not a US ZIP code, state or “lat, lon”.' : 'ZIP code, state, or lat, lon. Times space station passes and picks nearby repeaters.'}</small>
+  </label>
+  <label class="field">
+    <span class="lbl">Gain</span>
+    <select bind:value={gain}>
+      <option value="auto">Auto</option>
+      {#each status?.gains ?? [] as g}
+        <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
+      {/each}
+    </select>
+  </label>
+  <label class="field toggle">
+    <span>Show quiet bands<small>Data and tracking, railroad and military aircraft: bands that have given us nothing so far</small></span>
+    <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
+  </label>
+  {#if status?.error || bandsError}
+    <div class="field">
+      <span class="lbl">Problems</span>
+      {#if status?.error}<small class="err">{status.error}</small>{/if}
+      {#if bandsError}<small class="err">Bands file: {bandsError}</small>{/if}
+    </div>
+  {/if}
+  <div class="field">
+    <span class="lbl">Receiver</span>
+    <small class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</small>
+    <small title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</small>
+    <small>Colours: {theme.name ?? 'Omarchy theme'}</small>
+  </div>
+  <div class="field keys mono">
+    <span class="lbl">Keys</span>
+    <small>1–9 band · ← → next signal</small>
+    <small>[ ] move · - + zoom · space listen</small>
+    <small>f panel takes the screen · Esc back</small>
+    <small>s settings · F11 full screen</small>
+  </div>
+{/snippet}
 
 <style>
   .app {
     height: 100%;
+    display: flex;
+    min-height: 0;
+  }
+  .right {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
   }
@@ -885,35 +987,41 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 22px;
-    padding: 10px 18px;
-    background: var(--bg-dark);
+    gap: 10px 20px;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--muted);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--hue) 13%, var(--bg-dark)), var(--bg-dark) 60%);
   }
   .freq {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 6px;
   }
   .digits {
-    font-size: 38px;
+    font-size: 34px;
     font-weight: 600;
     letter-spacing: -1px;
     color: var(--fg-bright);
+    font-variant-numeric: tabular-nums;
+  }
+  .digits em {
+    font-style: normal;
+    color: var(--hue);
   }
   .unit {
     color: var(--fg-dim);
+    font-size: 12px;
   }
   .now {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    flex: 1 1 240px;
+    flex: 1 1 200px;
     min-width: 0;
   }
   .now .title {
     font-weight: 600;
-    font-size: 16px;
+    font-size: 15px;
     color: var(--fg-bright);
   }
   .now .sub {
@@ -923,175 +1031,281 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .meter {
+  .transport {
+    display: flex;
+    gap: 6px;
+  }
+  .sq {
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--muted);
+    background: var(--bg-light);
+    font-size: 15px;
+  }
+  .play {
+    min-height: 36px;
+    min-width: 84px;
+    border-radius: 8px;
+    border: 1px solid var(--hue);
+    background: transparent;
+    color: var(--hue);
+    font-weight: 600;
+  }
+  .play.on {
+    background: var(--hue);
+    color: var(--bg-darker);
+  }
+  .ctl {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    width: 150px;
+    gap: 5px;
+    width: 130px;
     color: var(--fg-dim);
-    font-size: 12px;
+    font-size: 11px;
+  }
+  .ctl input {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--hue);
+  }
+  .meter {
+    width: 170px;
   }
   .track {
     position: relative;
     height: 8px;
     border-radius: 4px;
     background: var(--muted);
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .fill {
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--green), var(--yellow));
+    transition: width 200ms;
   }
   .fill.muted {
     background: var(--fg-dim);
   }
+  /* the squelch level; the handle you drag */
   .sq-mark {
     position: absolute;
-    top: -3px;
-    width: 2px;
-    height: 14px;
-    margin-left: -1px;
-    background: var(--yellow);
+    top: -4px;
+    width: 4px;
+    height: 16px;
+    margin-left: -2px;
+    border-radius: 2px;
+    background: var(--fg-bright);
+    box-shadow: 0 0 0 2px var(--bg-dark);
   }
-  .val {
-    min-width: 44px;
-    font-size: 12px;
+  .sq-mark.off {
+    opacity: 0.45;
   }
-  .fill {
-    height: 8px;
-    background: var(--green);
-    transition: width 200ms;
-  }
-  .ctl {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    color: var(--fg-dim);
-    font-size: 12px;
-  }
-  .ctl input {
-    width: 110px;
-    accent-color: var(--accent);
-  }
-  .ctl select {
-    background: var(--bg-light);
-    border: 1px solid var(--muted);
+  .chip {
+    padding: 2px 8px;
     border-radius: 6px;
-    padding: 2px 6px;
-  }
-  .transport {
-    display: flex;
-    gap: 8px;
-  }
-  .sq {
-    min-height: 44px;
-    min-width: 44px;
-    border-radius: 8px;
-    border: 1px solid var(--muted);
-    background: transparent;
-    font-size: 16px;
-  }
-  .play {
-    min-height: 44px;
-    min-width: 96px;
-    border-radius: 8px;
-    border: 1px solid var(--accent);
-    background: transparent;
-    color: var(--accent);
+    border: 0;
+    font-size: 12px;
     font-weight: 600;
   }
-  .play.on {
-    background: var(--accent);
-    color: var(--bg-darker);
+  .chip.warn {
+    color: var(--yellow);
+    background: color-mix(in srgb, var(--yellow) 16%, transparent);
   }
-  .body {
-    flex: 1;
-    display: flex;
-    min-height: 0;
+  .chip.err {
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 16%, transparent);
   }
+  .iconbtn {
+    display: grid;
+    place-items: center;
+    min-width: 36px;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--fg-dim);
+  }
+  .iconbtn:hover {
+    background: var(--bg-light);
+    color: var(--fg-bright);
+  }
+  /* waterfall and panel side by side; stacked in a narrow window; either can take the screen */
   main {
     flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 16px;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 10px;
   }
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
+  main.has-panel {
+    grid-template-columns: minmax(0, 1fr) 10px minmax(280px, var(--share));
   }
-  h1 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
+  main.has-panel.stacked {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 10px minmax(120px, var(--share));
   }
-  .range,
-  .hint {
-    color: var(--fg-dim);
-    font-size: 13px;
+  main.has-panel.max-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 96px 10px minmax(0, 1fr);
   }
-  .note {
-    color: var(--yellow);
-    font-size: 13px;
+  main.has-panel.max-wf {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 10px auto;
   }
-  .tools {
-    display: flex;
-    gap: 6px;
-  }
-  .tools button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 34px;
-    min-width: 38px;
-    justify-content: center;
-    border-radius: 8px;
-    border: 1px solid var(--muted);
+  .divider {
+    position: relative;
+    padding: 0;
+    border: 0;
     background: transparent;
-    font-size: 15px;
+    cursor: col-resize;
+    touch-action: none;
   }
-  .tools .wide {
-    padding: 0 12px;
-    font-size: 13px;
+  .stacked .divider,
+  .max-panel .divider,
+  .max-wf .divider {
+    cursor: row-resize;
   }
-  .tools .accent {
-    border-color: var(--accent);
-    color: var(--accent);
+  .max-panel .divider,
+  .max-wf .divider {
+    pointer-events: none;
   }
-  .stage {
+  .divider::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 4px;
+    height: 48px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .stacked .divider::after {
+    width: 48px;
+    height: 4px;
+  }
+  main:hover .divider::after {
+    opacity: 1;
+  }
+  .divider:hover::after,
+  .divider:focus-visible::after {
+    background: var(--hue);
+  }
+  .max-panel .divider::after,
+  .max-wf .divider::after {
+    display: none;
+  }
+  .box {
+    min-width: 0;
+    position: relative;
     flex: 1;
     min-height: 0;
     display: flex;
+    flex-direction: column;
+    background: var(--bg-darker);
+  }
+  .hint {
+    position: absolute;
+    left: 50%;
+    bottom: 36px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 8px 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--muted);
+    background: color-mix(in srgb, var(--bg-light) 94%, transparent);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .hint button {
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 12px;
+    background: var(--hue);
+    color: var(--bg-darker);
+    font-weight: 600;
+  }
+  .ptab {
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--muted);
+    background: var(--bg-light);
+    color: var(--fg-dim);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .ptab:hover {
+    color: var(--fg-bright);
+    border-color: var(--c);
+  }
+  .ptab b {
+    color: var(--c);
+  }
+  /* panel bodies: one card style for balloons, HD, calls and passes */
+  .pbody {
+    flex: 1;
+    min-height: 0;
+    padding: 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .pbody.wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
     gap: 12px;
   }
-  .balloon {
-    flex: 0 1 260px;
-    min-width: 200px;
+  .col {
+    flex: 1 1 220px;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
   }
-  .balloonwait {
-    flex: 1 1 300px;
+  .col h2 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-dim);
   }
-  .sonde {
+  .item {
     display: flex;
     flex-direction: column;
     gap: 3px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--muted);
     background: var(--bg-light);
     text-align: left;
   }
-  .sonde.sel {
-    border-color: var(--accent);
-    background: var(--sel);
+  .item.balloon {
+    flex: 0 1 260px;
+    min-width: 200px;
   }
-  .sonde .name {
+  .item.sel {
+    border-color: var(--pane, var(--hue));
+    background: color-mix(in srgb, var(--pane, var(--hue)) 10%, var(--bg-light));
+  }
+  .item .name {
     font-weight: 600;
     color: var(--fg-bright);
   }
-  .sonde .big {
+  .item .big {
     font-size: 16px;
-    color: var(--accent);
+    font-weight: 600;
+    color: var(--pane, var(--hue));
   }
-  .sonde .dim,
+  .item .dim,
   .empty {
     font-size: 12px;
     color: var(--fg-dim);
@@ -1100,8 +1314,104 @@
     margin: 0;
     line-height: 1.45;
   }
+  /* map and list: side by side when the panel is wide, map over list when it is narrow */
+  .split {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .mapbox {
+    position: relative;
+    overflow: hidden;
+    flex: 0 0 auto;
+    background: var(--bg-darker);
+  }
+  .issmap {
+    aspect-ratio: 2;
+    width: 100%;
+  }
+  .repmap {
+    flex: 1 1 55%;
+    min-height: 0;
+  }
+  .list {
+    flex: 1 1 0;
+    min-height: 0;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--muted);
+  }
+  @container (min-width: 620px) {
+    .split {
+      flex-direction: row;
+    }
+    .issmap {
+      width: auto;
+      height: 100%;
+      max-width: 72%;
+    }
+    .repmap {
+      flex: 2 1 0;
+      height: 100%;
+    }
+    .list {
+      flex: 1 1 260px;
+      border-top: 0;
+      border-left: 1px solid var(--muted);
+    }
+  }
+  .maplabel {
+    position: absolute;
+    left: 8px;
+    bottom: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    background: color-mix(in srgb, var(--bg-darker) 80%, transparent);
+  }
+  /* settings drawer */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .field .lbl {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-dim);
+  }
+  .field small {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--fg-dim);
+  }
+  .field.toggle {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .field.toggle span {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .field.toggle input {
+    accent-color: var(--hue);
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+  }
+  .field select,
   input.loc {
-    width: 15em;
     min-height: 34px;
     padding: 0 10px;
     border-radius: 8px;
@@ -1111,17 +1421,8 @@
   input.loc.bad {
     border-color: var(--red);
   }
-  .box {
-    min-width: 0;
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid var(--muted);
-    background: var(--bg-darker);
+  .keys small {
+    font-size: 11px;
   }
   .wf {
     position: relative;
@@ -1157,13 +1458,6 @@
     margin-left: -2px;
     background: var(--fg-dim);
     opacity: 0.5;
-  }
-  .steadybtn {
-    border: 0;
-    background: transparent;
-    color: var(--fg-dim);
-    font-size: 12px;
-    text-decoration: underline dotted;
   }
   .stem {
     position: absolute;
@@ -1271,23 +1565,6 @@
     border-color: var(--orange);
     box-shadow: 0 0 12px color-mix(in srgb, var(--orange) 45%, transparent);
   }
-  .hdcol {
-    flex: 0 1 240px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 180px;
-  }
-  .hdcol h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--fg-dim);
-  }
-  .hdwait {
-    flex: 1 1 200px;
-    align-self: center;
-  }
   .hdpic {
     width: 100%;
     border-radius: 6px;
@@ -1372,76 +1649,11 @@
     font-size: 11px;
     color: var(--fg-dim);
   }
-  footer {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 6px 18px 8px;
-    background: var(--bg-dark);
-    border-top: 1px solid var(--muted);
-  }
-  .dockbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 22px;
-  }
-  .dockbar .ctl {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-  }
-  .fold {
-    min-width: 34px;
-    min-height: 34px;
-    border-radius: 8px;
-    border: 1px solid var(--muted);
-    background: transparent;
-    color: var(--fg-dim);
-  }
-  .play.small {
-    min-height: 34px;
-    min-width: 80px;
-  }
-  .info {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 22px;
-    color: var(--fg-dim);
-    font-size: 12px;
-  }
-  .spacer {
-    flex: 1;
-  }
   .err {
     color: var(--red);
   }
   .warn {
     color: var(--yellow);
-  }
-  /* the map keeps its whole globe; passes take what width is left, and go when there is too little */
-  .issrow {
-    flex: 1 1 100%;
-    align-self: stretch;
-    display: flex;
-    gap: 12px;
-    min-height: 0;
-  }
-  .issmap {
-    position: relative;
-    flex: 0 1 auto;
-    aspect-ratio: 2;
-    height: 100%;
-    max-width: 100%;
-    overflow: hidden;
-  }
-  .repmap {
-    position: relative;
-    flex: 2 1 0;
-    min-width: 0;
-    height: 100%;
-    border-radius: 8px;
-    overflow: hidden;
   }
   .reprow {
     display: flex;
@@ -1463,29 +1675,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .issage {
-    position: absolute;
-    left: 8px;
-    bottom: 6px;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    color: var(--fg-dim);
-    background: color-mix(in srgb, var(--bg-darker) 80%, transparent);
-  }
-  .isspasses {
-    flex: 1 1 260px;
-    min-width: 240px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  @media (max-width: 1100px) {
-    .isspasses {
-      display: none;
-    }
   }
 </style>

@@ -11,7 +11,7 @@
   }
   let { points, reachKm, tunedHz, onTune }: Props = $props();
 
-  // The viewBox is in km around the listener; `slice` fills the tray and crops east and west.
+  // The viewBox is in km around the listener; `slice` fills the panel and crops east and west.
   const HALF_H_KM = 75;
   const HALF_W_KM = 200;
   const DISTANCES_KM = [25, 50, 100];

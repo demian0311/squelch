@@ -43,10 +43,23 @@ export function mix(a: string, b: string, t: number): string {
   return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
 }
 
-/** Colour stops for the waterfall, from the noise floor up to the strongest signal. */
-export function waterfallStops(t: Theme): string[] {
+// Each band group wears one theme colour, so a glance says which kind of band is tuned.
+const GROUP_HUES: Record<string, keyof Theme> = { listen: 'blue', safety: 'red', ham: 'green', data: 'orange', space: 'magenta' };
+const SPARE_HUES: (keyof Theme)[] = ['cyan', 'yellow', 'blue', 'green', 'orange', 'magenta', 'red'];
+
+/** The colour of a band group; groups from a user's bands file take spare colours in order. */
+export function groupHue(t: Theme, groupId: string | undefined, groupIds: string[]): string {
+  if (!groupId) return t.accent;
+  const named = GROUP_HUES[groupId];
+  if (named) return t[named] ?? t.accent;
+  const spare = groupIds.filter((g) => !GROUP_HUES[g]).indexOf(groupId);
+  return t[SPARE_HUES[Math.max(0, spare) % SPARE_HUES.length]] ?? t.accent;
+}
+
+/** Colour stops for the waterfall, from the noise floor up to the strongest signal, in the band's colour. */
+export function waterfallStops(t: Theme, hue = t.accent): string[] {
   const base = t.darker_background;
-  return [base, mix(base, t.accent, 0.35), t.accent, t.cyan, t.yellow, t.bright_foreground];
+  return [base, mix(base, hue, 0.35), hue, mix(hue, t.bright_foreground, 0.4), t.yellow, t.bright_foreground];
 }
 
 /** 256 RGB entries spread across the stops. */
@@ -78,6 +91,8 @@ export function apply(t: Theme) {
     '--green': t.green,
     '--yellow': t.yellow,
     '--orange': t.orange,
+    '--blue': t.blue,
+    '--magenta': t.magenta,
     '--cyan': t.cyan,
     '--red': t.red,
   };
