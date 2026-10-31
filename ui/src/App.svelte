@@ -3,7 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, snapTune, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, snapTune, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -143,10 +143,10 @@
   // ── signals ─────────────────────────────────────────
 
   let signals = $derived<(Signal & { steady: boolean })[]>(
-    (status?.signals ?? []).map((d) => {
-      const s = label(plan, saved, d);
-      return { ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) };
-    }),
+    withSondes(
+      (status?.signals ?? []).map((d) => label(plan, saved, d)),
+      status?.sondes ?? [],
+    ).map((s) => ({ ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) })),
   );
   let steadyCount = $derived(signals.filter((s) => s.steady && s.hz >= vs && s.hz <= ve).length);
   let listening = $derived(signals.find((s) => Math.abs(s.hz - tuned) <= Math.max(s.widthHz / 2, 3_000)));
@@ -205,6 +205,29 @@
       dir > 0 ? list.filter((f) => f > tuned + 1_000).sort((a, b) => a - b)[0] : list.filter((f) => f < tuned - 1_000).sort((a, b) => b - a)[0];
     const next = pick(heard) ?? pick(marks);
     if (next !== undefined) tuneTo(snapTune(next, status?.signals ?? [], saved, span / boxW, mode));
+  }
+
+  // ── weather balloons ────────────────────────────
+
+  let decoding = $derived(band?.decoder === 'radiosonde');
+  let sondes = $derived(status?.sondes ?? []);
+  $effect(() => {
+    api.setSondes(decoding);
+  });
+
+  // weather services launch twice a day at about 00:00 and 12:00 UTC
+  const launchTimes = [0, 12]
+    .map((h) => {
+      const d = new Date();
+      d.setUTCHours(h, 0, 0, 0);
+      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    })
+    .join(' and ');
+
+  function ago(secs: number): string {
+    if (secs < 5) return 'just now';
+    if (secs < 90) return `${Math.round(secs)} s ago`;
+    return `${Math.round(secs / 60)} min ago`;
   }
 
   // ── header text ─────────────────────────────────────
@@ -348,7 +371,9 @@
       <div class="toolbar">
         <h1>{band?.name ?? 'Receiver'}</h1>
         <span class="range mono">{fmtMHz(vs)} – {fmtMHz(ve)} MHz</span>
-        {#if band?.decoder}
+        {#if decoding}
+          <span class="hint">Decoding weather balloons (DFM and RS41) on {status?.decoding_hz.length ?? 0} signal{status?.decoding_hz.length === 1 ? '' : 's'}</span>
+        {:else if band?.decoder}
           <span class="note">The {band.decoder} decoder is not built yet — this shows the raw signal.</span>
         {:else}
           <span class="hint">Drag to move · scroll to zoom · click to tune</span>
@@ -360,6 +385,7 @@
         {/if}
       </div>
 
+      <div class="stage">
       <div class="box" bind:clientWidth={boxW}>
         <div class="lane" style:height="{LANE_H}px">
           {#each dots as d}
@@ -412,6 +438,25 @@
             <span class="arrow">›</span>
           </button>
         {/if}
+      </div>
+      {#if decoding}
+        <aside class="sondes">
+          <h2>Weather balloons</h2>
+          {#each sondes as o (o.hz)}
+            {@const drift = sondeDrift(o)}
+            <button class="sonde" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
+              <span class="name">{sondeName(o)}</span>
+              <span class="big">{sondeSummary(o)}</span>
+              {#if drift}<span class="dim">{drift}</span>{/if}
+              {#if o.lat !== null && o.lon !== null}<span class="mono dim">{o.lat.toFixed(4)}, {o.lon.toFixed(4)}</span>{/if}
+              <span class="mono dim">{fmtMHz(o.hz)} MHz{o.time ? ` · ${o.time} UTC` : ''} · {ago(o.age_s)}</span>
+            </button>
+          {:else}
+            <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
+            <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
+          {/each}
+        </aside>
+      {/if}
       </div>
     </main>
   </div>
@@ -665,7 +710,58 @@
     border-color: var(--accent);
     color: var(--accent);
   }
+  .stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+  }
+  .sondes {
+    flex: 0 0 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+  .sondes h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg-dim);
+  }
+  .sonde {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--muted);
+    background: var(--bg-light);
+    text-align: left;
+  }
+  .sonde.sel {
+    border-color: var(--accent);
+    background: var(--sel);
+  }
+  .sonde .name {
+    font-weight: 600;
+    color: var(--fg-bright);
+  }
+  .sonde .big {
+    font-size: 16px;
+    color: var(--accent);
+  }
+  .sonde .dim,
+  .empty {
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .empty {
+    margin: 0;
+    line-height: 1.45;
+  }
   .box {
+    min-width: 0;
     position: relative;
     flex: 1;
     min-height: 0;
@@ -677,8 +773,14 @@
     background: var(--bg-darker);
   }
   .wf {
+    position: relative;
     flex: 1;
     min-height: 0;
+  }
+  /* the waterfall fills its box; left to size itself, the canvas would set its own height */
+  .wf > :global(*) {
+    position: absolute;
+    inset: 0;
   }
   .lane {
     position: relative;

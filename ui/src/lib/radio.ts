@@ -1,5 +1,5 @@
 // Pure helpers: frequency text, band lookup, labelling detected signals and placing their cards.
-import type { Band, BandPlan, Bookmark, Detected, Mode } from './api';
+import type { Band, BandPlan, Bookmark, Detected, Mode, Sonde } from './api';
 
 export const MODE_NAMES: Record<Mode, string> = {
   wfm: 'Wide FM',
@@ -121,6 +121,37 @@ export class Persistence {
     if (!e || now - e.first < this.minAgeMs) return false;
     return e.hits.length >= updatesPerWindow * 0.9;
   }
+}
+
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+
+/** "DFM-17 23038743", or the type alone until the serial arrives. */
+export function sondeName(s: Sonde): string {
+  return s.serial ? `${s.kind} ${s.serial}` : `${s.kind} balloon`;
+}
+
+/** One line on height and movement: "12.3 km · rising 5.1 m/s". */
+export function sondeSummary(s: Sonde): string {
+  if (s.alt_m === null) return 'Heard, no GPS position yet';
+  const km = `${(s.alt_m / 1000).toFixed(1)} km`;
+  const c = s.climb_ms ?? 0;
+  const move = Math.abs(c) < 0.5 ? 'level' : c > 0 ? `rising ${c.toFixed(1)} m/s` : `falling ${(-c).toFixed(1)} m/s`;
+  return `${km} · ${move}`;
+}
+
+/** "drifting east at 18 m/s" */
+export function sondeDrift(s: Sonde): string | null {
+  if (s.speed_ms === null || s.heading_deg === null) return null;
+  const dir = COMPASS[Math.round(s.heading_deg / 45) % 8];
+  return `drifting ${dir} at ${Math.round(s.speed_ms)} m/s`;
+}
+
+/** Name detected signals after the balloon decoded on them. */
+export function withSondes<T extends Signal>(signals: T[], sondes: Sonde[]): T[] {
+  return signals.map((sig) => {
+    const s = sondes.find((o) => Math.abs(o.hz - sig.hz) < 10_000);
+    return s ? { ...sig, title: sondeName(s), sub: sondeSummary(s), tag: 'BALLOON', saved: true } : sig;
+  });
 }
 
 export interface Placed<T> {

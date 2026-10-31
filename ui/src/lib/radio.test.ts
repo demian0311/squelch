@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, fmtHz, label, modeAt, Persistence, placeCards, snapTune } from './radio';
+import { allBookmarks, bandAt, fmtHz, label, modeAt, Persistence, placeCards, snapTune, sondeDrift, sondeSummary, withSondes } from './radio';
+import type { Sonde } from './api';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -75,6 +76,22 @@ describe('steady carriers', () => {
     expect(p.steady({ ...sig, saved: true }, 30_000, 75)).toBe(false);
     expect(p.steady({ ...sig, widthHz: 180_000 }, 30_000, 75)).toBe(false);
     expect(p.steady({ ...sig, snrDb: 30 }, 30_000, 75)).toBe(false);
+  });
+});
+
+describe('weather balloons', () => {
+  const sonde: Sonde = { kind: 'DFM-17', serial: '23038743', hz: 403_301_000, frame: 7, time: '19:45:34', lat: 39.7, lon: -105, alt_m: 12_340, speed_ms: 18.4, heading_deg: 85, climb_ms: 5.12, frames: 30, age_s: 1 };
+  it('describes height, climb and drift', () => {
+    expect(sondeSummary(sonde)).toBe('12.3 km · rising 5.1 m/s');
+    expect(sondeSummary({ ...sonde, climb_ms: -14 })).toBe('12.3 km · falling 14.0 m/s');
+    expect(sondeSummary({ ...sonde, alt_m: null })).toBe('Heard, no GPS position yet');
+    expect(sondeDrift(sonde)).toBe('drifting east at 18 m/s');
+  });
+  it('names the signal it was decoded on', () => {
+    const sig = label(plan, saved, { hz: 403_300_000, width_hz: 12_000, snr_db: 15 });
+    const [named] = withSondes([sig], [sonde]);
+    expect(named.title).toBe('DFM-17 23038743');
+    expect(named.saved).toBe(true);
   });
 });
 

@@ -193,7 +193,7 @@ mod tests {
     }
 
     fn sig(fm_dev: f64, am_depth: f32, offset: f64) -> SimSignal {
-        SimSignal { hz: 100_000_000.0 + offset, amp: 0.5, fm_dev, am_depth, tone_hz: 1_000.0 }
+        SimSignal { hz: 100_000_000.0 + offset, amp: 0.5, fm_dev, am_depth, tone_hz: 1_000.0, symbols: None }
     }
 
     #[test]

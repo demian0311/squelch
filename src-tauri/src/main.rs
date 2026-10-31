@@ -113,6 +113,11 @@ fn set_squelch(app: State<App>, db: Option<f32>) {
 }
 
 #[tauri::command]
+fn set_sondes(app: State<App>, on: bool) {
+    send(&app, Command::SetSondes(on));
+}
+
+#[tauri::command]
 fn set_playing(app: State<App>, playing: bool) {
     send(&app, Command::SetPlaying(playing));
 }
@@ -147,7 +152,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch])
+        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

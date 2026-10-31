@@ -5,6 +5,7 @@ pub mod detect;
 pub mod device;
 pub mod dsp;
 pub mod engine;
+pub mod sonde;
 pub mod spectrum;
 pub mod squelch;
 pub mod theme;

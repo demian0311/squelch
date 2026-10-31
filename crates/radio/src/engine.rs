@@ -6,6 +6,7 @@ use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::spectrum::{noise_floor, Spectrum};
+use crate::sonde::{all_decoders, Scanner, Sonde};
 use crate::squelch::Squelch;
 use serde::Serialize;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -32,6 +33,8 @@ pub enum Command {
     SetPlaying(bool),
     /// Mute below this many dB above the floor; `None` turns squelch off.
     SetSquelch(Option<f32>),
+    /// Run the radiosonde decoders on every narrow signal in the capture.
+    SetSondes(bool),
     Stop,
 }
 
@@ -57,6 +60,10 @@ pub struct Status {
     pub squelch_db: Option<f32>,
     /// False while the squelch is muting the audio.
     pub squelch_open: bool,
+    /// Weather balloons heard recently, while sonde decoding is on.
+    pub sondes: Vec<Sonde>,
+    /// Frequencies the sonde decoders are listening to.
+    pub decoding_hz: Vec<f64>,
     pub signals: Vec<Detected>,
 }
 
@@ -147,6 +154,7 @@ fn run(
     let mut snr = 0.0f32;
     let mut squelch = Squelch::new();
     let mut squelch_db: Option<f32> = None;
+    let mut scanner: Option<Scanner> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
 
     loop {
@@ -182,6 +190,11 @@ fn run(
                     squelch_db = t;
                     squelch.set(t);
                 }
+                Ok(Command::SetSondes(on)) => {
+                    if on != scanner.is_some() {
+                        scanner = on.then(|| Scanner::new(rate, all_decoders));
+                    }
+                }
                 Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
                 Ok(Command::SetPlaying(p)) => {
                     playing = p;
@@ -197,7 +210,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &[]);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, &[]);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -226,7 +239,14 @@ fn run(
                 }
             }
             signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
+            if let Some(sc) = &mut scanner {
+                sc.retarget(center, &signals);
+            }
             recent.clear();
+        }
+
+        if let Some(sc) = &mut scanner {
+            sc.process(&iq);
         }
 
         chan.clear();
@@ -240,7 +260,7 @@ fn run(
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &signals);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, &signals);
         }
     }
 }
@@ -275,6 +295,7 @@ fn send_status(
     snr: f32,
     squelch_db: Option<f32>,
     squelch_open: bool,
+    scanner: &Option<Scanner>,
     signals: &[Detected],
 ) {
     on_status(Status {
@@ -291,14 +312,16 @@ fn send_status(
         channel_snr_db: snr,
         squelch_db,
         squelch_open,
+        sondes: scanner.as_ref().map(|s| s.sondes()).unwrap_or_default(),
+        decoding_hz: scanner.as_ref().map(|s| s.channels()).unwrap_or_default(),
         signals: signals.to_vec(),
     });
 }
 
 /// What the simulated receiver transmits when no dongle is plugged in.
 pub fn demo_signals() -> Vec<SimSignal> {
-    let fm = |mhz: f64, amp: f32| SimSignal { hz: mhz * 1e6, amp, fm_dev: 60_000.0, am_depth: 0.0, tone_hz: 440.0 };
-    let nfm = |mhz: f64, amp: f32, tone: f64| SimSignal { hz: mhz * 1e6, amp, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: tone };
+    let fm = |mhz: f64, amp: f32| SimSignal { hz: mhz * 1e6, amp, fm_dev: 60_000.0, am_depth: 0.0, tone_hz: 440.0, symbols: None };
+    let nfm = |mhz: f64, amp: f32, tone: f64| SimSignal { hz: mhz * 1e6, amp, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: tone, symbols: None };
     vec![
         fm(100.3, 0.25),
         fm(100.7, 0.08),
@@ -308,6 +331,8 @@ pub fn demo_signals() -> Vec<SimSignal> {
         nfm(146.52, 0.2, 600.0),
         nfm(146.94, 0.3, 800.0),
         nfm(162.55, 0.3, 1_000.0),
-        SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0 },
+        SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0, symbols: None },
+        // a weather balloon, so the decoders have something to find
+        SimSignal { hz: 403.3e6, amp: 0.3, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: crate::sonde::dfm::BAUD as f64, symbols: Some(crate::sonde::dfm::simulate(23_038_743, 39.7392, -104.9903, 10_000.0).into()) },
     ]
 }

@@ -146,6 +146,8 @@ pub struct SimSignal {
     pub am_depth: f32,
     /// Tone frequency used for the modulation.
     pub tone_hz: f64,
+    /// Data symbols sent instead of the tone, looping, at `tone_hz` baud (FSK of ±`fm_dev`).
+    pub symbols: Option<std::sync::Arc<[bool]>>,
 }
 
 /// Generates noise plus the given signals, paced to real time when `realtime` is set.
@@ -205,7 +207,10 @@ impl IqSource for SimSource {
                 if off.abs() > fs / 2.0 {
                     continue;
                 }
-                let m = (tau * s.tone_hz * tsec).sin();
+                let m = match &s.symbols {
+                    Some(sym) => if sym[(tsec * s.tone_hz) as usize % sym.len()] { 1.0 } else { -1.0 },
+                    None => (tau * s.tone_hz * tsec).sin(),
+                };
                 // instantaneous frequency = off + dev * m
                 self.phases[k] += tau * (off + s.fm_dev * m) / fs;
                 let a = s.amp * (1.0 + s.am_depth * m as f32) / (1.0 + s.am_depth);

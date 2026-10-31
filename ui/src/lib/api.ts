@@ -54,7 +54,27 @@ export interface Status {
   channel_snr_db: number;
   squelch_db: number | null;
   squelch_open: boolean;
+  sondes: Sonde[];
+  /** Frequencies the balloon decoders are trying. */
+  decoding_hz: number[];
   signals: Detected[];
+}
+
+/** A weather balloon heard by the decoders. Position fields are null until a GPS fix arrives. */
+export interface Sonde {
+  kind: string;
+  serial: string;
+  hz: number;
+  frame: number | null;
+  time: string | null;
+  lat: number | null;
+  lon: number | null;
+  alt_m: number | null;
+  speed_ms: number | null;
+  heading_deg: number | null;
+  climb_ms: number | null;
+  frames: number;
+  age_s: number;
 }
 
 export interface Setup {
@@ -80,6 +100,8 @@ export const setGain = (tenths: number | null) => invoke('set_gain', { tenths })
 export const setVolume = (volume: number) => invoke('set_volume', { volume });
 export const setPlaying = (playing: boolean) => invoke('set_playing', { playing });
 /** Mute below `db` above the noise floor; null turns squelch off. */
+/** Run the weather-balloon decoders on every narrow signal in the capture. */
+export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
