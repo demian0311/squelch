@@ -83,6 +83,9 @@
   }
   let full = $state(false);
   let boxW = $state(1000);
+  // while the view itself moves, cards jump with it; the slide is only for cards appearing or folding
+  let panning = $state(false);
+  let panTimer: ReturnType<typeof setTimeout> | undefined;
   let waterfall: Waterfall;
   /** Station data per FM channel, kept after tuning away. */
   let rdsHeard = $state(new Map<number, api.Rds>());
@@ -126,6 +129,9 @@
     nvs = Math.max(24e6, mid - s / 2);
     vs = nvs;
     ve = nvs + s;
+    panning = true;
+    clearTimeout(panTimer);
+    panTimer = setTimeout(() => (panning = false), 200);
     recenter();
   }
 
@@ -475,7 +481,7 @@
       </div>
 
       <div class="stage">
-      <div class="box" bind:clientWidth={boxW}>
+      <div class="box" class:panning bind:clientWidth={boxW}>
         <div class="lane" style:height="{LANE_H}px">
           {#each dots as d}
             <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
@@ -967,6 +973,9 @@
     text-align: left;
     overflow: hidden;
     transition: left 150ms;
+  }
+  .box.panning .card {
+    transition: none;
   }
   .card.quiet:not(.sel) {
     opacity: 0.6;
