@@ -165,10 +165,10 @@ describe('repeaters', () => {
 
 describe('channel list', () => {
   it('groups walkie-talkie channels in plan order and marks the ones on air', () => {
-    const list = channelList('frs', [{ hz: 462_587_400 }, { hz: 462_675_200 }]);
+    const list = channelList('frs', [{ hz: 462_587_400, snr_db: 12 }, { hz: 462_675_200, snr_db: 30 }, { hz: 462_675_000, snr_db: 20 }]);
     expect(list.map((s) => s.group)).toEqual(['FRS and GMRS', 'FRS only, low power', 'FRS and GMRS · repeater outputs', 'GMRS repeater inputs']);
-    const live = list.flatMap((s) => s.channels).filter((c) => c.live).map((c) => c.channel.name);
-    expect(live).toEqual(['FRS 2', 'FRS 20']);
+    const live = list.flatMap((s) => s.channels).filter((c) => c.live).map((c) => [c.channel.name, c.snr]);
+    expect(live).toEqual([['FRS 2', 12], ['FRS 20', 30]]);
   });
   it('puts a plan without groups in one section', () => {
     const [cb, ...rest] = channelList('cb', []);

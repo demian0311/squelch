@@ -950,10 +950,11 @@
             <div class="list chlist">
               {#each chList as sec, i (i)}
                 {#if sec.group}<h3 class="chgroup">{sec.group}</h3>{/if}
-                {#each sec.channels as { channel: c, live } (c.hz)}
-                  <button class="reprow" class:sel={c.hz === tunedChannel?.hz} onclick={() => tuneTo(c.hz)}>
-                    <span class="name"><span class="dot" class:live></span>{c.name}</span>
-                    <span class="dim town">{live ? 'on air' : ''}</span>
+                {#each sec.channels as { channel: c, live, snr } (c.hz)}
+                  <button class="reprow chrow" class:sel={c.hz === tunedChannel?.hz} class:live onclick={() => tuneTo(c.hz)} title={live ? `On air${snr !== null ? `, ${snr.toFixed(0)} dB above the noise` : ''}` : undefined}>
+                    <span class="dot"></span>
+                    <span class="name town">{c.name}</span>
+                    {#if snr !== null}<span class="bars" style:--fill="{Math.min(100, (snr / METER_DB) * 100)}%"></span>{/if}
                     <span class="mono">{(c.hz / 1e6).toFixed(4)}</span>
                   </button>
                 {/each}
@@ -1796,15 +1797,51 @@
   .chgroup:first-child {
     margin-top: 2px;
   }
-  .reprow .dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 7px;
-    border-radius: 50%;
+  .chrow {
+    align-items: center;
+    transition: background 0.3s;
   }
-  .reprow .dot.live {
+  .chrow .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid var(--muted);
+  }
+  .chrow.live {
+    background: color-mix(in srgb, var(--green) 12%, transparent);
+  }
+  .chrow.live.sel {
+    background: color-mix(in srgb, var(--green) 14%, color-mix(in srgb, var(--pane, var(--hue)) 14%, var(--bg-light)));
+  }
+  .chrow.live .name {
+    color: var(--fg-bright);
+    font-weight: 500;
+  }
+  .chrow.live .dot {
+    border-color: var(--green);
     background: var(--green);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
+    animation: onair 1.6s ease-out infinite;
+  }
+  @keyframes onair {
+    to {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chrow.live .dot {
+      animation: none;
+    }
+  }
+  .chrow .bars {
+    flex: none;
+    width: 44px;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--green), var(--yellow)) 0 0 / 44px 100% no-repeat, var(--muted);
+    -webkit-mask: linear-gradient(90deg, #000 var(--fill), transparent var(--fill));
+    mask: linear-gradient(90deg, #000 var(--fill), color-mix(in srgb, #000 25%, transparent) var(--fill));
   }
   .reprow .town {
     flex: 1 1 auto;

@@ -94,19 +94,25 @@ export function channelAt(bandId: string | undefined, hz: number): Channel | und
 export interface ChannelSection {
   /** The channels' shared purpose, or null for a plan without groups. */
   group: string | null;
-  channels: { channel: Channel; live: boolean }[];
+  /** `snr` is the strongest signal on the channel, dB above the floor, when known. */
+  channels: { channel: Channel; live: boolean; snr: number | null }[];
 }
 
-/** A fixed plan as a list to pick from, in plan order, each channel marked live if a signal is on it. */
-export function channelList(bandId: string | undefined, signals: { hz: number }[]): ChannelSection[] {
+/** A fixed plan as a list to pick from, in plan order, each channel with the signal on it if any. */
+export function channelList(bandId: string | undefined, signals: { hz: number; snr_db?: number }[]): ChannelSection[] {
   const plan = bandId ? CHANNELS[bandId] : undefined;
   if (!plan) return [];
-  const live = new Set(signals.map((s) => channelAt(bandId, s.hz)?.hz));
+  const live = new Map<number, number>();
+  for (const s of signals) {
+    const hz = channelAt(bandId, s.hz)?.hz;
+    if (hz !== undefined) live.set(hz, Math.max(live.get(hz) ?? -Infinity, s.snr_db ?? -Infinity));
+  }
   const out: ChannelSection[] = [];
   for (const c of plan) {
     const group = c.group ?? null;
     if (out.at(-1)?.group !== group || !out.length) out.push({ group, channels: [] });
-    out.at(-1)!.channels.push({ channel: c, live: live.has(c.hz) });
+    const snr = live.get(c.hz);
+    out.at(-1)!.channels.push({ channel: c, live: snr !== undefined, snr: snr !== undefined && snr > -Infinity ? snr : null });
   }
   return out;
 }
