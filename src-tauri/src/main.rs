@@ -16,6 +16,21 @@ use tauri::{Emitter, State};
 #[derive(Default)]
 struct App {
     engine: Mutex<Option<Engine>>,
+    /// Last gain, volume and squelch asked for, replayed on each start: the UI sends them before the engine exists.
+    settings: Mutex<Settings>,
+}
+
+#[derive(Default)]
+struct Settings {
+    gain: Option<Command>,
+    volume: Option<Command>,
+    squelch: Option<Command>,
+}
+
+impl Settings {
+    fn commands(&self) -> impl Iterator<Item = Command> + '_ {
+        [&self.gain, &self.volume, &self.squelch].into_iter().flatten().cloned()
+    }
 }
 
 #[derive(Serialize)]
@@ -91,6 +106,9 @@ fn start(app: State<App>, rows: Channel<InvokeResponseBody>, status: Channel<Sta
             let _ = status.send(s);
         },
     );
+    for cmd in app.settings.lock().unwrap().commands() {
+        engine.send(cmd);
+    }
     *slot = Some(engine);
 }
 
@@ -113,16 +131,20 @@ fn set_mode(app: State<App>, mode: Mode) {
 /// `tenths` of a dB, or null for automatic gain.
 #[tauri::command]
 fn set_gain(app: State<App>, tenths: Option<i32>) {
-    send(&app, Command::SetGain(tenths.map(Gain::Tenths).unwrap_or(Gain::Auto)));
+    let cmd = Command::SetGain(tenths.map(Gain::Tenths).unwrap_or(Gain::Auto));
+    app.settings.lock().unwrap().gain = Some(cmd.clone());
+    send(&app, cmd);
 }
 
 #[tauri::command]
 fn set_volume(app: State<App>, volume: f32) {
+    app.settings.lock().unwrap().volume = Some(Command::SetVolume(volume));
     send(&app, Command::SetVolume(volume));
 }
 
 #[tauri::command]
 fn set_squelch(app: State<App>, db: Option<f32>) {
+    app.settings.lock().unwrap().squelch = Some(Command::SetSquelch(db));
     send(&app, Command::SetSquelch(db));
 }
 
