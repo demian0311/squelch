@@ -121,6 +121,22 @@ export interface Sonde {
   age_s: number;
 }
 
+/** A space station pass; times are Unix seconds. */
+export interface IssPass {
+  rise: number;
+  top: number;
+  set: number;
+  max_elevation: number;
+}
+
+export interface Iss {
+  /** The location text is not a ZIP code or "lat, lon". */
+  bad_location: boolean;
+  /** Unix seconds of the orbit data's epoch; null before the first download. */
+  tle_epoch: number | null;
+  passes: IssPass[];
+}
+
 export interface Setup {
   sample_rate: number;
   fft_size: number;
@@ -150,6 +166,9 @@ export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
+/** Space station passes over a ZIP code or "lat, lon" for the next two days. */
+export const iss = (location: string) => invoke<Iss>('iss', { location });
+
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
   const rows = new Channel<ArrayBuffer>();
   rows.onmessage = (buf) => {
@@ -163,3 +182,5 @@ export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
 
 export const onTheme = (f: (t: Theme) => void) => listen<Theme>('theme', (e) => f(e.payload));
 export const onBands = (f: (b: Bands) => void) => listen<Bands>('bands', (e) => f(e.payload));
+/** Fresh orbit data was downloaded. */
+export const onIss = (f: () => void) => listen('iss', () => f());

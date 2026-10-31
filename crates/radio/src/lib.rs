@@ -6,6 +6,7 @@ pub mod device;
 pub mod dsp;
 pub mod engine;
 pub mod hd;
+pub mod iss;
 pub mod rds;
 pub mod sonde;
 pub mod spectrum;

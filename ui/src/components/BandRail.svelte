@@ -9,8 +9,10 @@
     open: boolean;
     onPick: (b: Band) => void;
     onToggle: () => void;
+    /** Per band id: `live` puts a pulsing dot on the icon; `title` replaces the tooltip. */
+    marks?: Record<string, { live: boolean; title: string }>;
   }
-  let { plan, current, open, onPick, onToggle }: Props = $props();
+  let { plan, current, open, onPick, onToggle, marks = {} }: Props = $props();
 
   let folded = $state<Record<string, boolean>>({});
 
@@ -45,8 +47,8 @@
       {/if}
       {#each g.bands as { band, key } (band.id)}
         {#if !open || !folded[g.id] || band.id === current}
-          <button class="band" class:sel={band.id === current} onclick={() => onPick(band)} title="{band.name} · {range(band)}" aria-label={band.name}>
-            <span class="icon"><Icon name={band.icon} /></span>
+          <button class="band" class:sel={band.id === current} onclick={() => onPick(band)} title={marks[band.id] ? `${marks[band.id].title} · ${range(band)}` : `${band.name} · ${range(band)}`} aria-label={marks[band.id]?.live ? `${band.name}, overhead now` : band.name}>
+            <span class="icon"><Icon name={band.icon} />{#if marks[band.id]?.live}<span class="live"></span>{/if}</span>
             {#if open}
               <span class="text">
                 <span class="name">{band.name}</span>
@@ -146,6 +148,25 @@
   }
   .sel .icon {
     color: var(--accent);
+  }
+  .icon {
+    position: relative;
+  }
+  .live {
+    position: absolute;
+    top: -3px;
+    right: -4px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 2px var(--bg-dark);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
   }
   .text {
     display: flex;

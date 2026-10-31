@@ -3,10 +3,11 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, quietChannels } from './lib/channels';
-  import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
+  import type { Band, BandPlan, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
+  import { ageDays, clock, dayLabel, freshness, freshnessNote, issTitle, overhead, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Icon from './components/Icon.svelte';
@@ -275,6 +276,39 @@
     if (next !== undefined) tuneTo(snapTune(next, status?.signals ?? [], saved, span / boxW, mode, band?.id));
   }
 
+  // ── space station ───────────────────────────────
+
+  let location = $state(readText('location'));
+  let iss = $state<Iss | null>(null);
+  let nowS = $state(Date.now() / 1000);
+  let issAge = $derived(ageDays(iss?.tle_epoch ?? null, nowS));
+  let issUp = $derived(overhead(iss?.passes ?? [], nowS, issAge));
+  let issNext = $derived(upcoming(iss?.passes ?? [], nowS).slice(0, 8));
+  let issNote = $derived(freshnessNote(issAge));
+  let railMarks = $derived<Record<string, { live: boolean; title: string }>>(
+    iss?.passes.length ? { iss: { live: issUp !== null, title: issTitle(iss.passes, nowS, issAge) } } : {},
+  );
+
+  function readText(key: string): string {
+    try {
+      return localStorage.getItem(key) ?? '';
+    } catch {
+      return '';
+    }
+  }
+  async function loadIss() {
+    iss = await api.iss(location);
+  }
+  function setLocation(v: string) {
+    location = v.trim();
+    try {
+      localStorage.setItem('location', location);
+    } catch {
+      // without storage the location lasts until the app closes
+    }
+    loadIss();
+  }
+
   // ── weather balloons ────────────────────────────
 
   let decoding = $derived(band?.decoder === 'radiosonde');
@@ -419,6 +453,8 @@
       );
       const fm = plan.bands.find((x) => x.id === 'fm') ?? plan.bands[0];
       if (fm) pickBand(fm);
+      loadIss();
+      unsubs.push(api.onIss(loadIss));
       unsubs.push(api.onTheme(setTheme));
       unsubs.push(
         api.onBands((nb) => {
@@ -428,7 +464,14 @@
         }),
       );
     })();
-    return () => unsubs.forEach((u) => u.then((f) => f()));
+    // The pass list covers two days from when it was asked for; keep it current.
+    const tick = setInterval(() => (nowS = Date.now() / 1000), 5000);
+    const reload = setInterval(loadIss, 30 * 60_000);
+    return () => {
+      clearInterval(tick);
+      clearInterval(reload);
+      unsubs.forEach((u) => u.then((f) => f()));
+    };
   });
 
   $effect(() => {
@@ -470,7 +513,7 @@
 
   <div class="body">
     {#if !full}
-      <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={() => (railOpen = !railOpen)} />
+      <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={() => (railOpen = !railOpen)} marks={railMarks} />
     {/if}
 
     <main>
@@ -565,6 +608,30 @@
             <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
             <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
           {/each}
+        </aside>
+      {/if}
+      {#if band?.id === 'iss'}
+        <aside class="sondes">
+          <h2>Space station passes</h2>
+          <label class="loc">
+            <span class="dim">Your ZIP code, or latitude, longitude</span>
+            <input value={location} placeholder="80302 or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
+          </label>
+          {#if iss?.bad_location}<p class="empty err">Not a US ZIP code or “lat, lon”.</p>{/if}
+          {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
+          {#if !location}
+            <p class="empty">Enter where you are to see when the station passes over.</p>
+          {:else}
+            {#each issNext as p (p.rise)}
+              {@const now = p === issUp}
+              <div class="sonde" class:sel={now}>
+                <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
+                <span class="big">{Math.round(p.max_elevation)}° high</span>
+                <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
+              </div>
+            {/each}
+            <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
+          {/if}
         </aside>
       {/if}
       {#if hd}
@@ -909,6 +976,25 @@
   .empty {
     margin: 0;
     line-height: 1.45;
+  }
+  .loc {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .loc .dim {
+    color: var(--fg-dim);
+  }
+  .loc input {
+    min-height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid var(--muted);
+    background: var(--bg-light);
+  }
+  .loc input.bad {
+    border-color: var(--red);
   }
   .box {
     min-width: 0;

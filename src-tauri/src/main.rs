@@ -117,6 +117,31 @@ fn set_sondes(app: State<App>, on: bool) {
     send(&app, Command::SetSondes(on));
 }
 
+#[derive(Serialize)]
+struct Iss {
+    /// The location text did not parse as a ZIP code or "lat, lon".
+    bad_location: bool,
+    /// Unix seconds of the TLE epoch; null with no TLE yet.
+    tle_epoch: Option<f64>,
+    passes: Vec<radio::iss::Pass>,
+}
+
+/// Station passes over `location` (ZIP code or "lat, lon") for the next two days, from the cached TLE.
+#[tauri::command]
+fn iss(location: String) -> Iss {
+    let site = radio::iss::parse_site(&location);
+    let orbit = radio::iss::load_cached();
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
+    Iss {
+        bad_location: site.is_none() && !location.trim().is_empty(),
+        tle_epoch: orbit.as_ref().map(|o| o.epoch),
+        passes: match (site, &orbit) {
+            (Some(s), Some(o)) => o.passes(s, now, 48.0),
+            _ => Vec::new(),
+        },
+    }
+}
+
 /// HD Radio program to decode on the tuned FM station (0 = HD1), or null for off.
 #[tauri::command]
 fn set_hd(app: State<App>, program: Option<u32>) {
@@ -156,9 +181,26 @@ fn main() {
                     }
                 }
             });
+            // Space station elements: refresh when the cache is over REFRESH old, trying at most
+            // every RETRY (CelesTrak blocks faster polling). Offline, the old cache keeps working.
+            const REFRESH: Duration = Duration::from_secs(12 * 3600);
+            const RETRY: Duration = Duration::from_secs(2 * 3600);
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                let age = mtime(radio::iss::cache_path()).and_then(|t| t.elapsed().ok());
+                if age.map_or(true, |a| a > REFRESH) {
+                    match radio::iss::fetch() {
+                        Ok(()) => {
+                            let _ = handle.emit("iss", ());
+                        }
+                        Err(e) => eprintln!("space station elements: {e:#}"),
+                    }
+                }
+                std::thread::sleep(RETRY);
+            });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd])
+        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }
