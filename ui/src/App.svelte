@@ -7,7 +7,7 @@
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { ageDays, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Tray from './components/Tray.svelte';
@@ -644,27 +644,6 @@
           {/each}
         </aside>
       {/if}
-      {#if band?.id === 'iss'}
-        <aside class="sondes">
-          <h2>Space station passes</h2>
-          {#if iss?.bad_location}<p class="empty err">Your location in the controls below is not a US ZIP code, state or “lat, lon”.</p>{/if}
-          {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
-          {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
-          {#if !location}
-            <p class="empty">Set your location in the controls below (C) to see when the station passes over.</p>
-          {:else}
-            {#each issNext as p (p.rise)}
-              {@const now = p === issUp}
-              <div class="sonde" class:sel={now}>
-                <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
-                <span class="big">{Math.round(p.max_elevation)}° high</span>
-                <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
-              </div>
-            {/each}
-            <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
-          {/if}
-        </aside>
-      {/if}
       </div>
       {#if hd}
         <Tray id="hd" title="HD Radio" summary={hdSummary} accent="var(--orange)">
@@ -708,8 +687,31 @@
         </Tray>
       {/if}
       {#if band?.id === 'iss'}
-        <Tray id="issmap" title="Space station map" summary={issMapSummary}>
-          <div class="issmap"><IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} /></div>
+        <Tray id="issmap" title="Space station" summary={issMapSummary}>
+          <div class="issrow">
+            <div class="issmap">
+              <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
+              <span class="issage" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
+            </div>
+            <div class="isspasses">
+              {#if iss?.bad_location}<p class="empty err">Your location in the controls below is not a US ZIP code, state or “lat, lon”.</p>{/if}
+              {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
+              {#if issNote}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote}</p>{/if}
+              {#if !location}
+                <p class="empty">Set your location in the controls below (C) to see when the station passes over.</p>
+              {:else}
+                {#each issNext as p (p.rise)}
+                  {@const now = p === issUp}
+                  <div class="sonde" class:sel={now}>
+                    <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
+                    <span class="big">{Math.round(p.max_elevation)}° high</span>
+                    <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
+                  </div>
+                {/each}
+                <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
+              {/if}
+            </div>
+          </div>
         </Tray>
       {/if}
     </main>
@@ -1341,10 +1343,43 @@
   .warn {
     color: var(--yellow);
   }
-  .issmap {
+  /* the map keeps its whole globe; passes take what width is left, and go when there is too little */
+  .issrow {
     flex: 1 1 100%;
+    display: flex;
+    gap: 12px;
     height: 32vh;
     min-height: 180px;
+  }
+  .issmap {
+    position: relative;
+    flex: 0 1 auto;
+    aspect-ratio: 2;
+    height: 100%;
+    max-width: 100%;
     overflow: hidden;
+  }
+  .issage {
+    position: absolute;
+    left: 8px;
+    bottom: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    background: color-mix(in srgb, var(--bg-darker) 80%, transparent);
+  }
+  .isspasses {
+    flex: 1 1 260px;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+  @media (max-width: 1100px) {
+    .isspasses {
+      display: none;
+    }
   }
 </style>

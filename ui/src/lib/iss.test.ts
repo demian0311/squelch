@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageDays, footprintDeg, freshness, freshnessNote, groundAt, mapView, overhead, slack, until, upcoming } from './iss';
+import { ageDays, ageLabel, footprintDeg, freshness, freshnessNote, groundAt, mapView, overhead, slack, until, upcoming } from './iss';
 
 const pass = (rise: number, set: number) => ({ rise, top: (rise + set) / 2, set, max_elevation: 30 });
 const passes = [pass(1000, 1500), pass(7000, 7400)];
@@ -13,6 +13,11 @@ describe('orbit data age', () => {
     expect(freshness(20)).toBe('stale');
     expect(freshnessNote(1)).toBe('');
     expect(freshnessNote(5.7)).toContain('5 days old');
+    expect(ageLabel(null)).toBe('No orbit data');
+    expect(ageLabel(0.02)).toBe('Orbit data under an hour old');
+    expect(ageLabel(1 / 24)).toBe('Orbit data 1 hour old');
+    expect(ageLabel(1.5)).toBe('Orbit data 36 hours old');
+    expect(ageLabel(5.7)).toBe('Orbit data 5 days old');
     expect(freshnessNote(20)).toContain('go online');
   });
 

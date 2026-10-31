@@ -36,6 +36,15 @@ export function freshnessNote(age: number | null): string {
   }
 }
 
+/** How old the orbit data is, for a label that is always shown. */
+export function ageLabel(age: number | null): string {
+  if (age === null) return 'No orbit data';
+  const h = Math.floor(age * 24);
+  if (h < 1) return 'Orbit data under an hour old';
+  if (h < 48) return `Orbit data ${h} hour${h === 1 ? '' : 's'} old`;
+  return `Orbit data ${Math.floor(age)} days old`;
+}
+
 /** The pass the station may be in now, widened by `slack` for old data. */
 export function overhead(passes: IssPass[], now: number, age: number | null): IssPass | null {
   const s = slack(age);
