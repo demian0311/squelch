@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, quietChannels } from './lib/channels';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -52,6 +52,15 @@
       return localStorage.getItem('dock') !== 'closed';
     } catch {
       return true;
+    }
+  }
+  /** Last frequency used in each band, so returning to a band picks up where it left off. */
+  const lastHz: Record<string, number> = readLastHz();
+  function readLastHz(): Record<string, number> {
+    try {
+      return JSON.parse(localStorage.getItem('lastHz') ?? '{}');
+    } catch {
+      return {};
     }
   }
   function toggleDock() {
@@ -128,10 +137,20 @@
     recenter();
   }
 
+  $effect(() => {
+    if (!band || tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6) return;
+    lastHz[band.id] = tuned;
+    try {
+      localStorage.setItem('lastHz', JSON.stringify(lastHz));
+    } catch {
+      // remembering is a nicety
+    }
+  });
+
   function pickBand(b: Band) {
     bandId = b.id;
     const s = Math.min(maxSpan, (b.high_mhz - b.low_mhz) * 1e6);
-    const start = b.start_mhz * 1e6;
+    const start = bandEntryHz(b, lastHz);
     let nvs = start - s / 2;
     nvs = Math.max(b.low_mhz * 1e6, Math.min(nvs, b.high_mhz * 1e6 - s));
     if (s >= (b.high_mhz - b.low_mhz) * 1e6) nvs = (b.low_mhz * 1e6 + b.high_mhz * 1e6) / 2 - s / 2;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
+import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelTicks, quietChannels } from './channels';
 
@@ -27,6 +27,13 @@ describe('band lookup', () => {
     expect(bandAt(plan, 145.8e6)?.id).toBe('iss');
     expect(bandAt(plan, 146.52e6)?.id).toBe('2m');
     expect(bandAt(plan, 50e6)).toBeUndefined();
+  });
+  it('returns to the last frequency used in a band', () => {
+    const fm = plan.bands.find((b) => b.id === 'fm')!;
+    expect(bandEntryHz(fm, {})).toBe(101_100_000);
+    expect(bandEntryHz(fm, { fm: 94_700_000 })).toBe(94_700_000);
+    // a remembered frequency the band no longer covers (bands file edited) falls back to the start
+    expect(bandEntryHz(fm, { fm: 150_000_000 })).toBe(101_100_000);
   });
   it('lets a bookmark override the band mode', () => {
     expect(modeAt(plan, saved, 144.39e6, 'am')).toBe('none');

@@ -31,6 +31,12 @@ export function bandAt(plan: BandPlan, hz: number): Band | undefined {
     .sort((a, b) => a.high_mhz - a.low_mhz - (b.high_mhz - b.low_mhz))[0];
 }
 
+/** Where to tune on entering a band: the last frequency used there, else its start. */
+export function bandEntryHz(b: Band, lastHz: Record<string, number>): number {
+  const hz = lastHz[b.id];
+  return hz !== undefined && hz >= b.low_mhz * 1e6 && hz <= b.high_mhz * 1e6 ? hz : Math.round(b.start_mhz * 1e6);
+}
+
 export interface Saved extends Bookmark {
   band: Band;
 }
