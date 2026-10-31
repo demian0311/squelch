@@ -75,6 +75,16 @@ export function until(t: number, now: number): string {
   return m < 60 ? `in ${m} min` : `in ${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
+/** Rail line in place of the frequency range: "Overhead now", "Today 14:32", "Sat 21:05". */
+export function issRailLine(passes: IssPass[], now: number, age: number | null): string {
+  if (overhead(passes, now, age)) return 'Overhead now';
+  const next = upcoming(passes, now)[0];
+  if (!next) return 'No pass known';
+  const d = dayLabel(next.rise, now);
+  const day = d === 'Today' || d === 'Tomorrow' ? d : new Date(next.rise * 1000).toLocaleDateString([], { weekday: 'short' });
+  return `${day} ${clock(next.rise)}`;
+}
+
 /** Rail tooltip for the station's band. */
 export function issTitle(passes: IssPass[], now: number, age: number | null): string {
   const o = overhead(passes, now, age);

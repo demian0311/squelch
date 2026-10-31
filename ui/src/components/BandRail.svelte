@@ -12,8 +12,8 @@
     onToggle: () => void;
     /** Colour per group id. */
     hues: Record<string, string>;
-    /** Per band id: `live` puts a pulsing dot on the icon; `title` replaces the tooltip. */
-    marks?: Record<string, { live: boolean; title: string }>;
+    /** Per band id: `live` puts a pulsing dot on the icon; `title` replaces the tooltip; `line` replaces the frequency range. */
+    marks?: Record<string, { live: boolean; title: string; line?: string }>;
     settingsOpen: boolean;
     onSettings: () => void;
     settings: Snippet;
@@ -61,7 +61,7 @@
               {#if open}
                 <span class="text">
                   <span class="name">{band.name}</span>
-                  <span class="range mono">{range(band)}</span>
+                  <span class="range mono">{marks[band.id]?.line ?? range(band)}</span>
                 </span>
                 <span class="key mono">{key}</span>
               {/if}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageDays, ageLabel, footprintDeg, freshness, freshnessNote, groundAt, mapView, overhead, slack, until, upcoming } from './iss';
+import { ageDays, ageLabel, clock, footprintDeg, freshness, freshnessNote, groundAt, issRailLine, mapView, overhead, slack, until, upcoming } from './iss';
 
 const pass = (rise: number, set: number) => ({ rise, top: (rise + set) / 2, set, max_elevation: 30 });
 const passes = [pass(1000, 1500), pass(7000, 7400)];
@@ -73,5 +73,18 @@ describe('map', () => {
     expect(mapView({ lat: 40, lon: -105 }, false)).toBe('0 0 360 180');
     expect(mapView({ lat: 40, lon: -105 }, true)).toBe('30 27.5 90 45');
     expect(mapView({ lat: 85, lon: 179 }, true)).toBe('270 0 90 45');
+  });
+});
+
+describe('issRailLine', () => {
+  const at = (h: number, m = 0, dayOff = 0) => new Date(2026, 9, 31 + dayOff, h, m).getTime() / 1000;
+  const p = (rise: number) => pass(rise, rise + 600);
+  it('says overhead, today, tomorrow or a short weekday', () => {
+    const now = at(12);
+    expect(issRailLine([p(now - 60)], now, 0)).toBe('Overhead now');
+    expect(issRailLine([p(at(18, 5))], now, 0)).toBe(`Today ${clock(at(18, 5))}`);
+    expect(issRailLine([p(at(3, 0, 1))], now, 0)).toBe(`Tomorrow ${clock(at(3, 0, 1))}`);
+    expect(issRailLine([p(at(9, 0, 3))], now, 0)).toMatch(/^[A-Z][a-z]{2} /);
+    expect(issRailLine([], now, 0)).toBe('No pass known');
   });
 });

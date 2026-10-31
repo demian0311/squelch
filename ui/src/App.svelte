@@ -8,7 +8,7 @@
   import { apply as applyTheme, groupHue, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
-  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Pane from './components/Pane.svelte';
@@ -313,8 +313,8 @@
   let issUp = $derived(overhead(iss?.passes ?? [], nowS, issAge));
   let issNext = $derived(upcoming(iss?.passes ?? [], nowS).slice(0, 8));
   let issNote = $derived(freshnessNote(issAge));
-  let railMarks = $derived<Record<string, { live: boolean; title: string }>>(
-    iss?.passes.length ? { iss: { live: issUp !== null, title: issTitle(iss.passes, nowS, issAge) } } : {},
+  let railMarks = $derived<Record<string, { live: boolean; title: string; line?: string }>>(
+    iss?.passes.length ? { iss: { live: issUp !== null, title: issTitle(iss.passes, nowS, issAge), line: issRailLine(iss.passes, nowS, issAge) } } : {},
   );
 
   function readText(key: string): string {
