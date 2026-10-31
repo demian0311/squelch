@@ -8,4 +8,4 @@ Ideas to work later. One line each, newest at the bottom; an indented note under
 - Favourite frequencies as a quick-access list in the app, one click to tune.
 - Schedule of times to tune in (nets, prepper 3-3-3 check-ins): frequency, mode, recurrence, with a reminder when one is about to start.
 - On an FM station, start HD Radio decoding in the background; show the HD panel only once it has pictures or digital audio.
-  Today HD starts only when the user picks a program (`Command::SetHd`); the panel shows regardless of whether the station carries HD.
+  Today HD starts only on a station where the user already picked a program (localStorage `hd`); the panel appears as soon as HD starts, before it has anything to show.
