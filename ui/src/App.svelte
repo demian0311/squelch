@@ -14,6 +14,7 @@
   import Pane from './components/Pane.svelte';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
+  import Level from './components/Level.svelte';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
 
@@ -374,6 +375,15 @@
   let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
   let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
   let repNear = $derived(repPoints.filter((p) => p.reach));
+  // strongest signal on each repeater's output right now
+  let repLive = $derived.by(() => {
+    const m = new Map<number, number>();
+    for (const s of status?.signals ?? []) {
+      const hz = channelAt(band?.id, s.hz)?.hz;
+      if (hz !== undefined) m.set(hz, Math.max(m.get(hz) ?? -Infinity, s.snr_db));
+    }
+    return m;
+  });
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
     const maybe = repPoints.filter((p) => p.digital).length;
@@ -780,7 +790,7 @@
                     {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
                       <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
                     {/if}
-                    <span class="bar"><span style:width="{c.meter}%"></span></span>
+                    <span class="bar"><Level pct={c.meter} width="100%" height="3px" /></span>
                   </span>
                 </button>
               {/each}
@@ -954,7 +964,7 @@
                   <button class="reprow chrow" class:sel={c.hz === tunedChannel?.hz} class:live onclick={() => tuneTo(c.hz)} title={live ? `On air${snr !== null ? `, ${snr.toFixed(0)} dB above the noise` : ''}` : undefined}>
                     <span class="dot"></span>
                     <span class="name town">{c.name}</span>
-                    {#if snr !== null}<span class="bars" style:--fill="{Math.min(100, (snr / METER_DB) * 100)}%"></span>{/if}
+                    {#if snr !== null}<Level pct={(snr / METER_DB) * 100} />{/if}
                     <span class="mono">{(c.hz / 1e6).toFixed(4)}</span>
                   </button>
                 {/each}
@@ -976,10 +986,13 @@
                     </div>
                   {/if}
                   {#each repNear.filter((p) => p !== repTuned) as p (p.hz)}
-                    <button class="reprow" onclick={() => tuneTo(p.hz)}>
+                    {@const snr = repLive.get(p.hz)}
+                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
+                      <span class="dot"></span>
                       <span class="name">{p.call}</span>
                       <span class="dim town">{p.city}</span>
                       {#if p.digital}<span class="warn mono">{p.digital}?</span>{/if}
+                      {#if snr !== undefined}<Level pct={(snr / METER_DB) * 100} />{/if}
                       <span class="mono">{(p.hz / 1e6).toFixed(4)}</span>
                       <span class="mono dim">{Math.round(p.km)} km</span>
                     </button>
@@ -1712,18 +1725,6 @@
     left: 8px;
     right: 8px;
     bottom: 3px;
-    height: 2px;
-    border-radius: 1px;
-    background: var(--muted);
-  }
-  .bar span {
-    display: block;
-    height: 2px;
-    border-radius: 1px;
-    background: var(--green);
-  }
-  .card.sel .bar span {
-    background: var(--accent);
   }
   .edge {
     position: absolute;
@@ -1834,15 +1835,7 @@
       animation: none;
     }
   }
-  .chrow .bars {
-    flex: none;
-    width: 44px;
-    height: 6px;
-    border-radius: 3px;
-    background: linear-gradient(90deg, var(--green), var(--yellow)) 0 0 / 44px 100% no-repeat, var(--muted);
-    -webkit-mask: linear-gradient(90deg, #000 var(--fill), transparent var(--fill));
-    mask: linear-gradient(90deg, #000 var(--fill), color-mix(in srgb, #000 25%, transparent) var(--fill));
-  }
+
   .reprow .town {
     flex: 1 1 auto;
     min-width: 0;
