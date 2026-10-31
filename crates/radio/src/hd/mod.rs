@@ -1,7 +1,7 @@
 //! HD Radio (NRSC-5): digital audio, station data and images from the sidebands of an FM station.
 //! The tuned station is cut from the capture, resampled for libnrsc5 and decoded on its own thread.
 
-mod ffi;
+pub mod ffi;
 
 use crate::demod::AUDIO_RATE;
 use crate::dsp::{lowpass, Decimator, Mixer, C32};
@@ -195,6 +195,44 @@ impl Resampler {
     }
 }
 
+/// Capture → the decoder's input: the station mixed to 0 Hz, cut to ±200 kHz and brought to `ffi::SAMPLE_RATE`.
+pub struct FrontEnd {
+    mixer: Mixer,
+    dec: Decimator<C32>,
+    rs: Resampler,
+    a: Vec<C32>,
+    b: Vec<C32>,
+}
+
+impl FrontEnd {
+    /// `offset_hz` is the station relative to the capture centre.
+    pub fn new(offset_hz: f64, in_rate: u32) -> Self {
+        let fs = in_rate as f32;
+        let d = (in_rate / 800_000).max(1) as usize;
+        let mid = in_rate as f64 / d as f64;
+        // pass ±200 kHz, stop by mid/2 so the resampler sees a clean band
+        let edge = mid as f32 / 2.0;
+        FrontEnd {
+            mixer: Mixer::new(offset_hz, in_rate as f64),
+            dec: Decimator::new(lowpass((200_000.0 + edge) / 2.0 / fs, (edge - 200_000.0) / fs), d),
+            rs: Resampler::new(mid, ffi::SAMPLE_RATE),
+            a: Vec::new(),
+            b: Vec::new(),
+        }
+    }
+
+    /// `flat` receives interleaved I/Q at `ffi::SAMPLE_RATE`; `block` is mixed in place.
+    pub fn process(&mut self, block: &mut [C32], flat: &mut Vec<f32>) {
+        self.mixer.process(block);
+        self.a.clear();
+        self.dec.process(block, &mut self.a);
+        self.b.clear();
+        self.rs.process(&self.a, &mut self.b);
+        flat.clear();
+        flat.extend(self.b.iter().flat_map(|c| [c.re, c.im]));
+    }
+}
+
 /// 44.1 kHz interleaved stereo i16 → 48 kHz mono f32, by linear interpolation.
 struct AudioRate {
     pos: f64,
@@ -244,23 +282,10 @@ impl Hd {
                         return;
                     }
                 };
-                let fs = in_rate as f32;
-                let d = (in_rate / 800_000).max(1) as usize;
-                let mid = in_rate as f64 / d as f64;
-                let mut mixer = Mixer::new(offset_hz, in_rate as f64);
-                // pass ±200 kHz, stop by mid/2 so the resampler sees a clean band
-                let edge = mid as f32 / 2.0;
-                let mut dec = Decimator::new(lowpass((200_000.0 + edge) / 2.0 / fs, (edge - 200_000.0) / fs), d);
-                let mut rs = Resampler::new(mid, ffi::SAMPLE_RATE);
-                let (mut a, mut b, mut flat) = (Vec::new(), Vec::new(), Vec::new());
+                let mut front = FrontEnd::new(offset_hz, in_rate);
+                let mut flat = Vec::new();
                 for mut block in rx {
-                    mixer.process(&mut block);
-                    a.clear();
-                    dec.process(&block, &mut a);
-                    b.clear();
-                    rs.process(&a, &mut b);
-                    flat.clear();
-                    flat.extend(b.iter().flat_map(|c| [c.re, c.im]));
+                    front.process(&mut block, &mut flat);
                     session.push(&flat);
                 }
             })

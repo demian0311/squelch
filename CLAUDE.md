@@ -25,6 +25,7 @@ Spectrum rows and status: the page pulls them with the `feed` command (`src-taur
 - Stage timings: `cargo run -p radio --release --example bench`
 - UI tests / types: `pnpm test`, `pnpm check`
 - Decode a recording: `cargo run -p radio --release --example sonde_file -- <wav>` (mono = FM audio, stereo = I/Q). Verified 2026-10-30 on rs1729's `rs41/wav/20140717_402MHz.wav` (RS41 K1930308, 114 frames) and `iq/dfmIQ.wav` (DFM-06 314377).
+- HD Radio cost: `cargo run -p radio --release --example hd_bench` times the front end (`hd::FrontEnd`) and libnrsc5 on a second of noise. 2026-10-31 on eagle: front end 21 ms, nrsc5 122 ms (live with a signal the `hd` thread takes ~21% of a core, nearly all inside libnrsc5; the installed `~/.local/lib/libnrsc5.so` carries debug info and no AVX code, so it was probably built without `-DCMAKE_BUILD_TYPE=Release`).
 - HD Radio live: `cargo run -p radio --release --example hd_probe -- 106.7 0 60 <dir>` prints decoder state and writes pictures (base64) to `<dir>`.
 - RDS offline: `mpx_dump -- <MHz> <secs> <out.f32>` records MPX, `rds_file -- <out.f32>` prints pilot lock, block stats and decoded info.
 - Space station passes: `cargo run -p radio --release --example iss -- <tle file> <zip | state | lat lon> [hours]`. Ground point matched api.wheretheiss.at to 0.01° on 2026-10-31.
