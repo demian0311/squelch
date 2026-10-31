@@ -816,6 +816,11 @@
         <button class="play small" class:on={playing} onclick={togglePlay}>{playing ? 'Stop' : 'Listen'}</button>
         <span class="spacer"></span>
         <span class="info mono" class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</span>
+        <div class="tools">
+          <button class="wide accent" onclick={toggleFull} title="Full screen (F)">
+            <Icon name={full ? 'shrink' : 'expand'} size={16} />{full ? 'Exit full screen' : 'Full screen'}
+          </button>
+        </div>
       {/if}
     </div>
     {#if dockOpen}
