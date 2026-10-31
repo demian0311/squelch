@@ -8,7 +8,7 @@
   import { apply as applyTheme, groupHue, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
-  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import Pane from './components/Pane.svelte';
@@ -617,8 +617,8 @@
         api.onRepeaters(loadRepeaters),
       );
     })();
-    // The pass list covers two days from when it was asked for; keep it current.
-    const tick = setInterval(() => (nowS = Date.now() / 1000), 5000);
+    // Drives the header clocks and keeps the pass list current.
+    const tick = setInterval(() => (nowS = Date.now() / 1000), 1000);
     const reload = setInterval(loadIss, 5 * 60_000);
     return () => {
       clearInterval(tick);
@@ -687,6 +687,10 @@
           <div class="fill" class:muted style:width="{meter}%"></div>
           <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
         </div>
+      </div>
+      <div class="clocks mono" title="Local time and UTC">
+        <span>{localTime(nowS)}</span>
+        <span>{utcTime(nowS)} <small>UTC</small></span>
       </div>
       {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
       {#if status?.error || bandsError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? ''}>Problem · details</button>{/if}
@@ -1071,6 +1075,19 @@
   }
   .meter {
     width: 170px;
+  }
+  .clocks {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-left: auto;
+    font-size: 13px;
+  }
+  .clocks span + span {
+    color: var(--fg-dim);
+  }
+  .clocks small {
+    font-size: 10px;
   }
   .track {
     position: relative;

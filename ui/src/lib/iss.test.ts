@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ageDays, ageLabel, footprintDeg, freshness, freshnessNote, groundAt, issRailLine, mapView, overhead, slack, until, upcoming } from './iss';
+import { ageDays, ageLabel, footprintDeg, freshness, freshnessNote, groundAt, issRailLine, utcTime, mapView, overhead, slack, until, upcoming } from './iss';
 
 const pass = (rise: number, set: number) => ({ rise, top: (rise + set) / 2, set, max_elevation: 30 });
 const passes = [pass(1000, 1500), pass(7000, 7400)];
@@ -86,5 +86,11 @@ describe('issRailLine', () => {
     expect(issRailLine([p(at(3, 0, 1))], now, 0)).toBe('Tomorrow 3:00 AM');
     expect(issRailLine([p(at(9, 0, 3))], now, 0)).toMatch(/^[A-Z][a-z]{2} /);
     expect(issRailLine([], now, 0)).toBe('No pass known');
+  });
+});
+
+describe('utcTime', () => {
+  it('is 24-hour UTC with seconds', () => {
+    expect(utcTime(Date.UTC(2026, 9, 31, 16, 51, 7) / 1000)).toBe('16:51:07');
   });
 });

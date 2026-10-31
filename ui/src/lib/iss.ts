@@ -69,6 +69,16 @@ export function clock(t: number): string {
   return new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** "10:51:07 AM MDT" in the machine's zone. */
+export function localTime(t: number): string {
+  return new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short' });
+}
+
+/** "16:51:07". */
+export function utcTime(t: number): string {
+  return new Date(t * 1000).toISOString().slice(11, 19);
+}
+
 /** "in 3 min", "in 2 h 5 min". */
 export function until(t: number, now: number): string {
   const m = Math.max(0, Math.round((t - now) / 60));
