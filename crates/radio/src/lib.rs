@@ -13,4 +13,5 @@ pub mod repeaters;
 pub mod sonde;
 pub mod spectrum;
 pub mod squelch;
+pub mod terrain;
 pub mod theme;

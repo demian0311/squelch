@@ -168,6 +168,12 @@ fn iss_track() -> Vec<radio::iss::GroundPoint> {
     radio::iss::load_cached().map(|o| o.track(now - 2700.0, now + 6000.0, 30.0)).unwrap_or_default()
 }
 
+/// One elevation tile for the local map, as a data URL; null when it is neither cached nor downloadable.
+#[tauri::command]
+async fn terrain_tile(z: u8, x: u32, y: u32) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || radio::terrain::tile_url(z, x, y)).await.ok().flatten()
+}
+
 /// HD Radio program to decode on the tuned FM station (0 = HD1), or null for off.
 #[tauri::command]
 fn set_hd(app: State<App>, program: Option<u32>) {
@@ -232,7 +238,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd, iss, iss_track, terrain_tile])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

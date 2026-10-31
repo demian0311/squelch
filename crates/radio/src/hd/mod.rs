@@ -125,7 +125,7 @@ fn traffic_tile(name: &str) -> Option<(u32, u32)> {
     Some((p[2].parse().ok()?, p[3].parse().ok()?))
 }
 
-fn data_url(data: &[u8]) -> Option<String> {
+pub(crate) fn data_url(data: &[u8]) -> Option<String> {
     let mime = if data.starts_with(b"\x89PNG") {
         "image/png"
     } else if data.starts_with(&[0xFF, 0xD8]) {

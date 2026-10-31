@@ -231,6 +231,8 @@ export const iss = (location: string) => invoke<Iss>('iss', { location });
 
 /** The station's ground track, 45 min back to 100 min ahead. */
 export const issTrack = () => invoke<GroundPoint[]>('iss_track');
+/** One elevation tile (terrarium PNG) as a data URL, or null when neither cached nor downloadable. */
+export const terrainTile = (z: number, x: number, y: number) => invoke<string | null>('terrain_tile', { z, x, y });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
   const rows = new Channel<ArrayBuffer>();
