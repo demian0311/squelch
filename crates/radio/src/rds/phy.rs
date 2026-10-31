@@ -93,14 +93,9 @@ impl Phy {
         self.buf.clear();
         if self.pilot.locked() || self.pilot.warming() {
             // mix down by three times the pilot phase
-            for &v in mpx {
-                let p = self.pilot.step(v);
-                self.buf.push(C32::new(v, 0.0) * (p * p * p).conj());
-            }
+            self.pilot.run(mpx, Some(&mut self.buf));
         } else {
-            for &v in mpx {
-                self.pilot.step(v);
-            }
+            self.pilot.run(mpx, None);
             self.buf.extend(mpx.iter().map(|&v| C32::new(v, 0.0)));
             self.fallback.process(&mut self.buf);
         }
@@ -144,9 +139,17 @@ impl Phy {
 
 /// Phase-locked loop on the 19 kHz stereo pilot. The signal is mixed down by the loop's own
 /// phase and low-passed twice, so programme audio near 19 kHz cannot disturb the phase error.
+/// The error is read once per `BLOCK` samples and the oscillator for the block comes from a table of
+/// nominal steps plus a short series for the small departure, so each sample costs a few independent
+/// multiplies instead of a chain through a sine, a cosine and an arctangent. The loop is far too slow
+/// (a few hertz wide) to notice an error held for 16 samples.
 struct Pilot {
     fs: f64,
-    phase: f64,
+    /// e^{jφ} at the start of the next block
+    osc: (f64, f64),
+    /// e^{jk·w0} for k in 0..=BLOCK: the nominal pilot step
+    table: Vec<(f64, f64)>,
+    w0: f64,
     w: f64,
     z1: (f64, f64),
     z2: (f64, f64),
@@ -155,30 +158,63 @@ struct Pilot {
     samples: u64,
 }
 
+/// Samples between phase-error updates of the pilot loop.
+const BLOCK: usize = 16;
+
 impl Pilot {
     fn new(fs: f64) -> Self {
         let w = std::f64::consts::TAU * PILOT_HZ / fs;
-        Pilot { fs, phase: 0.0, w, z1: (0.0, 0.0), z2: (0.0, 0.0), noise: 1e-9, lp: 1.0 - (-std::f64::consts::TAU * PILOT_LP_HZ / fs).exp(), samples: 0 }
+        let table = (0..=BLOCK)
+            .map(|k| {
+                let a = k as f64 * w;
+                (a.cos(), a.sin())
+            })
+            .collect();
+        Pilot { fs, osc: (1.0, 0.0), table, w0: w, w, z1: (0.0, 0.0), z2: (0.0, 0.0), noise: 1e-9, lp: 1.0 - (-std::f64::consts::TAU * PILOT_LP_HZ / fs).exp(), samples: 0 }
     }
 
-    /// Advance one sample; returns e^{jθ}, the pilot phase.
-    fn step(&mut self, x: f32) -> C32 {
-        let (s, c) = self.phase.sin_cos();
-        let x = x as f64;
+    /// Track the pilot through `mpx`. With `out`, also append every sample mixed down by three times the
+    /// pilot phase, which puts the 57 kHz RDS subcarrier at 0 Hz.
+    fn run(&mut self, mpx: &[f32], mut out: Option<&mut Vec<C32>>) {
         let k = self.lp;
-        self.z1.0 += k * (x * c - self.z1.0);
-        self.z1.1 += k * (-x * s - self.z1.1);
-        self.z2.0 += k * (self.z1.0 - self.z2.0);
-        self.z2.1 += k * (self.z1.1 - self.z2.1);
-        self.noise += k * (x * x - self.noise);
-        let e = self.z2.1.atan2(self.z2.0);
-        self.w += PILOT_BETA * e;
-        self.phase = (self.phase + self.w + PILOT_ALPHA * e) % std::f64::consts::TAU;
-        self.samples += 1;
-        C32::new(c as f32, s as f32)
+        for block in mpx.chunks(BLOCK) {
+            let n = block.len();
+            let e = crate::dsp::fast_atan2(self.z2.1 as f32, self.z2.0 as f32) as f64;
+            self.w += PILOT_BETA * e * n as f64;
+            let step = self.w + PILOT_ALPHA * e;
+            // e^{j·i·step} = e^{j·i·w0} · e^{j·i·d} with d tiny, so cos(i·d) ≈ 1 - (i·d)²/2 and sin(i·d) ≈ i·d
+            let d = step - self.w0;
+            let (bc, bs) = self.osc;
+            let at = |i: usize| {
+                let (tc, ts) = self.table[i];
+                let a = i as f64 * d;
+                let (dc, ds) = (1.0 - a * a / 2.0, a);
+                let (rc, rs) = (tc * dc - ts * ds, tc * ds + ts * dc);
+                (bc * rc - bs * rs, bc * rs + bs * rc)
+            };
+            let (mut z1, mut z2, mut noise) = (self.z1, self.z2, self.noise);
+            for (i, &x) in block.iter().enumerate() {
+                let (c, s) = at(i);
+                let x = x as f64;
+                z1.0 += k * (x * c - z1.0);
+                z1.1 += k * (-x * s - z1.1);
+                z2.0 += k * (z1.0 - z2.0);
+                z2.1 += k * (z1.1 - z2.1);
+                noise += k * (x * x - noise);
+                if let Some(out) = out.as_deref_mut() {
+                    let p = C32::new(c as f32, s as f32);
+                    out.push(C32::new(x as f32, 0.0) * (p * p * p).conj());
+                }
+            }
+            (self.z1, self.z2, self.noise) = (z1, z2, noise);
+            // where the oscillator stands for the next block, kept on the unit circle
+            let (c, s) = at(n);
+            let m = (c * c + s * s).sqrt();
+            self.osc = (c / m, s / m);
+            self.samples += n as u64;
+        }
     }
 
-    /// The first second, before the lock can be judged.
     fn warming(&self) -> bool {
         self.samples < self.fs as u64
     }

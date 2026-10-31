@@ -13,7 +13,7 @@ pub mod tsbk;
 pub mod voice;
 
 use crate::detect::Detected;
-use crate::dsp::{lowpass, Agc, Decimator, Mixer, C32};
+use crate::dsp::{lowpass, Agc, C32, Decimate, Decimator, Mixer};
 use phy::{Frame, Phy};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
@@ -105,7 +105,7 @@ pub struct P25 {
     rate: f64,
     mixer: Mixer,
     mixed: (f64, f64),
-    d1: Decimator<C32>,
+    d1: Decimate<C32>,
     d2: Decimator<C32>,
     chan: Vec<C32>,
     s1: Vec<C32>,
@@ -150,7 +150,7 @@ impl P25 {
             mixer: Mixer::new(0.0, rate as f64),
             mixed: (f64::NAN, f64::NAN),
             // capture → 240 kHz → 48 kHz
-            d1: Decimator::new(lowpass(30_000.0 / fs, 60_000.0 / fs), (fs / mid).round() as usize),
+            d1: Decimate::new(fs, 30_000.0, 90_000.0, (fs / mid).round() as usize),
             d2: Decimator::new(lowpass(7_000.0 / mid, 4_000.0 / mid), 5),
             chan: Vec::new(),
             s1: Vec::new(),

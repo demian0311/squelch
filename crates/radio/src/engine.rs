@@ -199,6 +199,7 @@ fn run(
     let p25_for = |mode: Mode, tuned: f64| (mode == Mode::P25).then(|| P25::new(rate, tuned));
     let mut p25: Option<P25> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
+    let mut prof = Prof::new();
 
     loop {
         loop {
@@ -286,6 +287,7 @@ fn run(
             }
         }
 
+        prof.lap("commands");
         let n = match src.read(&mut raw) {
             Ok(n) => n,
             Err(e) => {
@@ -295,13 +297,17 @@ fn run(
                 continue;
             }
         };
+        prof.lap("read");
         u8_to_iq(&raw[..n], &mut iq);
+        prof.lap("convert");
         if let Some(h) = &hd {
             h.feed(&iq);
         }
+        prof.lap("hd feed");
 
         rows.clear();
         spectrum.process(&iq, &mut rows);
+        prof.lap("spectrum");
         for row in rows.drain(..) {
             floor = 0.9 * floor + 0.1 * noise_floor(&row);
             let lo = floor - BELOW_FLOOR_DB;
@@ -313,6 +319,7 @@ fn run(
             squelch.update(snr, 1.0 / ROWS_PER_SEC as f32);
             recent.push(row);
         }
+        prof.lap("rows");
         if recent.len() >= 6 {
             let n = recent[0].len();
             let mut avg = vec![0.0f32; n];
@@ -328,10 +335,12 @@ fn run(
             }
             recent.clear();
         }
+        prof.lap("detect");
 
         if let Some(sc) = &mut scanner {
             sc.process(&iq);
         }
+        prof.lap("sondes");
 
         if let Some(p) = &mut p25 {
             // the receiver opens and closes on calls itself, so the squelch stays out of it
@@ -342,11 +351,14 @@ fn run(
                 }
                 recent.clear();
             }
+            prof.lap("p25");
         } else {
             chan.clear();
             chan.extend_from_slice(&iq);
             mixer.process(&mut chan);
+            prof.lap("mix");
             demod.process(&chan, &mut pcm);
+            prof.lap("demod");
             // a strong station on the FM grid shows how far off the crystal is: its carrier is the discriminator's mean
             let on_grid = mode == Mode::Wfm && ((tuned / FM_GRID_HZ).round() * FM_GRID_HZ - tuned).abs() < 1.0;
             if !on_grid || snr < MEASURE_SNR_DB {
@@ -362,10 +374,12 @@ fn run(
                 h.fill(&mut pcm);
             }
             squelch.apply(&mut pcm);
+            prof.lap("hd fill");
         }
         if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
         }
+        prof.lap("audio");
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
@@ -378,6 +392,57 @@ fn run(
             }
             send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, ppm, crystal);
         }
+        prof.lap("status");
+        prof.report();
+    }
+}
+
+/// Where the radio thread's time goes, printed to stderr every `PROF_EVERY` when `SQUELCH_PROFILE` is set.
+/// Each lap charges the time since the previous one to a stage; the rest of a period is time the thread waited.
+struct Prof {
+    on: bool,
+    last: Instant,
+    since: Instant,
+    stages: Vec<(&'static str, Duration)>,
+}
+
+const PROF_EVERY: Duration = Duration::from_secs(5);
+
+impl Prof {
+    fn new() -> Self {
+        let now = Instant::now();
+        Prof { on: std::env::var_os("SQUELCH_PROFILE").is_some(), last: now, since: now, stages: Vec::new() }
+    }
+
+    fn lap(&mut self, stage: &'static str) {
+        if !self.on {
+            return;
+        }
+        let now = Instant::now();
+        match self.stages.iter_mut().find(|(s, _)| *s == stage) {
+            Some((_, d)) => *d += now - self.last,
+            None => self.stages.push((stage, now - self.last)),
+        }
+        self.last = now;
+    }
+
+    fn report(&mut self) {
+        if !self.on || self.since.elapsed() < PROF_EVERY {
+            return;
+        }
+        let wall = self.since.elapsed().as_secs_f64();
+        let busy: f64 = self.stages.iter().map(|(_, d)| d.as_secs_f64()).sum();
+        let mut line = format!("radio thread {:>5.1}% busy:", busy / wall * 100.0);
+        self.stages.sort_by(|a, b| b.1.cmp(&a.1));
+        for (s, d) in &self.stages {
+            let pct = d.as_secs_f64() / wall * 100.0;
+            if pct >= 0.05 {
+                line += &format!("  {s} {pct:.1}%");
+            }
+        }
+        eprintln!("{line}");
+        self.stages.clear();
+        self.since = Instant::now();
     }
 }
 

@@ -1,6 +1,6 @@
 //! Turns the tuned channel (already mixed to 0 Hz at the capture rate) into 48 kHz audio.
 
-use crate::dsp::{lowpass, Agc, DcBlock, Decimator, Mixer, C32};
+use crate::dsp::{fast_atan2, lowpass, Agc, DcBlock, Decimate, Decimator, Mixer, C32};
 use serde::{Deserialize, Serialize};
 
 pub const AUDIO_RATE: u32 = 48_000;
@@ -39,7 +39,7 @@ const SSB_CENTER: f64 = 1_650.0;
 pub struct Demodulator {
     mode: Mode,
     in_rate: f32,
-    stage1: Decimator<C32>,
+    stage1: Decimate<C32>,
     stage2: Decimator<C32>,
     audio_lp: Decimator<f32>,
     ssb_in: Mixer,
@@ -68,8 +68,8 @@ impl Demodulator {
         let d1 = (in_rate / 240_000).max(1) as usize;
         let mid = fs / d1 as f32;
         let stage1 = match mode {
-            Mode::Wfm => Decimator::new(lowpass(100_000.0 / fs, 40_000.0 / fs), d1),
-            _ => Decimator::new(lowpass(30_000.0 / fs, 80_000.0 / fs), d1),
+            Mode::Wfm => Decimate::new(fs, 100_000.0, 140_000.0, d1),
+            _ => Decimate::new(fs, 30_000.0, 110_000.0, d1),
         };
         let half = mode.bandwidth() / 2.0;
         let stage2 = match mode {
@@ -112,7 +112,7 @@ impl Demodulator {
         for &s in input {
             let d = s * self.last.conj();
             self.last = s;
-            out.push(d.arg() * k);
+            out.push(fast_atan2(d.im, d.re) * k);
         }
     }
 

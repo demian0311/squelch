@@ -32,38 +32,232 @@ pub fn lowpass(cutoff: f32, transition: f32) -> Vec<f32> {
     taps
 }
 
-/// FIR filter that keeps one output for every `factor` inputs.
-pub struct Decimator<T> {
-    taps: Vec<f32>,
-    // history written twice so the last `n` samples are always one contiguous slice
-    hist: Vec<T>,
-    pos: usize,
-    factor: usize,
-    phase: usize,
+/// A sample the decimator can filter: one f32 lane for real signals, two for complex ones.
+pub trait Sample: Copy + Default {
+    const LANES: usize;
+    /// Append the samples as lanes.
+    fn extend(buf: &mut Vec<f32>, input: &[Self]);
+    /// Rebuild a sample from the eight partial sums of `dot8`: lane k holds the terms at indices ≡ k (mod 8).
+    fn from_lanes(acc: &[f32; 8]) -> Self;
 }
 
-impl<T: Copy + Default + std::ops::Mul<f32, Output = T> + std::ops::Add<Output = T>> Decimator<T> {
+impl Sample for f32 {
+    const LANES: usize = 1;
+    fn extend(buf: &mut Vec<f32>, input: &[Self]) {
+        buf.extend_from_slice(input);
+    }
+    fn from_lanes(acc: &[f32; 8]) -> Self {
+        acc.iter().sum()
+    }
+}
+
+impl Sample for C32 {
+    const LANES: usize = 2;
+    fn extend(buf: &mut Vec<f32>, input: &[Self]) {
+        // SAFETY: num_complex's Complex<T> is `#[repr(C)]` with fields re, im, so a slice of them is a slice of twice as many f32
+        let lanes = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const f32, 2 * input.len()) };
+        buf.extend_from_slice(lanes);
+    }
+    fn from_lanes(acc: &[f32; 8]) -> Self {
+        C32::new(acc[0] + acc[2] + acc[4] + acc[6], acc[1] + acc[3] + acc[5] + acc[7])
+    }
+}
+
+/// Dot product kept in eight independent sums, so the compiler can vectorise it and the adds do not wait on each other.
+/// Lane k sums the products at indices ≡ k (mod 8), which keeps interleaved re/im apart.
+#[cfg(test)]
+fn dot8(a: &[f32], b: &[f32], avx: bool) -> [f32; 8] {
+    #[cfg(target_arch = "x86_64")]
+    if avx {
+        // SAFETY: `avx` is only true when `has_avx` saw AVX2 and FMA on this CPU
+        return unsafe { dot8_avx(a, b) };
+    }
+    let _ = avx;
+    dot8_plain(a, b)
+}
+
+/// Whether this CPU runs the AVX2 + FMA build of the kernel: one 256-bit fused multiply-add per eight taps.
+fn has_avx() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    false
+}
+
+/// `a.len()` is a multiple of 8 here (the decimator pads its taps), so there is no scalar tail.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[inline]
+unsafe fn dot8_avx(a: &[f32], b: &[f32]) -> [f32; 8] {
+    use std::arch::x86_64::*;
+    debug_assert_eq!(a.len(), b.len());
+    let (pa, pb) = (a.as_ptr(), b.as_ptr());
+    // four running sums so consecutive fused multiply-adds do not wait on each other
+    let mut acc = [_mm256_setzero_ps(); 4];
+    let mut i = 0;
+    while i + 32 <= a.len() {
+        for (k, acc) in acc.iter_mut().enumerate() {
+            *acc = _mm256_fmadd_ps(_mm256_loadu_ps(pa.add(i + 8 * k)), _mm256_loadu_ps(pb.add(i + 8 * k)), *acc);
+        }
+        i += 32;
+    }
+    while i + 8 <= a.len() {
+        acc[0] = _mm256_fmadd_ps(_mm256_loadu_ps(pa.add(i)), _mm256_loadu_ps(pb.add(i)), acc[0]);
+        i += 8;
+    }
+    let sum = _mm256_add_ps(_mm256_add_ps(acc[0], acc[1]), _mm256_add_ps(acc[2], acc[3]));
+    let mut out = [0.0f32; 8];
+    _mm256_storeu_ps(out.as_mut_ptr(), sum);
+    for k in 0..a.len() - i {
+        out[k] += a[i + k] * b[i + k];
+    }
+    out
+}
+
+/// `atan2` to about 1e-5 rad: a polynomial on one octant instead of libm's full-precision series. Four times faster, and
+/// the discriminator and the pilot loop call it for every sample.
+#[inline]
+pub fn fast_atan2(y: f32, x: f32) -> f32 {
+    let (ax, ay) = (x.abs(), y.abs());
+    let swap = ay > ax;
+    let (num, den) = if swap { (ax, ay) } else { (ay, ax) };
+    let r = if den == 0.0 { 0.0 } else { num / den };
+    let r2 = r * r;
+    let mut a = (((((-0.011_721_2 * r2 + 0.052_653_32) * r2 - 0.116_432_87) * r2 + 0.193_543_46) * r2 - 0.332_623_47) * r2 + 0.999_977_26) * r;
+    if swap {
+        a = std::f32::consts::FRAC_PI_2 - a;
+    }
+    if x < 0.0 {
+        a = PI - a;
+    }
+    if y < 0.0 {
+        -a
+    } else {
+        a
+    }
+}
+
+#[inline(always)]
+fn dot8_plain(a: &[f32], b: &[f32]) -> [f32; 8] {
+    debug_assert_eq!(a.len(), b.len());
+    let mut acc = [0.0f32; 8];
+    let n8 = a.len() / 8 * 8;
+    let (a8, ar) = a.split_at(n8);
+    let (b8, br) = b.split_at(n8);
+    for (x, y) in a8.chunks_exact(8).zip(b8.chunks_exact(8)) {
+        let x: &[f32; 8] = x.try_into().unwrap();
+        let y: &[f32; 8] = y.try_into().unwrap();
+        for k in 0..8 {
+            acc[k] += x[k] * y[k];
+        }
+    }
+    for (k, (x, y)) in ar.iter().zip(br).enumerate() {
+        acc[k] += x * y;
+    }
+    acc
+}
+
+/// FIR filter that keeps one output for every `factor` inputs. The filter runs only on the kept samples, and a block
+/// is copied once behind the `n - 1` samples before it, so the per-sample work is that copy.
+pub struct Decimator<T> {
+    /// each tap repeated `T::LANES` times, to line up with the interleaved samples, then zeros up to a multiple of
+    /// eight lanes (a delay of a few samples, nothing more)
+    taps: Vec<f32>,
+    /// the last `n - 1` samples of the previous block, then the current block, as lanes
+    buf: Vec<f32>,
+    n: usize,
+    factor: usize,
+    /// inputs taken since the last kept one
+    phase: usize,
+    avx: bool,
+    _t: std::marker::PhantomData<T>,
+}
+
+impl<T: Sample> Decimator<T> {
     pub fn new(taps: Vec<f32>, factor: usize) -> Self {
-        let n = taps.len();
-        Decimator { taps, hist: vec![T::default(); 2 * n], pos: 0, factor, phase: 0 }
+        let l = T::LANES;
+        let n = (taps.len() * l).div_ceil(8) * 8 / l;
+        let mut taps: Vec<f32> = taps.iter().flat_map(|&t| std::iter::repeat_n(t, l)).collect();
+        taps.resize(n * l, 0.0);
+        Decimator { taps, buf: vec![0.0; (n - 1) * l], n, factor, phase: 0, avx: has_avx(), _t: std::marker::PhantomData }
     }
 
     pub fn process(&mut self, input: &[T], out: &mut Vec<T>) {
-        let n = self.taps.len();
-        for &x in input {
-            self.pos = (self.pos + 1) % n;
-            self.hist[self.pos] = x;
-            self.hist[self.pos + n] = x;
-            self.phase += 1;
-            if self.phase == self.factor {
-                self.phase = 0;
-                // taps are symmetric, so oldest-to-newest order does not matter
-                let window = &self.hist[self.pos + 1..self.pos + 1 + n];
-                let mut acc = T::default();
-                for (h, t) in window.iter().zip(self.taps.iter()) {
-                    acc = acc + *h * *t;
-                }
-                out.push(acc);
+        let (n, l) = (self.n, T::LANES);
+        T::extend(&mut self.buf, input);
+        // input sample p is kept when it is the `factor`-th since the last kept one; its window is the n samples ending at it
+        let first = (self.factor - 1 - self.phase) % self.factor;
+        #[cfg(target_arch = "x86_64")]
+        if self.avx {
+            // SAFETY: `avx` is only true when `has_avx` saw AVX2 and FMA on this CPU
+            unsafe { self.block_avx(first, input.len(), out) };
+        } else {
+            self.block_plain(first, input.len(), out);
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        self.block_plain(first, input.len(), out);
+        self.phase = (self.phase + input.len()) % self.factor;
+        let keep = (n - 1) * l;
+        let total = self.buf.len();
+        self.buf.copy_within(total - keep.., 0);
+        self.buf.truncate(keep);
+    }
+
+    fn block_plain(&self, first: usize, len: usize, out: &mut Vec<T>) {
+        let (n, l) = (self.n, T::LANES);
+        for p in (first..len).step_by(self.factor) {
+            // taps are symmetric, so oldest-to-newest order does not matter
+            out.push(T::from_lanes(&dot8_plain(&self.buf[p * l..(p + n) * l], &self.taps)));
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn block_avx(&self, first: usize, len: usize, out: &mut Vec<T>) {
+        let (n, l) = (self.n, T::LANES);
+        for p in (first..len).step_by(self.factor) {
+            out.push(T::from_lanes(&dot8_avx(&self.buf[p * l..(p + n) * l], &self.taps)));
+        }
+    }
+}
+
+/// Pass everything below `pass` Hz, stop everything above `stop` Hz, and decimate by `factor`, in two stages where that is cheaper:
+/// a short filter takes most of the decimation, then a sharp one at the lower rate finishes it. One filter at the
+/// input rate needs its full length for every kept sample; the short first stage needs only to keep out what would
+/// alias onto `0..stop` after it, so its transition band can be wide.
+pub struct Decimate<T> {
+    a: Decimator<T>,
+    b: Option<Decimator<T>>,
+    mid: Vec<T>,
+}
+
+impl<T: Sample> Decimate<T> {
+    pub fn new(rate: f32, pass: f32, stop: f32, factor: usize) -> Self {
+        // `lowpass` puts its half-power point at the cutoff, so the band edges go either side of it
+        let taps = |pass: f32, stop: f32, rate: f32| lowpass((pass + stop) / 2.0 / rate, (stop - pass) / rate);
+        let single = Decimator::new(taps(pass, stop, rate), factor);
+        if factor % 2 != 0 || factor < 4 {
+            return Decimate { a: single, b: None, mid: Vec::new() };
+        }
+        let rate_a = rate / (factor / 2) as f32;
+        let stop_a = rate_a - stop;
+        if stop_a - pass <= stop - pass {
+            return Decimate { a: single, b: None, mid: Vec::new() };
+        }
+        let a = Decimator::new(taps(pass, stop_a, rate), factor / 2);
+        let b = Decimator::new(taps(pass, stop, rate_a), 2);
+        Decimate { a, b: Some(b), mid: Vec::new() }
+    }
+
+    pub fn process(&mut self, input: &[T], out: &mut Vec<T>) {
+        match &mut self.b {
+            None => self.a.process(input, out),
+            Some(b) => {
+                self.mid.clear();
+                self.a.process(input, &mut self.mid);
+                b.process(&self.mid, out);
             }
         }
     }
@@ -73,11 +267,12 @@ impl<T: Copy + Default + std::ops::Mul<f32, Output = T> + std::ops::Add<Output =
 pub struct Mixer {
     phase: f64,
     step: f64,
+    avx: bool,
 }
 
 impl Mixer {
     pub fn new(shift_hz: f64, rate: f64) -> Self {
-        Mixer { phase: 0.0, step: -std::f64::consts::TAU * shift_hz / rate }
+        Mixer { phase: 0.0, step: -std::f64::consts::TAU * shift_hz / rate, avx: has_avx() }
     }
 
     pub fn set(&mut self, shift_hz: f64, rate: f64) {
@@ -85,14 +280,74 @@ impl Mixer {
     }
 
     pub fn process(&mut self, buf: &mut [C32]) {
-        let rot = C32::new(self.step.cos() as f32, self.step.sin() as f32);
+        #[cfg(target_arch = "x86_64")]
+        if self.avx {
+            // SAFETY: `avx` is only true when `has_avx` saw AVX2 and FMA on this CPU
+            unsafe { self.process_avx(buf) };
+            return;
+        }
+        self.process_plain(buf);
+    }
+
+    /// Four samples a vector: the oscillator for the first of them times a table of the next four steps, then the samples
+    /// times that. Two complex multiplies a sample, but eight at a time and none waiting on the one before.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn process_avx(&mut self, buf: &mut [C32]) {
+        use std::arch::x86_64::*;
+        // (a + jb)(c + jd) for four pairs: re of a spread, times b; im of a spread, times b with re/im swapped; then add/sub
+        #[inline]
+        unsafe fn cmul(a: __m256, b: __m256) -> __m256 {
+            let ar = _mm256_moveldup_ps(a);
+            let ai = _mm256_movehdup_ps(a);
+            let bs = _mm256_permute_ps(b, 0b10_11_00_01);
+            _mm256_fmaddsub_ps(ar, b, _mm256_mul_ps(ai, bs))
+        }
+        let step = |k: f64| C32::new((k * self.step).cos() as f32, (k * self.step).sin() as f32);
+        let table = [step(0.0), step(1.0), step(2.0), step(3.0)];
+        let table = _mm256_loadu_ps(table.as_ptr() as *const f32);
+        let rot4 = step(4.0);
         let mut osc = C32::new(self.phase.cos() as f32, self.phase.sin() as f32);
-        for (k, s) in buf.iter_mut().enumerate() {
-            *s *= osc;
-            osc *= rot;
-            if k % 1024 == 1023 {
+        let mut chunks = buf.chunks_exact_mut(4);
+        for (k, c) in (&mut chunks).enumerate() {
+            let o = _mm256_set_ps(osc.im, osc.re, osc.im, osc.re, osc.im, osc.re, osc.im, osc.re);
+            let p = c.as_mut_ptr() as *mut f32;
+            _mm256_storeu_ps(p, cmul(_mm256_loadu_ps(p), cmul(o, table)));
+            osc *= rot4;
+            if k % 256 == 255 {
                 osc /= osc.norm();
             }
+        }
+        let rot = step(1.0);
+        for s in chunks.into_remainder() {
+            *s *= osc;
+            osc *= rot;
+        }
+        self.phase = (self.phase + self.step * buf.len() as f64) % std::f64::consts::TAU;
+    }
+
+    fn process_plain(&mut self, buf: &mut [C32]) {
+        // four oscillators a step apart, each advancing four steps, so the multiplies do not wait on one another
+        let rot = C32::new(self.step.cos() as f32, self.step.sin() as f32);
+        let rot4 = C32::new((4.0 * self.step).cos() as f32, (4.0 * self.step).sin() as f32);
+        let o = C32::new(self.phase.cos() as f32, self.phase.sin() as f32);
+        let mut osc = [o, o * rot, o * rot * rot, o * rot * rot * rot];
+        let mut chunks = buf.chunks_exact_mut(4);
+        for (k, c) in (&mut chunks).enumerate() {
+            for i in 0..4 {
+                c[i] *= osc[i];
+                osc[i] *= rot4;
+            }
+            if k % 256 == 255 {
+                for o in &mut osc {
+                    *o /= o.norm();
+                }
+            }
+        }
+        let mut o = osc[0];
+        for s in chunks.into_remainder() {
+            *s *= o;
+            o *= rot;
         }
         self.phase = (self.phase + self.step * buf.len() as f64) % std::f64::consts::TAU;
     }
@@ -190,11 +445,84 @@ mod tests {
     }
 
     #[test]
+    fn two_stage_decimation_matches_one_stage() {
+        let fs = 2_400_000.0;
+        let n = 240_000;
+        let tone = |f: f32| -> Vec<C32> { (0..n).map(|k| C32::from_polar(1.0, 2.0 * PI * f * k as f32 / fs)).collect() };
+        let rms = |v: &[C32]| (v.iter().map(|x| x.norm_sqr()).sum::<f32>() / v.len() as f32).sqrt();
+        let mut two = Decimate::<C32>::new(fs, 100_000.0, 140_000.0, 10);
+        assert!(two.b.is_some());
+        let one = Decimate::<C32>::new(fs, 100_000.0, 140_000.0, 5);
+        assert!(one.b.is_none());
+        let mut out = Vec::new();
+        two.process(&tone(80_000.0), &mut out);
+        assert_eq!(out.len(), n / 10);
+        assert!(rms(&out[2_000..]) > 0.95, "pass band attenuated: {}", rms(&out[2_000..]));
+        // 400 kHz would alias onto 80 kHz after the first stage if that stage let it through
+        for f in [150_000.0, 400_000.0, 1_000_000.0] {
+            out.clear();
+            two.process(&tone(f), &mut out);
+            assert!(rms(&out[2_000..]) < 0.01, "{f} Hz leaked: {}", rms(&out[2_000..]));
+        }
+    }
+
+    #[test]
+    fn mixer_handles_a_length_that_is_not_a_multiple_of_four() {
+        let fs = 240_000.0;
+        let mut buf: Vec<C32> = (0..4803).map(|n| C32::from_polar(1.0, 2.0 * PI * 10_000.0 * n as f32 / fs)).collect();
+        let mut m = Mixer::new(10_000.0, fs as f64);
+        let (first, rest) = buf.split_at_mut(1001);
+        m.process(first);
+        m.process(rest);
+        let mean = buf.iter().sum::<C32>() / buf.len() as f32;
+        assert!(mean.norm() > 0.99, "{}", mean.norm());
+    }
+
+    #[test]
+    fn both_dot_kernels_agree() {
+        let a: Vec<f32> = (0..208).map(|i| (i as f32 * 0.37).sin()).collect();
+        let b: Vec<f32> = (0..208).map(|i| (i as f32 * 0.11).cos()).collect();
+        let plain = dot8(&a, &b, false);
+        let fast = dot8(&a, &b, has_avx());
+        for k in 0..8 {
+            assert!((plain[k] - fast[k]).abs() < 1e-4, "lane {k}: {} vs {}", plain[k], fast[k]);
+        }
+    }
+
+    #[test]
+    fn fast_atan2_is_close_everywhere() {
+        let mut worst = 0.0f32;
+        for i in -40..=40 {
+            for j in -40..=40 {
+                let (y, x) = (i as f32 * 0.3, j as f32 * 0.3);
+                worst = worst.max((fast_atan2(y, x) - y.atan2(x)).abs());
+            }
+        }
+        assert!(worst < 2e-5, "worst error {worst}");
+        assert_eq!(fast_atan2(0.0, 0.0), 0.0);
+    }
+
+    #[test]
     fn mixer_moves_a_tone_to_dc() {
         let fs = 240_000.0;
         let mut buf: Vec<C32> = (0..4800).map(|n| C32::from_polar(1.0, 2.0 * PI * 10_000.0 * n as f32 / fs)).collect();
         Mixer::new(10_000.0, fs as f64).process(&mut buf);
         let mean = buf.iter().sum::<C32>() / buf.len() as f32;
         assert!(mean.norm() > 0.99);
+    }
+
+    #[test]
+    fn both_mixer_paths_agree() {
+        let fs = 240_000.0;
+        let tone: Vec<C32> = (0..4803).map(|n| C32::from_polar(0.7, 2.0 * PI * 31_000.0 * n as f32 / fs + 0.4)).collect();
+        let mut fast = tone.clone();
+        let mut plain = tone.clone();
+        let mut m = Mixer::new(-12_345.0, fs as f64);
+        m.process(&mut fast);
+        let mut m = Mixer::new(-12_345.0, fs as f64);
+        m.avx = false;
+        m.process(&mut plain);
+        let worst = fast.iter().zip(&plain).map(|(a, b)| (a - b).norm()).fold(0.0f32, f32::max);
+        assert!(worst < 1e-4, "paths differ by {worst}");
     }
 }
