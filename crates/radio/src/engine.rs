@@ -5,6 +5,7 @@ use crate::demod::{Demodulator, Mode};
 use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
+use crate::hd::{Hd, HdImage, HdInfo};
 use crate::spectrum::{noise_floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
 use crate::squelch::Squelch;
@@ -35,6 +36,8 @@ pub enum Command {
     SetSquelch(Option<f32>),
     /// Run the radiosonde decoders on every narrow signal in the capture.
     SetSondes(bool),
+    /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
+    SetHd(Option<u32>),
     Stop,
 }
 
@@ -67,6 +70,12 @@ pub struct Status {
     /// Frequencies the sonde decoders are listening to.
     pub decoding_hz: Vec<f64>,
     pub signals: Vec<Detected>,
+    /// The tuned FM station shows HD Radio sidebands.
+    pub hd_sidebands: bool,
+    /// HD Radio decoding of the tuned station, while it is on.
+    pub hd: Option<HdInfo>,
+    /// The HD pictures, sent only when they change.
+    pub hd_images: Option<Vec<HdImage>>,
 }
 
 pub struct Engine {
@@ -157,6 +166,12 @@ fn run(
     let mut squelch = Squelch::new();
     let mut squelch_db: Option<f32> = None;
     let mut scanner: Option<Scanner> = None;
+    let mut hd_program: Option<u32> = None;
+    let mut hd: Option<Hd> = None;
+    let mut hd_sidebands = false;
+    let hd_for = |program: Option<u32>, mode: Mode, center: f64, tuned: f64| -> Option<Hd> {
+        program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p))
+    };
     let mut last_status = Instant::now() - Duration::from_secs(1);
 
     loop {
@@ -164,6 +179,7 @@ fn run(
             match rx.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return,
                 Ok(Command::Tune { center_hz, tuned_hz }) => {
+                    let moved = (center_hz - center).abs() > 1.0 || (tuned_hz - tuned).abs() > 1.0;
                     if (center_hz - center).abs() > 1.0 {
                         center = center_hz;
                         if let Err(e) = src.set_center(center as u32) {
@@ -181,10 +197,15 @@ fn run(
                     if let Some(r) = &mut demod.rds {
                         r.clear();
                     }
+                    if moved {
+                        hd = hd_for(hd_program, mode, center, tuned);
+                        hd_sidebands = false;
+                    }
                 }
                 Ok(Command::SetMode(m)) => {
                     mode = m;
                     demod = Demodulator::new(mode, rate);
+                    hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
                     if let Err(e) = src.set_gain(g) {
@@ -199,6 +220,15 @@ fn run(
                     if on != scanner.is_some() {
                         scanner = on.then(|| Scanner::new(rate, all_decoders));
                     }
+                }
+                Ok(Command::SetHd(p)) => {
+                    match (&hd, p) {
+                        (Some(h), Some(p)) => h.set_program(p),
+                        _ => {
+                            hd = hd_for(p, mode, center, tuned);
+                        }
+                    }
+                    hd_program = p;
                 }
                 Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
                 Ok(Command::SetPlaying(p)) => {
@@ -215,12 +245,15 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[]);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
         };
         u8_to_iq(&raw[..n], &mut iq);
+        if let Some(h) = &hd {
+            h.feed(&iq);
+        }
 
         rows.clear();
         spectrum.process(&iq, &mut rows);
@@ -244,6 +277,7 @@ fn run(
                 }
             }
             signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
+            hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor, center, tuned, rate as f64);
             if let Some(sc) = &mut scanner {
                 sc.retarget(center, &signals);
             }
@@ -258,6 +292,9 @@ fn run(
         chan.extend_from_slice(&iq);
         mixer.process(&mut chan);
         demod.process(&chan, &mut pcm);
+        if let Some(h) = &hd {
+            h.fill(&mut pcm);
+        }
         squelch.apply(&mut pcm);
         if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
@@ -265,7 +302,7 @@ fn run(
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images));
         }
     }
 }
@@ -303,6 +340,9 @@ fn send_status(
     scanner: &Option<Scanner>,
     rds: Option<crate::rds::Info>,
     signals: &[Detected],
+    hd_sidebands: bool,
+    hd: Option<HdInfo>,
+    hd_images: Option<Vec<HdImage>>,
 ) {
     on_status(Status {
         device: device.to_string(),
@@ -322,6 +362,9 @@ fn send_status(
         sondes: scanner.as_ref().map(|s| s.sondes()).unwrap_or_default(),
         decoding_hz: scanner.as_ref().map(|s| s.channels()).unwrap_or_default(),
         signals: signals.to_vec(),
+        hd_sidebands,
+        hd,
+        hd_images,
     });
 }
 

@@ -117,6 +117,12 @@ fn set_sondes(app: State<App>, on: bool) {
     send(&app, Command::SetSondes(on));
 }
 
+/// HD Radio program to decode on the tuned FM station (0 = HD1), or null for off.
+#[tauri::command]
+fn set_hd(app: State<App>, program: Option<u32>) {
+    send(&app, Command::SetHd(program));
+}
+
 #[tauri::command]
 fn set_playing(app: State<App>, playing: bool) {
     send(&app, Command::SetPlaying(playing));
@@ -152,7 +158,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes])
+        .invoke_handler(tauri::generate_handler![setup, bands, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_sondes, set_hd])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }
