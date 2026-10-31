@@ -8,16 +8,24 @@
     points: RepeaterPoint[];
     reachKm: number;
     tunedHz: number | null;
+    /** output frequencies with a signal on them now */
+    live: Set<number>;
     onTune: (hz: number) => void;
     site: Site;
     palette: Palette;
   }
-  let { points, reachKm, tunedHz, onTune, site, palette }: Props = $props();
+  let { points, reachKm, tunedHz, live, onTune, site, palette }: Props = $props();
 
   // The viewBox is in km around the listener; `slice` fills the panel and crops east and west.
   const HALF_H_KM = 75;
   const HALF_W_KM = 200;
   const DISTANCES_KM = [100];
+  // dots keep their size on screen whatever the panel's
+  const DOT_PX = 3;
+  const TUNED_PX = 4;
+  const HIT_PX = 9;
+  let box = $state<DOMRectReadOnly | undefined>();
+  let kmPerPx = $derived(box?.width ? 1 / Math.max(box.width / (2 * HALF_W_KM), box.height / (2 * HALF_H_KM)) : 1);
   let frame = $derived<Frame>({ site: { lat: site.lat, lon: site.lon }, halfWKm: HALF_W_KM, halfHKm: HALF_H_KM });
 
   // state lines and highways ship with the app; loaded on first use, then kept
@@ -122,7 +130,7 @@
   }
 </script>
 
-<svg viewBox="{-HALF_W_KM} {-HALF_H_KM} {2 * HALF_W_KM} {2 * HALF_H_KM}" preserveAspectRatio="xMidYMid slice" role="group" aria-label="Repeaters around you">
+<svg bind:contentRect={box} viewBox="{-HALF_W_KM} {-HALF_H_KM} {2 * HALF_W_KM} {2 * HALF_H_KM}" preserveAspectRatio="xMidYMid slice" role="group" aria-label="Repeaters around you">
   <rect x={-HALF_W_KM} y={-HALF_H_KM} width={2 * HALF_W_KM} height={2 * HALF_H_KM} class="ground" />
   {#if ground}
     <image href={ground} x={-HALF_W_KM} y={-HALF_H_KM} width={2 * HALF_W_KM} height={2 * HALF_H_KM} preserveAspectRatio="none" />
@@ -156,12 +164,15 @@
       class:tuned={p.hz === tunedHz}
     >
       <title>{p.call} · {p.city} · {(p.hz / 1e6).toFixed(4)} MHz · {Math.round(p.km)} km{p.digital ? ` · may be ${p.digital} only` : ''}</title>
-      <circle cx={p.x} cy={p.y} r="5" class="hit" />
-      <circle cx={p.x} cy={p.y} r={p.hz === tunedHz ? 3.4 : 2.6} class="dot" />
+      <circle cx={p.x} cy={p.y} r={HIT_PX * kmPerPx} class="hit" />
+      {#if live.has(p.hz)}
+        <circle cx={p.x} cy={p.y} r={DOT_PX * kmPerPx} class="blip" />
+      {/if}
+      <circle cx={p.x} cy={p.y} r={(p.hz === tunedHz ? TUNED_PX : DOT_PX) * kmPerPx} class="dot" />
     </g>
   {/each}
-  <circle r="3" class="site" />
-  <text x="5" y="1.8" class="you">You</text>
+  <circle r={TUNED_PX * kmPerPx} class="site" />
+  <text x={TUNED_PX * kmPerPx + 2} y="1.8" class="you">You</text>
 </svg>
 <!-- outside the drawing, which `slice` crops at the sides -->
 <span class="attrib">{ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census</span>
@@ -265,6 +276,35 @@
   .rep:focus-visible .dot,
   .rep:hover .dot {
     stroke: var(--fg-bright);
+  }
+  /* a signal on the repeater's output: a ring grows out of the dot and fades */
+  .blip {
+    fill: none;
+    stroke: var(--green);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blip 1.2s ease-out infinite;
+  }
+  .rep.tuned .blip {
+    stroke: var(--orange);
+  }
+  @keyframes blip {
+    from {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    to {
+      transform: scale(4.5);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blip {
+      animation: none;
+      transform: scale(2);
+    }
   }
   .site {
     fill: var(--yellow);

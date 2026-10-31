@@ -974,7 +974,7 @@
             {#if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
-                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} onTune={(hz) => tuneTo(hz)} site={iss.site} palette={mapPalette} />
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} live={new Set(repLive.keys())} onTune={(hz) => tuneTo(hz)} site={iss.site} palette={mapPalette} />
                   <span class="maplabel">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
                 </div>
                 <div class="list">
