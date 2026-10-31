@@ -3,13 +3,15 @@
 // marine RadioReference "Marine VHF Channels" (US), railroad AAR 007–097 at 15 kHz from 160.215.
 // Ham bands get the user's repeaters file instead (see setRepeaters).
 
-import type { Band, Repeater } from './api';
+import type { Band, Mode, Repeater } from './api';
 
 export interface Channel {
   hz: number;
   name: string;
   /** What the channel is for, shown on its card. */
   group?: string;
+  /** Tuning it switches to this mode, whatever the band's own. */
+  mode?: Mode;
 }
 
 const CB = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055, 27.065, 27.075, 27.085, 27.105, 27.115, 27.125, 27.135, 27.155, 27.165, 27.175, 27.185, 27.205, 27.215, 27.225, 27.255, 27.235, 27.245, 27.265, 27.275, 27.285, 27.295, 27.305, 27.315, 27.325, 27.335, 27.345, 27.355, 27.365, 27.375, 27.385, 27.395, 27.405];
@@ -68,7 +70,8 @@ export function setRepeaters(list: Repeater[], bands: Band[]) {
   for (const r of list) {
     const b = bands.find((b) => r.mhz >= b.low_mhz && r.mhz <= b.high_mhz);
     if (!b || CHANNELS[b.id]) continue;
-    (plans[b.id] ??= []).push({ hz: mhz(r.mhz), name: r.call, group: repeaterNote(r, b.id) });
+    // repeaters are FM even on bands whose default is sideband, like 6 m
+    (plans[b.id] ??= []).push({ hz: mhz(r.mhz), name: r.call, group: repeaterNote(r, b.id), mode: 'nfm' });
   }
   for (const p of Object.values(plans)) steps.set(p, Math.min(halfStep(p), REPEATER_REACH_HZ));
   repeaterPlans = plans;

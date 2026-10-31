@@ -77,7 +77,8 @@ export function bookmarkNear(saved: Saved[], hz: number, tolHz: number): Saved |
 export function modeAt(plan: BandPlan, saved: Saved[], hz: number, fallback: Mode): Mode {
   const mark = bookmarkNear(saved, hz, 3_000);
   if (mark?.mode) return mark.mode;
-  return bandAt(plan, hz)?.mode ?? fallback;
+  const band = bandAt(plan, hz);
+  return channelAt(band?.id, hz)?.mode ?? band?.mode ?? fallback;
 }
 
 export interface Signal {

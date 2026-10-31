@@ -5,7 +5,7 @@ import type { Band, Repeater } from './api';
  * Typical reach per band, in km. The RepeaterBook export has no power or antenna height,
  * so one figure per band stands in; a mountaintop site reaches much further.
  */
-export const REACH_KM: Record<string, number> = { '2m': 50, '70cm': 30 };
+export const REACH_KM: Record<string, number> = { '6m': 60, '2m': 50, '125': 40, '70cm': 30 };
 
 // squelch plays analog FM only; a repeater also listed in one of these may be digital only
 const DIGITAL = ['DMR', 'P25', 'NXDN', 'D-STAR', 'M17'];

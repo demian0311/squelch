@@ -150,6 +150,13 @@ describe('repeaters', () => {
     setRepeaters([k0ml], ham.bands);
     expect(label(ham, saved, { hz: 146_940_000, width_hz: 12_000, snr_db: 20 }).title).toBe('2 m signal');
   });
+  it('tunes a 6 m repeater in FM though the band is sideband', () => {
+    const six: BandPlan = { groups: [], bands: [{ id: '6m', group: 'ham', name: '6 m', icon: 'wave', mode: 'usb', low_mhz: 50, high_mhz: 54, start_mhz: 50.2, bookmarks: [] }] };
+    setRepeaters([{ ...k0ml, mhz: 53.09, shift: '-' }], six.bands);
+    expect(modeAt(six, [], 53_090_000, 'usb')).toBe('nfm');
+    expect(modeAt(six, [], 50_125_000, 'usb')).toBe('usb');
+    expect(channelAt('6m', 53_090_000)?.group).toBe('Northglenn · − offset · 123.0 Hz');
+  });
   it('leaves fixed channel plans alone', () => {
     setRepeaters([{ ...k0ml, mhz: 27.185 }], cbPlan.bands);
     expect(channelAt('cb', 27_185_000)?.name).toBe('CB 19');
