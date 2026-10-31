@@ -84,9 +84,9 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Open the first dongle, or a simulated receiver if none answers or `RECEIVER_SIM` is set.
+    /// Open the first dongle, or a simulated receiver if none answers or `SQUELCH_SIM` is set.
     pub fn open_source() -> (Box<dyn IqSource>, Option<String>) {
-        if std::env::var_os("RECEIVER_SIM").is_none() {
+        if std::env::var_os("SQUELCH_SIM").is_none() {
             match RtlSdr::open(0, SAMPLE_RATE) {
                 Ok(d) => return (Box::new(d), None),
                 Err(e) => return (Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true)), Some(e.to_string())),

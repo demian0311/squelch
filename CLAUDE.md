@@ -2,8 +2,6 @@
 
 RTL-SDR receiver for Omarchy (Hyprland). Tauri 2 shell + Rust engine + Svelte 5 UI.
 
-Repo directory and the `RECEIVER_SIM` env var still carry the old name `receiver`.
-
 ## Layout
 - `crates/radio/` — engine, no UI deps. `device.rs` (librtlsdr FFI + `SimSource`), `dsp.rs`, `demod.rs` (WFM/NFM/AM/USB/LSB → 48 kHz), `spectrum.rs` (FFT rows), `detect.rs` (signals above floor), `bands.rs` + `default_bands.toml`, `theme.rs` (Omarchy colors), `audio.rs` (cpal), `engine.rs` (receive thread, `Command`/`Row`/`Status`).
 - `src-tauri/` — commands `setup bands theme start tune set_mode set_gain set_volume set_playing`; polls theme + bands file every 2 s and emits `theme` / `bands` events.
@@ -26,7 +24,7 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - RDS offline: `mpx_dump -- <MHz> <secs> <out.f32>` records MPX, `rds_file -- <out.f32>` prints pilot lock, block stats and decoded info.
 - Live sweep of 400–406 MHz: `cargo run -p radio --release --example sonde_scan -- <secs per step>`.
 - HD Radio sidebands across 88–108 MHz: `cargo run -p radio --release --example hd_scan -- <secs per step> [MHz… to profile]`.
-- App: `./run.sh` (`pnpm tauri dev`; installs deps if missing, refuses while gqrx/SDR++ runs). `./run.sh sim` sets `RECEIVER_SIM=1` for the simulated receiver.
+- App: `./run.sh` (`pnpm tauri dev`; installs deps if missing, refuses while gqrx/SDR++ runs). `./run.sh sim` sets `SQUELCH_SIM=1` for the simulated receiver.
 
 ## Facts
 - Dongle on eagle: generic RTL2832U + R820T, 24–1766 MHz, no HF. DVB driver blacklisted in `/etc/modprobe.d/blacklist-rtlsdr.conf`.
