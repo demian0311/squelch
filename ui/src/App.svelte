@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
-  import { channelAt } from './lib/channels';
+  import { channelAt, quietChannels } from './lib/channels';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
@@ -161,10 +161,16 @@
   // last frame's card frequencies, so cards don't follow every wobble of a measured centre
   let anchors: number[] = [];
   let cards = $derived.by(() => {
-    const inView = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
+    const heard = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
+    // on a channel plan every channel gets a card, so nobody has to remember frequencies
+    const quiet = quietChannels(band?.id, vs, ve, heard).map((c) => ({
+      hz: c.hz, widthHz: 0, snrDb: -1, title: c.name, sub: c.group ?? 'Nothing on it now', tag: 'QUIET', saved: false, channelHz: c.hz, quiet: true, steady: false,
+    }));
+    const inView = [...heard, ...quiet];
     const minSep = ((CARD_W + 8) / boxW) * span;
     const pxHz = span / boxW;
-    const placed = placeCards(inView, minSep, (s) => s === listening).map((p) => {
+    const isTuned = (s: Signal) => s === listening || (!!s.quiet && Math.abs(s.hz - tuned) < 1_000);
+    const placed = placeCards(inView, minSep, isTuned).map((p) => {
       const at =
         p.item === listening ? tuned : p.item.channelHz !== undefined ? p.item.channelHz : band?.mode === 'wfm' ? fmChannel(p.item.hz) : anchor(p.item.hz, anchors, Math.max(p.item.widthHz / 2, 10 * pxHz));
       const x = ((at - vs) / span) * boxW;
@@ -173,8 +179,8 @@
         at,
         x,
         left: Math.min(Math.max(x - CARD_W / 2, 6), boxW - CARD_W - 6),
-        meter: Math.min(100, Math.round((p.item.snrDb / 40) * 100)),
-        selected: p.item === listening,
+        meter: Math.max(0, Math.min(100, Math.round((p.item.snrDb / 40) * 100))),
+        selected: isTuned(p.item),
       };
     });
     anchors = placed.map((c) => c.at);
@@ -182,7 +188,9 @@
   });
 
   let dots = $derived.by(() => {
-    const hidden = cards.flatMap((c) => c.hidden.map((h) => ({ x: ((h.hz - vs) / span) * boxW, cls: 'hidden', title: `${fmtMHz(h.hz)} ${h.title} — behind a stronger signal; zoom in` })));
+    const hidden = cards.flatMap((c) =>
+      c.hidden.map((h) => ({ x: ((h.hz - vs) / span) * boxW, cls: h.quiet ? 'quiet' : 'hidden', title: `${fmtMHz(h.hz)} ${h.title} — ${h.quiet ? 'quiet; zoom in for its card' : 'behind a stronger signal; zoom in'}` })),
+    );
     const quiet = saved
       .filter((s) => s.mhz * 1e6 >= vs && s.mhz * 1e6 <= ve && !signals.some((g) => Math.abs(g.hz - s.mhz * 1e6) < Math.max(g.widthHz / 2, 5_000)))
       .map((s) => ({ x: ((s.mhz * 1e6 - vs) / span) * boxW, cls: 'quiet', title: `${fmtMHz(s.mhz * 1e6)} ${s.name} — quiet` }));
@@ -414,7 +422,7 @@
           {/each}
           {#each cards as c (c.at)}
             <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-            <button class="card" class:sel={c.selected} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+            <button class="card" class:sel={c.selected} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
               <span class="row1">
                 <span class="ttl">{c.item.title}</span>
                 {#if c.hidden.length}
@@ -860,6 +868,10 @@
     text-align: left;
     overflow: hidden;
     transition: left 150ms;
+  }
+  .card.quiet:not(.sel) {
+    opacity: 0.6;
+    border-style: dashed;
   }
   .card.sel {
     border-color: var(--accent);

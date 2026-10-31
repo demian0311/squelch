@@ -72,6 +72,8 @@ export interface Signal {
   saved: boolean;
   /** The fixed channel this signal sits on, for bands with a channel plan. */
   channelHz?: number;
+  /** A channel card with nothing on it. */
+  quiet?: boolean;
 }
 
 /** Name each detected signal from the bookmarks, or describe it. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
 import { allBookmarks, bandAt, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
 import type { Rds, Sonde } from './api';
-import { channelTicks } from './channels';
+import { channelTicks, quietChannels } from './channels';
 
 const plan: BandPlan = {
   groups: [{ id: 'ham', name: 'Ham' }],
@@ -121,6 +121,19 @@ describe('channel plans', () => {
   it('tunes the channel when a click lands near one', () => {
     expect(snapTune(27_187_000, [], [], 1000, 'am', 'cb')).toBe(27_185_000);
     expect(snapTune(27_189_500, [{ hz: 27_186_200, width_hz: 6_000, snr_db: 15 }], [], 500, 'am', 'cb')).toBe(27_185_000);
+  });
+});
+
+describe('quiet channels', () => {
+  it('lists every walkie-talkie channel and repeater input without a signal', () => {
+    const all = quietChannels('frs', 462e6, 468e6, []);
+    expect(all.length).toBe(30);
+    expect(all.find((c) => c.hz === 467_550_000)).toMatchObject({ name: 'GMRS 15R', group: 'GMRS repeater inputs' });
+    const left = quietChannels('frs', 462e6, 468e6, [{ hz: 467_551_000 }, { hz: 462_562_000 }]);
+    expect(left.map((c) => c.name)).not.toContain('GMRS 15R');
+    expect(left.map((c) => c.name)).not.toContain('FRS 1');
+    expect(left.length).toBe(28);
+    expect(quietChannels('fm', 88e6, 108e6, [])).toEqual([]);
   });
 });
 

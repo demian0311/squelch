@@ -5,11 +5,15 @@
 export interface Channel {
   hz: number;
   name: string;
+  /** What the channel is for, shown on its card. */
+  group?: string;
 }
 
 const CB = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055, 27.065, 27.075, 27.085, 27.105, 27.115, 27.125, 27.135, 27.155, 27.165, 27.175, 27.185, 27.205, 27.215, 27.225, 27.255, 27.235, 27.245, 27.265, 27.275, 27.285, 27.295, 27.305, 27.315, 27.325, 27.335, 27.345, 27.355, 27.365, 27.375, 27.385, 27.395, 27.405];
 
 const FRS = [462.5625, 462.5875, 462.6125, 462.6375, 462.6625, 462.6875, 462.7125, 467.5625, 467.5875, 467.6125, 467.6375, 467.6625, 467.6875, 467.7125, 462.55, 462.575, 462.6, 462.625, 462.65, 462.675, 462.7, 462.725];
+// GMRS repeaters (47 CFR 95.1763) listen 5 MHz above channels 15–22 and repeat on them
+const FRS_GROUPS: [number, string][] = [[7, 'FRS and GMRS'], [14, 'FRS only, low power'], [22, 'FRS and GMRS · repeater outputs']];
 
 // [channel, ship transmit, ship receive]; duplex channels are heard on both
 const MARINE: [string, number, number][] = [
@@ -30,7 +34,10 @@ const mhz = (m: number) => Math.round(m * 1e6);
 
 export const CHANNELS: Record<string, Channel[]> = {
   cb: CB.map((m, i) => ({ hz: mhz(m), name: `CB ${i + 1}` })),
-  frs: FRS.map((m, i) => ({ hz: mhz(m), name: `FRS ${i + 1}` })),
+  frs: [
+    ...FRS.map((m, i) => ({ hz: mhz(m), name: `FRS ${i + 1}`, group: FRS_GROUPS.find(([last]) => i < last)![1] })),
+    ...FRS.slice(14).map((m, i) => ({ hz: mhz(m) + 5_000_000, name: `GMRS ${i + 15}R`, group: 'GMRS repeater inputs' })),
+  ],
   wx: [162.4, 162.425, 162.45, 162.475, 162.5, 162.525, 162.55].map((m, i) => ({ hz: mhz(m), name: `WX${i + 1}` })),
   marine: MARINE.flatMap(([ch, tx, rx]) => {
     const name = `Marine ${ch}`;
@@ -46,6 +53,14 @@ export function channelAt(bandId: string | undefined, hz: number): Channel | und
   let best: Channel | undefined;
   for (const c of plan) if (!best || Math.abs(c.hz - hz) < Math.abs(best.hz - hz)) best = c;
   return best && Math.abs(best.hz - hz) <= halfStep(plan) ? best : undefined;
+}
+
+/** Channels between `vs` and `ve` with no signal on them, in plan order. */
+export function quietChannels(bandId: string | undefined, vs: number, ve: number, signals: { hz: number }[]): Channel[] {
+  const plan = bandId ? CHANNELS[bandId] : undefined;
+  if (!plan) return [];
+  const busy = new Set(signals.map((s) => channelAt(bandId, s.hz)?.hz));
+  return plan.filter((c) => c.hz >= vs && c.hz <= ve && !busy.has(c.hz));
 }
 
 /** Minimum gap between channel numbers on the frequency scale, in pixels. */
