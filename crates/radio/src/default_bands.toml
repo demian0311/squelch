@@ -335,15 +335,3 @@ bookmarks = [
   { mhz = 145.825, name = "APRS" },
 ]
 
-[[band]]
-id = "hline"
-group = "space"
-name = "Hydrogen line"
-icon = "star"
-mode = "none"
-low_mhz = 1419.2
-high_mhz = 1421.6
-start_mhz = 1420.405
-bookmarks = [
-  { mhz = 1420.405, name = "Milky Way hydrogen" },
-]
