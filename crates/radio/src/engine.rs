@@ -6,6 +6,7 @@ use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::spectrum::{noise_floor, Spectrum};
+use crate::squelch::Squelch;
 use serde::Serialize;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread::JoinHandle;
@@ -29,6 +30,8 @@ pub enum Command {
     SetGain(Gain),
     SetVolume(f32),
     SetPlaying(bool),
+    /// Mute below this many dB above the floor; `None` turns squelch off.
+    SetSquelch(Option<f32>),
     Stop,
 }
 
@@ -49,8 +52,11 @@ pub struct Status {
     pub playing: bool,
     pub gains: Vec<i32>,
     pub floor_db: f32,
-    /// Strongest bin inside the tuned channel, dB above the floor.
+    /// Strongest bin inside the tuned channel, dB above the floor, lightly smoothed.
     pub channel_snr_db: f32,
+    pub squelch_db: Option<f32>,
+    /// False while the squelch is muting the audio.
+    pub squelch_open: bool,
     pub signals: Vec<Detected>,
 }
 
@@ -139,6 +145,8 @@ fn run(
     let mut recent: Vec<Vec<f32>> = Vec::new();
     let mut signals: Vec<Detected> = Vec::new();
     let mut snr = 0.0f32;
+    let mut squelch = Squelch::new();
+    let mut squelch_db: Option<f32> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
 
     loop {
@@ -158,6 +166,8 @@ fn run(
                     if let Some(a) = &audio {
                         a.clear();
                     }
+                    snr = 0.0;
+                    squelch.reset();
                 }
                 Ok(Command::SetMode(m)) => {
                     mode = m;
@@ -167,6 +177,10 @@ fn run(
                     if let Err(e) = src.set_gain(g) {
                         error = Some(e.to_string());
                     }
+                }
+                Ok(Command::SetSquelch(t)) => {
+                    squelch_db = t;
+                    squelch.set(t);
                 }
                 Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
                 Ok(Command::SetPlaying(p)) => {
@@ -183,7 +197,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, &[]);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &[]);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -197,6 +211,10 @@ fn run(
             let lo = floor - BELOW_FLOOR_DB;
             let bins = row.iter().map(|&db| (((db - lo) / RANGE_DB) * 255.0).clamp(0.0, 255.0) as u8).collect();
             on_row(Row { center_hz: center, bins });
+            let peak = channel_peak(&row, center, tuned, mode, rate) - floor;
+            // rise fast so the squelch opens on the first syllable, fall slower to ride out fades
+            snr += (peak - snr) * if peak > snr { 0.6 } else { 0.25 };
+            squelch.update(snr, 1.0 / ROWS_PER_SEC as f32);
             recent.push(row);
         }
         if recent.len() >= 6 {
@@ -208,11 +226,6 @@ fn run(
                 }
             }
             signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
-            let bin_hz = rate as f64 / n as f64;
-            let half = (mode.bandwidth() as f64 / 2.0).max(bin_hz);
-            let lo = (((tuned - half - (center - rate as f64 / 2.0)) / bin_hz).floor().max(0.0)) as usize;
-            let hi = (((tuned + half - (center - rate as f64 / 2.0)) / bin_hz).ceil() as usize).min(n - 1);
-            snr = if lo <= hi { avg[lo..=hi].iter().cloned().fold(f32::MIN, f32::max) - floor } else { 0.0 };
             recent.clear();
         }
 
@@ -220,15 +233,30 @@ fn run(
         chan.extend_from_slice(&iq);
         mixer.process(&mut chan);
         demod.process(&chan, &mut pcm);
+        squelch.apply(&mut pcm);
         if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
         }
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, &signals);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &signals);
         }
     }
+}
+
+/// Strongest bin (dBFS) inside the channel around `tuned`.
+fn channel_peak(row: &[f32], center: f64, tuned: f64, mode: Mode, rate: u32) -> f32 {
+    let n = row.len();
+    let bin_hz = rate as f64 / n as f64;
+    let half = (mode.bandwidth() as f64 / 2.0).max(bin_hz);
+    let start = center - rate as f64 / 2.0;
+    let lo = ((tuned - half - start) / bin_hz).floor().max(0.0) as usize;
+    let hi = (((tuned + half - start) / bin_hz).ceil().max(0.0) as usize).min(n - 1);
+    if lo > hi {
+        return f32::MIN;
+    }
+    row[lo..=hi].iter().cloned().fold(f32::MIN, f32::max)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -245,6 +273,8 @@ fn send_status(
     gains: Vec<i32>,
     floor: f32,
     snr: f32,
+    squelch_db: Option<f32>,
+    squelch_open: bool,
     signals: &[Detected],
 ) {
     on_status(Status {
@@ -259,6 +289,8 @@ fn send_status(
         gains,
         floor_db: floor,
         channel_snr_db: snr,
+        squelch_db,
+        squelch_open,
         signals: signals.to_vec(),
     });
 }

@@ -35,7 +35,17 @@
   let gain = $state<string>('auto');
   let railOpen = $state(true);
   let dockOpen = $state(readDock());
+  // dB above the noise floor; 0 means off. Empty channels read 3–10 dB on this dongle.
+  let squelch = $state(readNumber('squelch', 12));
 
+  function readNumber(key: string, fallback: number): number {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? fallback : +v;
+    } catch {
+      return fallback;
+    }
+  }
   function readDock(): boolean {
     try {
       return localStorage.getItem('dock') !== 'closed';
@@ -200,7 +210,9 @@
   // ── header text ─────────────────────────────────────
 
   let nowTitle = $derived(listeningMark?.name ?? listening?.title ?? (band ? band.name : 'Tuned'));
+  let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
+    muted ? 'Muted — signal is below the squelch level' :
     listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
   let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / 40) * 100)) : 0);
@@ -294,6 +306,14 @@
     api.setVolume(volume);
   });
   $effect(() => {
+    api.setSquelch(squelch > 0 ? squelch : null);
+    try {
+      localStorage.setItem('squelch', String(squelch));
+    } catch {
+      // remembering the level is a nicety
+    }
+  });
+  $effect(() => {
     api.setGain(gain === 'auto' ? null : +gain);
   });
 </script>
@@ -312,7 +332,10 @@
     </div>
     <div class="meter">
       <span>Signal</span>
-      <div class="track"><div class="fill" style:width="{meter}%"></div></div>
+      <div class="track">
+        <div class="fill" class:muted style:width="{meter}%"></div>
+        {#if squelch > 0}<span class="sq-mark" style:left="{Math.min(100, (squelch / 40) * 100)}%" title="Squelch level"></span>{/if}
+      </div>
     </div>
   </header>
 
@@ -402,6 +425,11 @@
         <label class="ctl">
           Volume
           <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
+        </label>
+        <label class="ctl" title="Mutes the audio while the signal is weaker than this. Far left turns it off.">
+          Squelch
+          <input type="range" min="0" max="40" step="1" bind:value={squelch} />
+          <span class="val mono">{squelch > 0 ? `${squelch} dB` : 'Off'}</span>
         </label>
         <label class="ctl">
           Gain
@@ -513,10 +541,25 @@
     font-size: 12px;
   }
   .track {
+    position: relative;
     height: 8px;
     border-radius: 4px;
     background: var(--muted);
-    overflow: hidden;
+  }
+  .fill.muted {
+    background: var(--fg-dim);
+  }
+  .sq-mark {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 14px;
+    margin-left: -1px;
+    background: var(--yellow);
+  }
+  .val {
+    min-width: 44px;
+    font-size: 12px;
   }
   .fill {
     height: 8px;

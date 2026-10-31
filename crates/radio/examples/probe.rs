@@ -21,7 +21,7 @@ fn main() {
     std::thread::sleep(std::time::Duration::from_secs(secs));
     let s = last.lock().unwrap().clone().expect("no status");
     println!("device: {}  error: {:?}", s.device, s.error);
-    println!("rows/s: {:.1}  floor: {:.1} dBFS  channel: {:.1} dB above floor", *rows.lock().unwrap() as f64 / secs as f64, s.floor_db, s.channel_snr_db);
+    println!("rows/s: {:.1}  floor: {:.1} dBFS  channel: {:.1} dB above floor  squelch open: {}", *rows.lock().unwrap() as f64 / secs as f64, s.floor_db, s.channel_snr_db, s.squelch_open);
     for d in &s.signals {
         println!("  {:>10.4} MHz  width {:>6.1} kHz  {:>5.1} dB", d.hz / 1e6, d.width_hz / 1e3, d.snr_db);
     }

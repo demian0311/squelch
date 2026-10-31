@@ -52,6 +52,8 @@ export interface Status {
   gains: number[];
   floor_db: number;
   channel_snr_db: number;
+  squelch_db: number | null;
+  squelch_open: boolean;
   signals: Detected[];
 }
 
@@ -77,6 +79,8 @@ export const setMode = (mode: Mode) => invoke('set_mode', { mode });
 export const setGain = (tenths: number | null) => invoke('set_gain', { tenths });
 export const setVolume = (volume: number) => invoke('set_volume', { volume });
 export const setPlaying = (playing: boolean) => invoke('set_playing', { playing });
+/** Mute below `db` above the noise floor; null turns squelch off. */
+export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 
 export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
   const rows = new Channel<ArrayBuffer>();

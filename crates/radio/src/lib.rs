@@ -6,4 +6,5 @@ pub mod device;
 pub mod dsp;
 pub mod engine;
 pub mod spectrum;
+pub mod squelch;
 pub mod theme;
