@@ -322,20 +322,6 @@ bookmarks = [
 # ── Space ──────────────────────────────────────────────
 
 [[band]]
-id = "sat"
-group = "space"
-name = "Weather satellites"
-icon = "dish"
-mode = "none"
-low_mhz = 136.9
-high_mhz = 138.1
-start_mhz = 137.5
-bookmarks = [
-  { mhz = 137.100, name = "Meteor-M" },
-  { mhz = 137.900, name = "Meteor-M" },
-]
-
-[[band]]
 id = "iss"
 group = "space"
 name = "Space station"
