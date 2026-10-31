@@ -39,6 +39,8 @@ export interface Repeater {
   call: string;
   city: string;
   mhz: number;
+  lat: number;
+  lon: number;
   /** "+", "-", "s" for a non-standard split, or "" */
   shift: string;
   /** CTCSS Hz ("123.0"), DCS ("D023"), "CSQ", or "" */
