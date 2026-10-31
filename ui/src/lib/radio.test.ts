@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, fmtHz, label, modeAt, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
+import { allBookmarks, bandAt, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes } from './radio';
 import type { Rds, Sonde } from './api';
 
 const plan: BandPlan = {
@@ -107,6 +107,14 @@ describe('weather balloons', () => {
     const [named] = withSondes([sig], [sonde]);
     expect(named.title).toBe('DFM-17 23038743');
     expect(named.saved).toBe(true);
+  });
+});
+
+describe('card anchors', () => {
+  it('hold still through small wobble and follow a real move', () => {
+    expect(anchor(99_498_300, [99_497_000], 5_000)).toBe(99_497_000);
+    expect(anchor(99_520_000, [99_497_000], 5_000)).toBe(99_520_000);
+    expect(anchor(146_520_000, [], 5_000)).toBe(146_520_000);
   });
 });
 

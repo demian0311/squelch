@@ -211,10 +211,24 @@
     dragging = false;
     if (d && !d.moved) onTune(freqAt(e.clientX), (ve - vs) / canvas.getBoundingClientRect().width);
   }
+  /** Zoom per pixel scrolled: 100 px is about 20 %. Touchpads send many small events, wheels a few big ones. */
+  const ZOOM_PER_PX = 0.002;
+  const LINE_PX = 16;
+
+  // vertical scroll zooms around the pointer; sideways scroll moves the view
   function wheel(e: WheelEvent) {
     e.preventDefault();
+    const unit = e.deltaMode === 1 ? LINE_PX : e.deltaMode === 2 ? canvas.clientHeight : 1;
+    const dx = e.deltaX * unit;
+    const dy = e.deltaY * unit;
+    const span = ve - vs;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      const shift = (dx / canvas.getBoundingClientRect().width) * span;
+      onView(vs + shift, ve + shift);
+      return;
+    }
     const f = freqAt(e.clientX);
-    const k = e.deltaY > 0 ? 1.25 : 0.8;
+    const k = Math.exp(dy * ZOOM_PER_PX);
     onView(f - (f - vs) * k, f + (ve - f) * k);
   }
 

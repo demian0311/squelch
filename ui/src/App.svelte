@@ -3,7 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -157,19 +157,27 @@
   let listening = $derived(signals.find((s) => Math.abs(s.hz - tuned) <= Math.max(s.widthHz / 2, 3_000)));
   let listeningMark = $derived(saved.find((s) => Math.abs(s.mhz * 1e6 - tuned) < 1_500));
 
+  // last frame's card frequencies, so cards don't follow every wobble of a measured centre
+  let anchors: number[] = [];
   let cards = $derived.by(() => {
     const inView = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
     const minSep = ((CARD_W + 8) / boxW) * span;
-    return placeCards(inView, minSep, (s) => s === listening).map((p) => {
-      const x = ((p.item.hz - vs) / span) * boxW;
+    const pxHz = span / boxW;
+    const placed = placeCards(inView, minSep, (s) => s === listening).map((p) => {
+      const at =
+        p.item === listening ? tuned : band?.mode === 'wfm' ? fmChannel(p.item.hz) : anchor(p.item.hz, anchors, Math.max(p.item.widthHz / 2, 10 * pxHz));
+      const x = ((at - vs) / span) * boxW;
       return {
         ...p,
+        at,
         x,
         left: Math.min(Math.max(x - CARD_W / 2, 6), boxW - CARD_W - 6),
         meter: Math.min(100, Math.round((p.item.snrDb / 40) * 100)),
         selected: p.item === listening,
       };
     });
+    anchors = placed.map((c) => c.at);
+    return placed;
   });
 
   let dots = $derived.by(() => {
@@ -387,7 +395,7 @@
         {:else if band?.decoder}
           <span class="note">The {band.decoder} decoder is not built yet — this shows the raw signal.</span>
         {:else}
-          <span class="hint">Drag to move · scroll to zoom · click to tune</span>
+          <span class="hint">Drag or swipe sideways to move · scroll up or down to zoom · click to tune</span>
         {/if}
         {#if steadyCount || showSteady}
           <button class="steadybtn" onclick={() => (showSteady = !showSteady)} title="Narrow carriers that never switch off are usually interference from nearby electronics">
@@ -402,7 +410,7 @@
           {#each dots as d}
             <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
           {/each}
-          {#each cards as c (c.item.hz)}
+          {#each cards as c (c.at)}
             <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
             <button class="card" class:sel={c.selected} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode))}>
               <span class="row1">
@@ -413,7 +421,7 @@
               </span>
               <span class="row2">{c.item.sub}</span>
               <span class="row3 mono">
-                <span>{fmtMHz(c.item.hz)}</span>
+                <span>{fmtMHz(c.at)}</span>
                 <span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>
                 <span class="bar"><span style:width="{c.meter}%"></span></span>
               </span>

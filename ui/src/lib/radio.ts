@@ -78,7 +78,8 @@ export function label(plan: BandPlan, saved: Saved[], d: Detected): Signal {
   const band = bandAt(plan, d.hz);
   const mode = mark?.mode ?? band?.mode;
   const width = d.width_hz >= 100_000 ? `${Math.round(d.width_hz / 1000)} kHz wide` : `${(d.width_hz / 1000).toFixed(1)} kHz wide`;
-  const sub = [mode ? MODE_NAMES[mode] : null, width].filter(Boolean).join(' · ');
+  // broadcast FM's measured width only wobbles; it says nothing useful
+  const sub = [mode ? MODE_NAMES[mode] : null, mode === 'wfm' ? null : width].filter(Boolean).join(' · ');
   if (mark) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: mark.name, sub, tag: 'SAVED', saved: true };
   const title = band?.mode === 'wfm' ? `FM ${fmtMHz(Math.round(d.hz / 1e5) * 1e5, 1)}` : band ? `${band.name} signal` : 'Unknown signal';
   return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title, sub, tag: 'HEARD', saved: false };
@@ -178,6 +179,16 @@ export function withSondes<T extends Signal>(signals: T[], sondes: Sonde[]): T[]
     const s = sondes.find((o) => Math.abs(o.hz - sig.hz) < 10_000);
     return s ? { ...sig, title: sondeName(s), sub: sondeSummary(s), tag: 'BALLOON', saved: true } : sig;
   });
+}
+
+/**
+ * A signal's measured centre wobbles by a few kHz between updates. Keep the previous anchor
+ * while the new centre stays within `tolHz` of it, so cards and their digits hold still.
+ */
+export function anchor(hz: number, prev: number[], tolHz: number): number {
+  let best: number | undefined;
+  for (const p of prev) if (Math.abs(p - hz) <= tolHz && (best === undefined || Math.abs(p - hz) < Math.abs(best - hz))) best = p;
+  return best ?? hz;
 }
 
 export interface Placed<T> {
