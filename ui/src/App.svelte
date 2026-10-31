@@ -868,7 +868,7 @@
               </div>
             </div>
           {:else if panel === 'iss'}
-            <div class="split">
+            <div class="split over">
               <div class="mapbox issmap">
                 <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
                 <span class="maplabel" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
@@ -1314,7 +1314,8 @@
     margin: 0;
     line-height: 1.45;
   }
-  /* map and list: side by side when the panel is wide, map over list when it is narrow */
+  /* map and list: side by side when the panel is wide, map over list when it is narrow;
+     the space station's world map is always on top at its own shape, passes below */
   .split {
     flex: 1;
     min-height: 0;
@@ -1330,6 +1331,8 @@
   .issmap {
     aspect-ratio: 2;
     width: 100%;
+    max-width: 640px;
+    align-self: center;
   }
   .repmap {
     flex: 1 1 55%;
@@ -1346,20 +1349,23 @@
     overscroll-behavior: contain;
     border-top: 1px solid var(--muted);
   }
+  .over .list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    align-content: start;
+  }
+  .over .list .empty {
+    grid-column: 1 / -1;
+  }
   @container (min-width: 620px) {
-    .split {
+    .split:not(.over) {
       flex-direction: row;
-    }
-    .issmap {
-      width: auto;
-      height: 100%;
-      max-width: 72%;
     }
     .repmap {
       flex: 2 1 0;
       height: 100%;
     }
-    .list {
+    .split:not(.over) .list {
       flex: 1 1 260px;
       border-top: 0;
       border-left: 1px solid var(--muted);
