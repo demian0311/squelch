@@ -482,7 +482,7 @@
           {/each}
           {#each cards as c (c.at)}
             <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-            <button class="card" class:sel={c.selected} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+            <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
               <span class="row1">
                 <span class="ttl">{c.item.title}</span>
                 {#if c.hidden.length}
@@ -552,7 +552,7 @@
       {/if}
       {#if hd}
         <aside class="sondes hdside">
-          <h2>HD Radio</h2>
+          <h2 class="hdhead">HD Radio</h2>
           <div class="sonde">
             {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
             {#if hd.name}<span class="name">{hd.name}</span>{/if}
@@ -1015,16 +1015,39 @@
   .tag.saved {
     color: var(--cyan);
   }
+  /* HD Radio has its own colour, orange, so a digital station is easy to spot */
   .hdchip {
-    padding: 0 5px;
+    padding: 0 6px;
     border-radius: 4px;
-    border: 1px solid var(--muted);
-    color: var(--fg-dim);
+    border: 1px solid var(--orange);
+    color: var(--orange);
+    font-weight: 700;
     cursor: pointer;
+    animation: hdpulse 2s ease-in-out infinite;
   }
   .hdchip.on {
-    border-color: var(--accent);
-    color: var(--accent);
+    background: var(--orange);
+    color: var(--bg);
+    animation: none;
+    box-shadow: 0 0 8px var(--orange);
+  }
+  @keyframes hdpulse {
+    50% {
+      box-shadow: 0 0 10px var(--orange);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hdchip {
+      animation: none;
+      box-shadow: 0 0 6px var(--orange);
+    }
+  }
+  .card.sel.hdon {
+    border-color: var(--orange);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--orange) 45%, transparent);
+  }
+  .hdhead {
+    color: var(--orange) !important;
   }
   .hdpic {
     width: 100%;
@@ -1044,8 +1067,8 @@
     color: var(--fg);
   }
   .hdprogs button.sel {
-    border-color: var(--accent);
-    color: var(--accent);
+    border-color: var(--orange);
+    color: var(--orange);
   }
   .hdgrid {
     display: grid;
