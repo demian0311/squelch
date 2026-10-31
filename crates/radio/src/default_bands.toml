@@ -122,7 +122,7 @@ bookmarks = [
 [[band]]
 id = "frs"
 group = "listen"
-name = "Walkie-talkies"
+name = "FRS + GMRS"
 icon = "walkie"
 mode = "nfm"
 low_mhz = 462.4
