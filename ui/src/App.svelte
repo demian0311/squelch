@@ -735,7 +735,7 @@
             <div class="issrow">
               <div class="repmap">
                 <RepeaterMap points={repPoints} reachKm={repReachKm} tunedHz={repTuned?.hz ?? null} onTune={(hz) => tuneTo(hz)} />
-                <span class="issage">Rings: about {repReachKm} km, a guess; a mountaintop repeater reaches further</span>
+                <span class="issage">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
               </div>
               <div class="isspasses">
                 {#if repTuned}

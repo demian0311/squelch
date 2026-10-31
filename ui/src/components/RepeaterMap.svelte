@@ -17,6 +17,7 @@
   const DISTANCES_KM = [25, 50, 100];
 
   let towns = $derived(townLabels(points, 8));
+  let tuned = $derived(points.find((p) => p.hz === tunedHz));
   // the tuned repeater draws last, on top
   let ordered = $derived([...points].sort((a, b) => Number(a.hz === tunedHz) - Number(b.hz === tunedHz)));
 
@@ -34,9 +35,10 @@
     <circle r={d} class="distance" />
     <text x={d * 0.71 + 1.5} y={-d * 0.71 - 1.5} class="distlabel">{d} km</text>
   {/each}
-  {#each ordered as p (p.hz)}
-    <circle cx={p.x} cy={p.y} r={reachKm} class="cover" class:reach={p.reach} class:tuned={p.hz === tunedHz} />
-  {/each}
+  <!-- one ring, on the tuned repeater: a ring on every one hides the map -->
+  {#if tuned}
+    <circle cx={tuned.x} cy={tuned.y} r={reachKm} class="cover" />
+  {/if}
   {#each towns as t (t.name)}
     <text x={t.x + 4} y={t.y - 3} class="town">{t.name}</text>
   {/each}
@@ -84,25 +86,13 @@
     fill: var(--fg-dim);
   }
   .cover {
-    fill: var(--fg-dim);
-    fill-opacity: 0.025;
-    stroke: var(--fg-dim);
-    stroke-opacity: 0.12;
-    stroke-width: 1;
-    vector-effect: non-scaling-stroke;
-    pointer-events: none;
-  }
-  .cover.reach {
-    fill: var(--accent);
-    fill-opacity: 0.06;
-    stroke: var(--accent);
-    stroke-opacity: 0.35;
-  }
-  .cover.tuned {
     fill: var(--orange);
-    fill-opacity: 0.14;
+    fill-opacity: 0.1;
     stroke: var(--orange);
     stroke-opacity: 0.9;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    pointer-events: none;
   }
   .town {
     font-size: 6px;
