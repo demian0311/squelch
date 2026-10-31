@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
+  import { channelAt } from './lib/channels';
   import type { Band, BandPlan, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, resolve, waterfallStops } from './lib/theme';
@@ -165,7 +166,7 @@
     const pxHz = span / boxW;
     const placed = placeCards(inView, minSep, (s) => s === listening).map((p) => {
       const at =
-        p.item === listening ? tuned : band?.mode === 'wfm' ? fmChannel(p.item.hz) : anchor(p.item.hz, anchors, Math.max(p.item.widthHz / 2, 10 * pxHz));
+        p.item === listening ? tuned : p.item.channelHz !== undefined ? p.item.channelHz : band?.mode === 'wfm' ? fmChannel(p.item.hz) : anchor(p.item.hz, anchors, Math.max(p.item.widthHz / 2, 10 * pxHz));
       const x = ((at - vs) / span) * boxW;
       return {
         ...p,
@@ -217,7 +218,7 @@
     const pick = (list: number[]) =>
       dir > 0 ? list.filter((f) => f > tuned + 1_000).sort((a, b) => a - b)[0] : list.filter((f) => f < tuned - 1_000).sort((a, b) => b - a)[0];
     const next = pick(heard) ?? pick(marks);
-    if (next !== undefined) tuneTo(snapTune(next, status?.signals ?? [], saved, span / boxW, mode));
+    if (next !== undefined) tuneTo(snapTune(next, status?.signals ?? [], saved, span / boxW, mode, band?.id));
   }
 
   // ── weather balloons ────────────────────────────
@@ -246,7 +247,8 @@
   // ── header text ─────────────────────────────────────
 
   let rds = $derived(status?.rds && status.mode === 'wfm' ? status.rds : null);
-  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? listening?.title ?? (band ? band.name : 'Tuned'));
+  let tunedChannel = $derived(channelAt(band?.id, tuned));
+  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? listening?.title ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
@@ -412,7 +414,7 @@
           {/each}
           {#each cards as c (c.at)}
             <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-            <button class="card" class:sel={c.selected} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode))}>
+            <button class="card" class:sel={c.selected} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneTo(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
               <span class="row1">
                 <span class="ttl">{c.item.title}</span>
                 {#if c.hidden.length}
@@ -439,7 +441,7 @@
             bandwidth={BANDWIDTH[mode]}
             specH={SPEC_H}
             colors={wfColors}
-            onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode))}
+            onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
             onView={setView}
           />
         </div>

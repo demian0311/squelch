@@ -1,5 +1,6 @@
 // Pure helpers: frequency text, band lookup, labelling detected signals and placing their cards.
 import type { Band, BandPlan, Bookmark, Detected, Mode, Rds, Sonde } from './api';
+import { channelAt } from './channels';
 
 export const MODE_NAMES: Record<Mode, string> = {
   wfm: 'Wide FM',
@@ -69,6 +70,8 @@ export interface Signal {
   sub: string;
   tag: string;
   saved: boolean;
+  /** The fixed channel this signal sits on, for bands with a channel plan. */
+  channelHz?: number;
 }
 
 /** Name each detected signal from the bookmarks, or describe it. */
@@ -80,7 +83,9 @@ export function label(plan: BandPlan, saved: Saved[], d: Detected): Signal {
   const width = d.width_hz >= 100_000 ? `${Math.round(d.width_hz / 1000)} kHz wide` : `${(d.width_hz / 1000).toFixed(1)} kHz wide`;
   // broadcast FM's measured width only wobbles; it says nothing useful
   const sub = [mode ? MODE_NAMES[mode] : null, mode === 'wfm' ? null : width].filter(Boolean).join(' · ');
-  if (mark) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: mark.name, sub, tag: 'SAVED', saved: true };
+  const ch = channelAt(band?.id, d.hz);
+  if (mark) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: mark.name, sub, tag: 'SAVED', saved: true, channelHz: ch?.hz };
+  if (ch) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: ch.name, sub, tag: 'HEARD', saved: false, channelHz: ch.hz };
   const title = band?.mode === 'wfm' ? `FM ${fmtMHz(Math.round(d.hz / 1e5) * 1e5, 1)}` : band ? `${band.name} signal` : 'Unknown signal';
   return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title, sub, tag: 'HEARD', saved: false };
 }
@@ -220,12 +225,17 @@ export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], 
 export const SNAP_PX = 8;
 
 /** Pick the frequency a click lands on: a bookmark or signal centre within SNAP_PX, else the click itself. */
-export function snapTune(hz: number, signals: Detected[], saved: Saved[], pxHz: number, mode: Mode): number {
+export function snapTune(hz: number, signals: Detected[], saved: Saved[], pxHz: number, mode: Mode, bandId?: string): number {
   const reach = SNAP_PX * pxHz;
   const mark = bookmarkNear(saved, hz, reach);
   if (mark) return mark.mhz * 1e6;
+  // on a channel plan, a click near a channel or a signal on one tunes the channel
+  const ch = channelAt(bandId, hz);
+  if (ch && Math.abs(ch.hz - hz) <= Math.max(reach, 1_000)) return ch.hz;
   const near = signals.filter((s) => Math.abs(s.hz - hz) <= reach).sort((a, b) => Math.abs(a.hz - hz) - Math.abs(b.hz - hz))[0];
   if (near) {
+    const onCh = channelAt(bandId, near.hz);
+    if (onCh) return onCh.hz;
     // broadcast FM sits on 100 kHz channels
     if (mode === 'wfm') return Math.round(near.hz / 100_000) * 100_000;
     return Math.round(near.hz / 500) * 500;

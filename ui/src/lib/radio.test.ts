@@ -110,6 +110,19 @@ describe('weather balloons', () => {
   });
 });
 
+describe('channel plans', () => {
+  const cbPlan: BandPlan = { groups: [], bands: [{ id: 'cb', group: 'x', name: 'CB radio', icon: 'walkie', mode: 'am', low_mhz: 26.95, high_mhz: 27.42, start_mhz: 27.185, bookmarks: [] }] };
+  it('names a signal after its channel, out-of-order ones included', () => {
+    expect(label(cbPlan, [], { hz: 27_186_200, width_hz: 6_000, snr_db: 15 }).title).toBe('CB 19');
+    expect(label(cbPlan, [], { hz: 27_255_000, width_hz: 6_000, snr_db: 15 }).title).toBe('CB 23');
+    expect(label(cbPlan, [], { hz: 27_255_000, width_hz: 6_000, snr_db: 15 }).channelHz).toBe(27_255_000);
+  });
+  it('tunes the channel when a click lands near one', () => {
+    expect(snapTune(27_187_000, [], [], 1000, 'am', 'cb')).toBe(27_185_000);
+    expect(snapTune(27_189_500, [{ hz: 27_186_200, width_hz: 6_000, snr_db: 15 }], [], 500, 'am', 'cb')).toBe(27_185_000);
+  });
+});
+
 describe('card anchors', () => {
   it('hold still through small wobble and follow a real move', () => {
     expect(anchor(99_498_300, [99_497_000], 5_000)).toBe(99_497_000);
