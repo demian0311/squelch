@@ -1,5 +1,6 @@
 // Calls into the Rust side, and the shapes it sends back.
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { decodeFeed } from './feed';
 import { listen } from '@tauri-apps/api/event';
 
 export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25';
@@ -243,15 +244,27 @@ export const terrainTile = (z: number, x: number, y: number) => invoke<string | 
 export const ground = (key: string) => invoke<string | null>('ground', { key });
 export const saveGround = (key: string, dataUrl: string) => invoke<void>('save_ground', { key, dataUrl });
 
-export function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
-  const rows = new Channel<ArrayBuffer>();
-  rows.onmessage = (buf) => {
-    const view = new DataView(buf);
-    onRow({ centerHz: view.getFloat64(0, true), bins: new Uint8Array(buf, 8) });
-  };
-  const status = new Channel<Status>();
-  status.onmessage = onStatus;
-  return invoke('start', { rows, status });
+let handlers: { onRow: (r: Row) => void; onStatus: (s: Status) => void } | null = null;
+
+/** Start the engine, then pull its rows and status one request at a time: a page that falls behind skips rows instead of queueing them. */
+export async function start(onRow: (r: Row) => void, onStatus: (s: Status) => void) {
+  const pulling = handlers !== null;
+  handlers = { onRow, onStatus };
+  await invoke('start');
+  if (!pulling) pull();
+}
+
+async function pull() {
+  for (;;) {
+    const buf = await invoke<ArrayBuffer>('feed').catch(() => null);
+    if (!buf) {
+      await new Promise((r) => setTimeout(r, 500));
+      continue;
+    }
+    const { status, rows } = decodeFeed<Status>(buf);
+    if (status) handlers?.onStatus(status);
+    for (const r of rows) handlers?.onRow(r);
+  }
 }
 
 export const onTheme = (f: (t: Theme) => void) => listen<Theme>('theme', (e) => f(e.payload));

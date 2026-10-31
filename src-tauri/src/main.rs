@@ -1,6 +1,9 @@
 // The window shell: wires the radio engine to the web UI.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod feed;
+
+use feed::Feed;
 use radio::bands::BandPlan;
 use radio::demod::Mode;
 use radio::device::Gain;
@@ -8,14 +11,15 @@ use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB,
 use radio::repeaters::{nearby, Repeater, Repeaters, NEARBY_KM};
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri::ipc::Response;
 use tauri::{Emitter, State};
 
 #[derive(Default)]
 struct App {
     engine: Mutex<Option<Engine>>,
+    feed: Arc<Feed>,
     /// Last gain, volume and squelch asked for, replayed on each start: the UI sends them before the engine exists.
     settings: Mutex<Settings>,
 }
@@ -88,12 +92,13 @@ fn theme() -> BTreeMap<String, String> {
     radio::theme::load()
 }
 
-/// Start the engine. Spectrum rows arrive on `rows` as bytes: an f64 centre (little endian) then one byte per bin.
+/// Start the engine. The page pulls its spectrum rows and status with `feed`.
 #[tauri::command]
-fn start(app: State<App>, rows: Channel<InvokeResponseBody>, status: Channel<Status>) {
+fn start(app: State<App>) {
     let mut slot = app.engine.lock().unwrap();
     *slot = None; // stop any earlier engine first so the dongle is free
     let (src, why) = Engine::open_source();
+    let (rows, status) = (app.feed.clone(), app.feed.clone());
     let engine = Engine::start(
         src,
         why,
@@ -101,16 +106,30 @@ fn start(app: State<App>, rows: Channel<InvokeResponseBody>, status: Channel<Sta
             let mut bytes = Vec::with_capacity(8 + row.bins.len());
             bytes.extend_from_slice(&row.center_hz.to_le_bytes());
             bytes.extend_from_slice(&row.bins);
-            let _ = rows.send(InvokeResponseBody::Raw(bytes));
+            rows.push_row(bytes);
         },
-        move |s| {
-            let _ = status.send(s);
+        move |s: Status| {
+            if let Ok(json) = serde_json::to_vec(&s) {
+                status.set_status(json);
+            }
         },
     );
     for cmd in app.settings.lock().unwrap().commands() {
         engine.send(cmd);
     }
     *slot = Some(engine);
+}
+
+/// How long `feed` waits for something new before answering empty.
+const FEED_WAIT: Duration = Duration::from_millis(500);
+
+/// What the engine produced since the last call, in the layout `Feed::take` describes; each row is an f64 centre (little endian) then one byte per bin.
+/// It waits on a blocking thread, so a slow page simply calls less often.
+#[tauri::command]
+async fn feed(app: State<'_, App>) -> Result<Response, String> {
+    let feed = app.feed.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || feed.take(FEED_WAIT)).await.map_err(|e| e.to_string())?;
+    Ok(Response::new(bytes))
 }
 
 fn send(app: &State<App>, cmd: Command) {
@@ -282,7 +301,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

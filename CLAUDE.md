@@ -15,7 +15,7 @@ RTL-SDR receiver for Omarchy (Hyprland). Tauri 2 shell + Rust engine + Svelte 5 
 - `ui/` — Vite root. `lib/radio.ts` holds pure logic (labels, card placement, snap-to-tune) with tests in `radio.test.ts`. `lib/channels.ts`: fixed channel plans (CB, FRS/GMRS, MURS, NOAA, marine, AAR rail) keyed by band id, so they apply even to an old user bands file; bookmarks still win over channel names. A band with a fixed plan gets the Channels panel (`channelList`: grouped, live dot from detected signals, click tunes). Layout: `BandRail.svelte` (bands coloured per group by `theme.ts` `groupHue`, Settings drawer over the list, `s`), top bar (frequency, transport, volume, squelch = draggable mark on the signal meter), then the waterfall `Pane` and at most one panel `Pane` beside it (stacked under 1000 px). `panels` in `App.svelte` ranks what is relevant; the first shows, the rest are tabs in its title. `f` / double-click a title gives a pane the screen; F11 is full screen. Panel width in localStorage `panel.share`, first-run hint `hint.seen`.
 
 ## Wire format
-Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE capture centre, then `FFT_SIZE` u8 bins. Byte 0 = `floor - BELOW_FLOOR_DB`, 255 = `RANGE_DB` above that (constants in `engine.rs`, sent to UI via `setup`).
+Spectrum rows and status: the page pulls them with the `feed` command (`src-tauri/src/feed.rs`, decoded by `lib/feed.ts`), one request at a time; the backend keeps the newest `MAX_ROWS` rows and the latest status. Never push rows over a Tauri `Channel`: a row above 1 KiB costs an eval plus a fetch, and a page that falls behind queues them inside WebKit until its watchdog kills it (2026-10-31: ~2 MB/s growth, SIGABRT). A row is 8-byte f64 LE capture centre, then `FFT_SIZE` u8 bins. Byte 0 = `floor - BELOW_FLOOR_DB`, 255 = `RANGE_DB` above that (constants in `engine.rs`, sent to UI via `setup`).
 
 ## Commands
 - Engine tests: `cargo test -p radio --release`
@@ -34,6 +34,7 @@ Spectrum rows: Tauri `Channel<InvokeResponseBody::Raw>` — 8-byte f64 LE captur
 - App: `./run.sh` (`pnpm tauri dev`; installs deps if missing, refuses while gqrx/SDR++ runs). `./run.sh sim` sets `SQUELCH_SIM=1` for the simulated receiver.
 
 ## Facts
+- WebKitGTK on eagle (2-core i5-7360U, 2× scale) repaints and lays out on its main thread. Endless animations animate only `transform`/`opacity` on HTML elements (never SVG children, `box-shadow`, `width`); no `animate:flip` on a list rebuilt per status (it forces one page layout per row). Measured 2026-10-31 through `WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9333` (Timeline and ScriptProfiler over its WebSocket).
 - Dongle on eagle: generic RTL2832U + R820T, 24–1766 MHz, no HF. DVB driver blacklisted in `/etc/modprobe.d/blacklist-rtlsdr.conf`.
 - Capture is 2.4 Msps (`SAMPLE_RATE`); UI view span capped at 0.8× that. Wider views would need sweeping — not built.
 - User bands file: `~/.config/squelch/bands.toml`, written from defaults on first start. `bands::add_new_defaults` then adds default groups/bands not listed in `~/.local/state/squelch/default_bands_seen` (ids offered before); with no record yet, only whole missing groups. Edits and deletions are kept.
