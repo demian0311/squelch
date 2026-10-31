@@ -1,5 +1,5 @@
 // Fixed channel plans for bands where radios pick numbered channels, keyed by band id.
-// Sources (checked 2026-10-30): CB 47 CFR 95.963, FRS 47 CFR 95.563, MURS 47 CFR 95.2763, NOAA weather.gov/nwr,
+// Sources (checked 2026-10-30): CB 47 CFR 95.963, FRS 47 CFR 95.563, GMRS 95.1763, MURS 47 CFR 95.2763, NOAA weather.gov/nwr,
 // marine RadioReference "Marine VHF Channels" (US), railroad AAR 007–097 at 15 kHz from 160.215.
 // Ham bands get the user's repeaters file instead (see setRepeaters).
 
@@ -14,11 +14,19 @@ export interface Channel {
   mode?: Mode;
 }
 
+const mhz = (m: number) => Math.round(m * 1e6);
+
 const CB = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055, 27.065, 27.075, 27.085, 27.105, 27.115, 27.125, 27.135, 27.155, 27.165, 27.175, 27.185, 27.205, 27.215, 27.225, 27.255, 27.235, 27.245, 27.265, 27.275, 27.285, 27.295, 27.305, 27.315, 27.325, 27.335, 27.345, 27.355, 27.365, 27.375, 27.385, 27.395, 27.405];
 
 const FRS = [462.5625, 462.5875, 462.6125, 462.6375, 462.6625, 462.6875, 462.7125, 467.5625, 467.5875, 467.6125, 467.6375, 467.6625, 467.6875, 467.7125, 462.55, 462.575, 462.6, 462.625, 462.65, 462.675, 462.7, 462.725];
 // GMRS repeaters (47 CFR 95.1763) listen 5 MHz above channels 15–22 and repeat on them
 const FRS_GROUPS: [number, string][] = [[7, 'FRS and GMRS'], [14, 'FRS only, low power'], [22, 'FRS and GMRS · repeater outputs']];
+// power by channel: FRS 47 CFR 95.567, GMRS 95.1767 (checked 2026-10-31)
+const FRS_ONLY_GROUPS: [number, string][] = [[7, 'Up to 2 W'], [14, 'Up to 0.5 W'], [22, 'Up to 2 W']];
+const GMRS_GROUPS: [number, string][] = [[7, 'Up to 5 W'], [14, 'Up to 0.5 W, hand-held'], [22, 'Up to 50 W · repeater outputs']];
+const walkies = (prefix: string, groups: [number, string][]) =>
+  FRS.map((m, i) => ({ hz: mhz(m), name: `${prefix} ${i + 1}`, group: groups.find(([last]) => i < last)![1] }));
+const gmrsInputs = FRS.slice(14).map((m, i) => ({ hz: mhz(m) + 5_000_000, name: `GMRS ${i + 15}R`, group: 'GMRS repeater inputs' }));
 
 const MURS = [151.82, 151.88, 151.94, 154.57, 154.6];
 
@@ -37,14 +45,11 @@ const MARINE: [string, number, number][] = [
   ['86', 157.325, 161.925], ['87', 157.375, 157.375], ['88', 157.425, 157.425],
 ];
 
-const mhz = (m: number) => Math.round(m * 1e6);
-
 export const CHANNELS: Record<string, Channel[]> = {
   cb: CB.map((m, i) => ({ hz: mhz(m), name: `CB ${i + 1}` })),
-  frs: [
-    ...FRS.map((m, i) => ({ hz: mhz(m), name: `FRS ${i + 1}`, group: FRS_GROUPS.find(([last]) => i < last)![1] })),
-    ...FRS.slice(14).map((m, i) => ({ hz: mhz(m) + 5_000_000, name: `GMRS ${i + 15}R`, group: 'GMRS repeater inputs' })),
-  ],
+  frs: [...walkies('FRS', FRS_GROUPS), ...gmrsInputs],
+  frs_only: walkies('FRS', FRS_ONLY_GROUPS),
+  gmrs: [...walkies('GMRS', GMRS_GROUPS), ...gmrsInputs],
   murs: MURS.map((m, i) => ({ hz: mhz(m), name: `MURS ${i + 1}` })),
   wx: [162.4, 162.425, 162.45, 162.475, 162.5, 162.525, 162.55].map((m, i) => ({ hz: mhz(m), name: `WX${i + 1}` })),
   marine: MARINE.flatMap(([ch, tx, rx]) => {
