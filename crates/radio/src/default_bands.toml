@@ -142,7 +142,7 @@ start_mhz = 462.6
 [[band]]
 id = "murs"
 group = "listen"
-name = "MURS walkie-talkies"
+name = "MURS"
 icon = "walkie"
 mode = "nfm"
 low_mhz = 151.8
