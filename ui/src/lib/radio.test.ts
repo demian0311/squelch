@@ -140,7 +140,7 @@ describe('weather balloons', () => {
   });
 });
 
-const cbPlan: BandPlan = { groups: [], bands: [{ id: 'cb', group: 'x', name: 'CB radio', icon: 'walkie', mode: 'am', low_mhz: 26.95, high_mhz: 27.42, start_mhz: 27.185, bookmarks: [] }] };
+const cbPlan: BandPlan = { groups: [], bands: [{ id: 'cb', group: 'x', name: 'CB radio', icon: 'truck', mode: 'am', low_mhz: 26.95, high_mhz: 27.42, start_mhz: 27.185, bookmarks: [] }] };
 
 describe('channel plans', () => {
   it('names a signal after its channel, out-of-order ones included', () => {

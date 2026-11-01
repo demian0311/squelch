@@ -5,7 +5,7 @@
 # Each band picks the mode used when you tune inside it. Bookmarks label
 # known frequencies; a bookmark can override the band's mode.
 #
-# icon: radio plane cloud anchor walkie train wave tower pin msg balloon key mesh dish star therm siren
+# icon: radio plane cloud anchor walkie truck train wave tower pin msg balloon key mesh dish star therm siren
 # mode: wfm nfm am usb lsb none p25
 
 [[group]]
@@ -108,7 +108,7 @@ bookmarks = [
 id = "cb"
 group = "listen"
 name = "CB radio"
-icon = "walkie"
+icon = "truck"
 mode = "am"
 low_mhz = 26.95
 high_mhz = 27.42
