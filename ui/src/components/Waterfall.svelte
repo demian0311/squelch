@@ -49,7 +49,20 @@
   $effect(() => {
     renderer?.setPalette(makeLut(stops));
     renderer?.draw(vs, ve);
+    fillGrad = null;
+    drawSpectrum();
   });
+
+  // the area under the line is filled with the waterfall's own ramp, bottom to top, so a height on the line and a colour
+  // in the waterfall say the same strength
+  let fillGrad: CanvasGradient | null = null;
+  function spectrumFill() {
+    if (fillGrad || !ctx) return fillGrad;
+    const g = ctx.createLinearGradient(0, S - dpr, 0, 10 * dpr);
+    stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
+    fillGrad = g;
+    return g;
+  }
 
   function resize() {
     if (!specCanvas || !wfCanvas) return;
@@ -61,6 +74,7 @@
       specCanvas.width = W;
       specCanvas.height = S;
       ctx = specCanvas.getContext('2d');
+      fillGrad = null;
     }
     renderer?.resize(W, Math.round(wfH * dpr), step);
     const points = Math.floor(W / step) + 1;
@@ -184,8 +198,10 @@
     under.lineTo(W, S);
     under.lineTo(0, S);
     under.closePath();
-    ctx.fillStyle = colors.fill;
+    ctx.fillStyle = spectrumFill() ?? colors.fill;
+    ctx.globalAlpha = 0.7;
     ctx.fill(under);
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = colors.line;
     ctx.stroke(curve);
   }
