@@ -643,6 +643,11 @@
     tuneSaved(Math.round(m.mhz * 1e6), m.mode);
     bookmarksOpen = false;
   }
+  /** The top bar's frequency: back to the waterfall with it in the middle. */
+  function showTuned() {
+    bookmarksOpen = false;
+    tuneCentered(tuned);
+  }
   /** The grey bookmark on a card saves it under the card's title; a lit one tunes it and shows it in the Bookmarks tab. */
   function cardBookmark(e: Event, c: (typeof cards)[number]) {
     e.stopPropagation();
@@ -971,7 +976,7 @@
   <div class="right">
     <header>
       <div class="freq">
-        <span class="digits mono"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</span>
+        <button class="digits mono" onclick={showTuned} title="Show this frequency on the waterfall"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</button>
         <span class="unit mono">MHz</span>
         {#if outside}<span class="outside mono">outside {band?.name}</span>{/if}
       </div>
@@ -1456,6 +1461,10 @@
     gap: 6px;
   }
   .digits {
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
     font-size: 48px;
     font-weight: 600;
     letter-spacing: -1px;
