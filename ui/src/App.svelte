@@ -1076,9 +1076,6 @@
                 <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{cardLeft(c.x, c.selected ? selW : CARD_W)}px" style:width={c.selected ? 'max-content' : `${CARD_W}px`} style:min-width="{CARD_W}px" style:max-height={c.selected ? `${boxH - 12}px` : null} {@attach c.selected && measureSel} onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
                   <span class="row1">
                     <span class="ttl">{c.item.title}</span>
-                    {#if c.hidden.length}
-                      <span class="more mono" title={c.hidden.map((h) => `${fmtMHz(h.hz)} ${h.title}`).join(', ') + ' — zoom in to separate'}>+{c.hidden.length}</span>
-                    {/if}
                     {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
                       <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
                     {/if}
@@ -2177,12 +2174,6 @@
   .cardicon.eye:not(.off) {
     color: var(--fg-bright);
     opacity: 0.85;
-  }
-  .more {
-    padding: 0 5px;
-    border-radius: 4px;
-    background: var(--muted);
-    font-size: 10px;
   }
   .row2 {
     display: flex;
