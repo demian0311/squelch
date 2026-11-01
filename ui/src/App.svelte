@@ -283,7 +283,6 @@
         ...p,
         at,
         x,
-        left: Math.min(Math.max(x - CARD_W / 2, 6), boxW - CARD_W - 6),
         meter: Math.max(0, Math.min(100, Math.round((p.item.snrDb / 40) * 100))),
         selected: isTuned(p.item),
         mark: bookmarkNear(saved, at, Math.max(p.item.widthHz / 2, 5_000)),
@@ -292,6 +291,15 @@
     anchors = placed.map((c) => c.at);
     return placed;
   });
+
+  // the selected card is as wide as its text needs, so it is measured to keep it inside the box
+  let selW = $state(CARD_W);
+  function measureSel(el: HTMLElement) {
+    const seen = new ResizeObserver(() => (selW = el.offsetWidth));
+    seen.observe(el);
+    return () => seen.disconnect();
+  }
+  const cardLeft = (x: number, w: number) => Math.min(Math.max(x - w / 2, 6), boxW - w - 6);
 
   let dots = $derived.by(() => {
     const hidden = cards.flatMap((c) =>
@@ -1060,7 +1068,7 @@
               {/each}
               {#each fit.level < LANES.length - 1 ? cards : [] as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{cardLeft(c.x, c.selected ? selW : CARD_W)}px" style:width={c.selected ? 'max-content' : `${CARD_W}px`} style:min-width="{CARD_W}px" style:max-height={c.selected ? `${boxH - 12}px` : null} {@attach c.selected && measureSel} onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
                   <span class="row1">
                     <span class="ttl">{c.item.title}</span>
                     {#if c.hidden.length}
@@ -2101,6 +2109,27 @@
     box-shadow:
       0 0 0 1px var(--accent),
       0 0 16px 3px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  /* the selected card shows everything, however short the lane; it grows over the spectrum */
+  .lane .card.sel {
+    height: auto;
+    min-height: 56px;
+    max-width: min(320px, calc(100% - 12px));
+    overflow: hidden auto;
+  }
+  .lane .card.sel .row2,
+  .lane .card.sel .row3 {
+    display: flex;
+  }
+  .card.sel .ttl,
+  .card.sel .subt {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .card.sel .row1,
+  .card.sel .row2 {
+    align-items: flex-start;
+    flex: none;
   }
   .row1 {
     display: flex;
