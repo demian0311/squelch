@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, bandEntryHz, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { allBookmarks, bandAt, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -39,6 +39,17 @@ describe('band lookup', () => {
     expect(modeAt(plan, saved, 144.39e6, 'am')).toBe('none');
     expect(modeAt(plan, saved, 146.6e6, 'am')).toBe('nfm');
     expect(modeAt(plan, saved, 50e6, 'am')).toBe('am');
+  });
+});
+
+describe('out of band', () => {
+  it('shades the part of the view past each edge', () => {
+    expect(outOfBand(147e6, 149e6, 144e6, 148e6)).toEqual({ below: 0, above: 50 });
+    expect(outOfBand(143e6, 145e6, 144e6, 148e6)).toEqual({ below: 50, above: 0 });
+  });
+  it('shades nothing inside the band and everything past it', () => {
+    expect(outOfBand(145e6, 146e6, 144e6, 148e6)).toEqual({ below: 0, above: 0 });
+    expect(outOfBand(150e6, 151e6, 144e6, 148e6)).toEqual({ below: 0, above: 100 });
   });
 });
 

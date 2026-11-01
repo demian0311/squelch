@@ -7,6 +7,8 @@
   interface Props {
     plan: BandPlan;
     current: string | null;
+    /** Tuned outside the current band: its entry is shown hollow. */
+    outside?: boolean;
     open: boolean;
     onPick: (b: Band) => void;
     onToggle: () => void;
@@ -18,7 +20,7 @@
     onSettings: () => void;
     settings: Snippet;
   }
-  let { plan, current, open, onPick, onToggle, hues, marks = {}, settingsOpen, onSettings, settings }: Props = $props();
+  let { plan, current, outside = false, open, onPick, onToggle, hues, marks = {}, settingsOpen, onSettings, settings }: Props = $props();
 
   let folded = $state<Record<string, boolean>>({});
 
@@ -53,7 +55,7 @@
         {/if}
         {#each g.bands as { band, key } (band.id)}
           {#if !open || !folded[g.id] || band.id === current}
-            <button class="band" class:sel={band.id === current} onclick={() => onPick(band)} title={marks[band.id] ? `${marks[band.id].title} · ${range(band)}` : `${band.name} · ${range(band)}`} aria-label={marks[band.id]?.live ? `${band.name}, overhead now` : band.name}>
+            <button class="band" class:sel={band.id === current} class:outside={band.id === current && outside} onclick={() => onPick(band)} title={marks[band.id] ? `${marks[band.id].title} · ${range(band)}` : `${band.name} · ${range(band)}`} aria-label={marks[band.id]?.live ? `${band.name}, overhead now` : band.name}>
               <span class="icon" class:txt={short(band)}>
                 {#if short(band)}{short(band)}{:else}<Icon name={band.icon} size={18} />{/if}
                 {#if marks[band.id]?.live}<span class="live"></span>{/if}
@@ -178,6 +180,10 @@
   .band.sel {
     background: color-mix(in srgb, var(--c) 16%, var(--bg-dark));
     color: var(--fg-bright);
+  }
+  .band.sel.outside {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 60%, transparent);
   }
   .icon {
     position: relative;

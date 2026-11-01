@@ -225,6 +225,8 @@
     }
   });
 
+  let outside = $derived(!!band && (tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6));
+
   function pickBand(b: Band) {
     bandId = b.id;
     panelPick = null;
@@ -740,7 +742,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bandId} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -748,6 +750,7 @@
       <div class="freq">
         <span class="digits mono"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</span>
         <span class="unit mono">MHz</span>
+        {#if outside}<span class="outside mono">outside {band?.name}</span>{/if}
       </div>
       <div class="now">
         <span class="title">{nowTitle}</span>
@@ -850,6 +853,7 @@
                 setView(a, b);
               }}
               bandId={band?.id}
+              band={band ? { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, name: band.name } : undefined}
             />
           </div>
           {#if band?.id === 'fm' && maxPane !== 'panel'}
@@ -1164,6 +1168,15 @@
   .digits em {
     font-style: normal;
     color: var(--hue);
+  }
+  .outside {
+    align-self: center;
+    padding: 1px 8px;
+    border: 1px solid var(--yellow);
+    border-radius: 10px;
+    color: var(--yellow);
+    font-size: 11px;
+    white-space: nowrap;
   }
   .unit {
     color: var(--fg-dim);

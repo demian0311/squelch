@@ -1,5 +1,6 @@
 <script lang="ts">
   import { channelTicks } from '../lib/channels';
+  import { fmtMHz, outOfBand } from '../lib/radio';
   // Spectrum line on top, scrolling waterfall below. Rows arrive through push();
   // the visible frequency range (view) is owned by the parent.
   import { onMount } from 'svelte';
@@ -20,8 +21,10 @@
     onView: (vs: number, ve: number) => void;
     /** The band's channel plan, shown on the scale instead of MHz when in view. */
     bandId?: string;
+    /** The selected band's edges and name; the view past them is shaded. */
+    band?: { lo: number; hi: number; name: string };
   }
-  let { vs, ve, rate, stops, tuned, bandwidth, specH, colors, onTune, onView, bandId }: Props = $props();
+  let { vs, ve, rate, stops, tuned, bandwidth, specH, colors, onTune, onView, bandId, band }: Props = $props();
 
   let wrap: HTMLDivElement;
   let specCanvas: HTMLCanvasElement;
@@ -261,6 +264,7 @@
     return out;
   });
   let chTicks = $derived(channelTicks(bandId, vs, ve, width));
+  let shade = $derived(band ? outOfBand(vs, ve, band.lo, band.hi) : { below: 0, above: 0 });
   let markerLeft = $derived(((tuned - vs) / (ve - vs)) * 100);
 </script>
 
@@ -281,6 +285,16 @@
 >
   <canvas bind:this={specCanvas} class="spec" style:height="{specH}px"></canvas>
   <canvas bind:this={wfCanvas} class="wf" style:top="{specH}px" style:height="{wfH}px"></canvas>
+  {#if band && shade.below > 0}
+    <div class="out below" style:width="{shade.below}%" style:height="{specH + wfH}px">
+      {#if shade.below < 100}<span class="mono">{band.name} starts {fmtMHz(band.lo)}</span>{/if}
+    </div>
+  {/if}
+  {#if band && shade.above > 0}
+    <div class="out above" style:width="{shade.above}%" style:height="{specH + wfH}px">
+      {#if shade.above < 100}<span class="mono">{band.name} ends {fmtMHz(band.hi)}</span>{/if}
+    </div>
+  {/if}
   {#if markerLeft >= 0 && markerLeft <= 100}
     <div class="marker" style:left="{markerLeft}%" style:height="{specH + wfH}px" style:background={colors.accent}></div>
   {/if}
@@ -318,6 +332,34 @@
   .wf {
     position: absolute;
     left: 0;
+  }
+  /* outside the selected band: dimmed, with a dashed line at the edge */
+  .out {
+    position: absolute;
+    top: 0;
+    background: color-mix(in srgb, var(--bg-dark, #000) 55%, transparent);
+    pointer-events: none;
+  }
+  .out.below {
+    left: 0;
+    border-right: 1px dashed var(--yellow);
+  }
+  .out.above {
+    right: 0;
+    border-left: 1px dashed var(--yellow);
+  }
+  .out span {
+    position: absolute;
+    top: 4px;
+    color: var(--yellow);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .out.below span {
+    right: 6px;
+  }
+  .out.above span {
+    left: 6px;
   }
   .marker {
     position: absolute;

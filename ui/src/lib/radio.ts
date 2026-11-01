@@ -32,6 +32,12 @@ export function bandAt(plan: BandPlan, hz: number): Band | undefined {
     .sort((a, b) => a.high_mhz - a.low_mhz - (b.high_mhz - b.low_mhz))[0];
 }
 
+/** Percent of the view that lies below and above the band, for shading; 0 where the edge is out of view. */
+export function outOfBand(vs: number, ve: number, lo: number, hi: number): { below: number; above: number } {
+  const pct = (hz: number) => Math.min(100, Math.max(0, ((hz - vs) / (ve - vs)) * 100));
+  return { below: pct(lo), above: 100 - pct(hi) };
+}
+
 /** Where to tune on entering a band: the last frequency used there, else its start. */
 export function bandEntryHz(b: Band, lastHz: Record<string, number>): number {
   const hz = lastHz[b.id];
