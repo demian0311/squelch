@@ -1,6 +1,7 @@
 //! Time each stage of the receive chain on one second of samples.
 //! cargo run -p radio --release --example bench
 
+use radio::adsb::Adsb;
 use radio::demod::{Demodulator, Mode};
 use radio::device::{IqSource, SimSource};
 use radio::dsp::{u8_to_iq, Mixer};
@@ -47,4 +48,8 @@ fn main() {
     let t = Instant::now();
     ac.process(&iq, 130_500_000.0);
     println!("acars x{}      {:>6.0} ms", ac.info().channels.len(), t.elapsed().as_secs_f64() * 1e3);
+    let mut a = Adsb::new(SAMPLE_RATE);
+    let t = Instant::now();
+    a.process(&iq);
+    println!("adsb          {:>6.0} ms", t.elapsed().as_secs_f64() * 1e3);
 }

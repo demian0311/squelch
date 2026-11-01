@@ -2,8 +2,6 @@
 
 Ideas to work later. One line each, newest at the bottom; an indented note under a line if it needs context. Delete a line when it ships.
 
-- Decode ADS-B (aircraft position broadcasts) on the `adsb` band at 1090 MHz: callsign, altitude, speed, position, drawn on a map panel.
-  The band exists with `decoder = "adsb"`, but nothing reads that decoder yet. The pulses are 1 Mbit/s, so the 2.4 Msps capture is just enough.
 - Decode VDL Mode 2 (digital successor to ACARS, 136.x MHz) beside the ACARS panel.
 - Replace the off-screen channel overlays at the waterfall's left and right edges with a better-looking cue.
   Keep the idea of showing what lies beyond each edge of the view, but the current overlays look poor; needs a design pass first.

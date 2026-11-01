@@ -19,6 +19,8 @@
   import { byNext, nextStart, readSlots, reminders, when, GRACE_MS, type Slot } from './lib/schedule';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
+  import AircraftMap from './components/AircraftMap.svelte';
+  import { adsbSummary, aircraftLine, aircraftRows, mapFrame } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
@@ -442,6 +444,17 @@
     api.setAcars(acarsOn);
   });
 
+  // ── aircraft ────────────────────────────────────
+
+  let adsbOn = $derived(band?.decoder === 'adsb');
+  let adsb = $derived(status?.adsb ?? null);
+  let planeRows = $derived(aircraftRows(adsb?.aircraft ?? [], iss?.site ?? null));
+  let planeMap = $derived(mapFrame(adsb?.aircraft ?? [], iss?.site ?? null));
+  let adsbLine = $derived(adsbSummary(adsb));
+  $effect(() => {
+    api.setAdsb(adsbOn);
+  });
+
   // weather services launch twice a day at about 00:00 and 12:00 UTC
   const launchTimes = [0, 12]
     .map((h) => {
@@ -524,7 +537,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
   let panelPick = $state<PanelId | null>(null);
   let savedOpen = $state(false);
   function toggleSaved() {
@@ -596,6 +609,7 @@
     if (band?.id === 'iss') own.push('iss');
     if (decoding) own.push('sondes');
     if (acarsOn) own.push('acars');
+    if (adsbOn) own.push('aircraft');
     if (p25) own.push('p25');
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
     // decoded in the background as soon as the station shows HD sidebands
@@ -611,16 +625,16 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', acars: 'Aircraft messages', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
+  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
   );
 
   let wfSummary = $derived(
     `${band?.name ?? 'Tuned'} · ${fmtMHz(vs)} – ${fmtMHz(ve)} MHz` +
-      (decoding ? ` · decoding weather balloons on ${status?.decoding_hz.length ?? 0} signal${status?.decoding_hz.length === 1 ? '' : 's'}` : acarsOn ? ' · decoding ACARS' : band?.decoder ? ` · the ${band.decoder} decoder is not built yet; this is the raw signal` : ''),
+      (decoding ? ` · decoding weather balloons on ${status?.decoding_hz.length ?? 0} signal${status?.decoding_hz.length === 1 ? '' : 's'}` : acarsOn ? ' · decoding ACARS' : adsbOn ? ' · decoding aircraft across the capture' : band?.decoder ? ` · the ${band.decoder} decoder is not built yet; this is the raw signal` : ''),
   );
 
   // which pane has the screen; it lets go when the panel changes
@@ -1049,6 +1063,28 @@
               {:else}
                 <p class="empty">None decoded yet. Every US ACARS channel in the capture is decoded all the time; aircraft on the ground or climbing out nearby send the most.</p>
               {/each}
+            </div>
+          {:else if panel === 'aircraft'}
+            <div class="split">
+              {#if planeMap}
+                <div class="mapbox repmap">
+                  <AircraftMap planes={planeMap.planes} centre={planeMap.centre} halfKm={planeMap.halfKm} here={!!iss?.site} />
+                  <span class="maplabel">{iss?.site ? 'Arrows point along the track; faded: no position for 30 s' : 'Centred on the aircraft; set your location to see distances'}</span>
+                </div>
+              {/if}
+              <div class="list">
+                {#each planeRows as r (r.a.icao)}
+                  <div class="reprow" title="Address {r.a.icao} · {r.a.messages} messages · {r.a.snr_db.toFixed(0)} dB">
+                    <span class="name">{r.name}</span>
+                    <span class="dim town">{aircraftLine(r.a)}</span>
+                    {#if r.km !== null}<span class="mono">{Math.round(r.km)} km</span>{/if}
+                    <span class="mono dim">{ago(r.a.age_s)}</span>
+                  </div>
+                {:else}
+                  <p class="empty">None heard yet. Aircraft broadcast every second or so; a line of sight to the sky matters most, and an antenna outdoors reaches a few hundred kilometres.</p>
+                  {#if !iss?.site}<p class="empty">Set your location in Settings (S) to see how far each one is.</p>{/if}
+                {/each}
+              </div>
             </div>
           {:else if panel === 'hd' && hd}
             <div class="pbody hdbody">

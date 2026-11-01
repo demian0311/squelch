@@ -78,6 +78,8 @@ export interface Status {
   sondes: Sonde[];
   /** Frequencies the balloon decoders are trying. */
   decoding_hz: number[];
+  /** Aircraft decoder, while it runs. */
+  adsb: Adsb | null;
   signals: Detected[];
   /** The tuned FM station shows HD Radio sidebands. */
   hd_sidebands: boolean;
@@ -211,6 +213,31 @@ export interface Sonde {
   age_s: number;
 }
 
+/** An aircraft heard on 1090 MHz. Fields are null until a message carrying them arrives. */
+export interface Aircraft {
+  /** 24-bit address, six hex digits. */
+  icao: string;
+  callsign: string | null;
+  /** Pressure altitude. */
+  alt_ft: number | null;
+  speed_kt: number | null;
+  /** Track over the ground, or heading when `airspeed`. */
+  heading_deg: number | null;
+  airspeed: boolean;
+  vrate_fpm: number | null;
+  lat: number | null;
+  lon: number | null;
+  /** Seconds since the last message, and since the last position. */
+  age_s: number;
+  pos_age_s: number | null;
+  messages: number;
+  snr_db: number;
+}
+export interface Adsb {
+  aircraft: Aircraft[];
+  frames_per_sec: number;
+}
+
 /** A space station pass; times are Unix seconds. */
 export interface IssPass {
   rise: number;
@@ -275,6 +302,8 @@ export const setPlaying = (playing: boolean) => invoke('set_playing', { playing 
 export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 /** Decode ACARS on the US channels in the capture. */
 export const setAcars = (on: boolean) => invoke('set_acars', { on });
+/** Decode aircraft broadcasts across the capture. */
+export const setAdsb = (on: boolean) => invoke('set_adsb', { on });
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });

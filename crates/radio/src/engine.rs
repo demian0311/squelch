@@ -1,6 +1,7 @@
 //! The receive loop: reads the dongle, produces spectrum rows, finds signals and plays audio.
 
 use crate::acars::Acars;
+use crate::adsb::Adsb;
 use crate::audio::AudioOut;
 use crate::record::Recorder;
 use crate::demod::{Demodulator, Mode};
@@ -49,6 +50,8 @@ pub enum Command {
     SetSondes(bool),
     /// Decode ACARS on every US channel in the capture.
     SetAcars(bool),
+    /// Decode aircraft broadcasts (ADS-B) across the whole capture; the capture should sit on 1090 MHz.
+    SetAdsb(bool),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
     SetHd(Option<u32>),
     /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
@@ -92,6 +95,8 @@ pub struct Status {
     pub sondes: Vec<Sonde>,
     /// Frequencies the sonde decoders are listening to.
     pub decoding_hz: Vec<f64>,
+    /// Aircraft heard recently, while ADS-B decoding is on.
+    pub adsb: Option<crate::adsb::Info>,
     pub signals: Vec<Detected>,
     /// The tuned FM station shows HD Radio sidebands.
     pub hd_sidebands: bool,
@@ -199,6 +204,7 @@ fn run(
     let mut squelch_db: Option<f32> = None;
     let mut scanner: Option<Scanner> = None;
     let mut acars: Option<Acars> = None;
+    let mut adsb: Option<Adsb> = None;
     let mut hd_program: Option<u32> = None;
     let mut hd: Option<Hd> = None;
     let mut hd_sidebands = false;
@@ -267,6 +273,11 @@ fn run(
                         acars = on.then(|| Acars::new(rate));
                     }
                 }
+                Ok(Command::SetAdsb(on)) => {
+                    if on != adsb.is_some() {
+                        adsb = on.then(|| Adsb::new(rate));
+                    }
+                }
                 Ok(Command::SetHd(p)) => {
                     match (&hd, p) {
                         (Some(h), Some(p)) => {
@@ -321,7 +332,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None, None, ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -381,6 +392,10 @@ fn run(
             a.process(&iq, center);
         }
         prof.lap("acars");
+        if let Some(a) = &mut adsb {
+            a.process(&iq);
+        }
+        prof.lap("adsb");
 
         if let Some(p) = &mut p25 {
             // the receiver opens and closes on calls itself, so the squelch stays out of it
@@ -433,7 +448,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, acars.as_ref().map(Acars::info), ppm, crystal);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, acars.as_ref().map(Acars::info), ppm, crystal);
         }
         prof.lap("status");
         prof.report();
@@ -521,6 +536,7 @@ fn send_status(
     squelch_open: bool,
     scanner: &Option<Scanner>,
     rds: Option<crate::rds::Info>,
+    adsb: &Option<Adsb>,
     signals: &[Detected],
     hd_sidebands: bool,
     hd: Option<HdInfo>,
@@ -547,6 +563,7 @@ fn send_status(
         rds: rds.filter(|i| *i != crate::rds::Info::default()),
         sondes: scanner.as_ref().map(|s| s.sondes()).unwrap_or_default(),
         decoding_hz: scanner.as_ref().map(|s| s.channels()).unwrap_or_default(),
+        adsb: adsb.as_ref().map(Adsb::info),
         signals: signals.to_vec(),
         hd_sidebands,
         hd,
