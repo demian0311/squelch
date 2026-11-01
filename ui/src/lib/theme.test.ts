@@ -20,7 +20,9 @@ describe('groupHue', () => {
 });
 
 describe('waterfallStops', () => {
-  it('passes through the band colour', () => {
-    expect(waterfallStops(t, t.green)[2]).toBe(t.green);
+  it('starts dark and ends on the brightest foreground', () => {
+    const s = waterfallStops(t);
+    expect(s[0]).toBe(t.darker_background);
+    expect(s[s.length - 1]).toBe(t.bright_foreground);
   });
 });

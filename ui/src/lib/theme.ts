@@ -56,10 +56,12 @@ export function groupHue(t: Theme, groupId: string | undefined, groupIds: string
   return t[SPARE_HUES[Math.max(0, spare) % SPARE_HUES.length]] ?? t.accent;
 }
 
-/** Colour stops for the waterfall, from the noise floor up to the strongest signal, in the band's colour. */
-export function waterfallStops(t: Theme, hue = t.accent): string[] {
+/** Colour stops for the waterfall, from 8 dB under the noise floor (byte 0) to 60 dB over it (255): the classic receiver
+ * ramp (gqrx, SDR++) in the theme's colours, so strength reads as hue. Spread evenly, noise (bytes ~25-45) sits in the
+ * dark blue, a weak station reaches blue, a strong FM station (~byte 160) orange, and only a very strong one goes white. */
+export function waterfallStops(t: Theme): string[] {
   const base = t.darker_background;
-  return [base, mix(base, hue, 0.35), hue, mix(hue, t.bright_foreground, 0.4), t.yellow, t.bright_foreground];
+  return [base, mix(base, t.blue, 0.5), t.blue, t.cyan, t.yellow, t.orange, t.red, mix(t.red, t.bright_foreground, 0.5), t.bright_foreground];
 }
 
 /** 256 RGB entries spread across the stops. */

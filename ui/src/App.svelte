@@ -472,7 +472,7 @@
 
   let hues = $derived(Object.fromEntries(plan.groups.map((g) => [g.id, groupHue(theme, g.id, plan.groups.map((x) => x.id))])));
   let hue = $derived((band && hues[band.group]) ?? theme.accent);
-  let stops = $derived(waterfallStops(theme, hue));
+  let stops = $derived(waterfallStops(theme));
   // the local map's shaded terrain, in theme colours
   let mapPalette = $derived({ plain: theme.lighter_background, peak: mix(theme.muted, theme.light_foreground, 0.15), shadow: theme.darker_background, light: theme.light_foreground });
   let wfColors = $derived({
