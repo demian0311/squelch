@@ -64,6 +64,14 @@ export function waterfallStops(t: Theme): string[] {
   return [base, mix(base, t.blue, 0.5), t.blue, t.cyan, t.yellow, t.orange, t.red, mix(t.red, t.bright_foreground, 0.5), t.bright_foreground];
 }
 
+/** The waterfall ramp as a CSS gradient for a bar that runs 0..`meterDb` dB above the floor, so a bar and the
+ * waterfall show one strength in one colour. Rows put byte 0 at `belowFloorDb` under the floor and 255 at `rangeDb` over it. */
+export function rampGradient(stops: string[], meterDb: number, belowFloorDb: number, rangeDb: number): string {
+  const full = belowFloorDb + rangeDb;
+  const at = (i: number) => (((i / (stops.length - 1)) * full - belowFloorDb) / meterDb) * 100;
+  return `linear-gradient(90deg, ${stops.map((c, i) => `${c} ${at(i).toFixed(1)}%`).join(', ')})`;
+}
+
 /** 256 RGB entries spread across the stops. */
 export function lut(stops: string[]): Uint8ClampedArray {
   const cs = stops.map(rgb);

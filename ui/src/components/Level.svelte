@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Signal strength: green to yellow up to `pct` of the way, the rest dimmed.
+  // Signal strength: the waterfall's ramp (--ramp, set by App) up to `pct` of the way, the rest dimmed.
   let { pct, width = '44px', height = '6px' }: { pct: number; width?: string; height?: string } = $props();
 </script>
 
@@ -10,7 +10,7 @@
     flex: none;
     display: block;
     border-radius: 3px;
-    background: linear-gradient(90deg, var(--green), var(--yellow)), var(--muted);
+    background: var(--ramp, linear-gradient(90deg, var(--green), var(--yellow))), var(--muted);
     -webkit-mask: linear-gradient(90deg, #000 var(--fill), rgb(0 0 0 / 25%) var(--fill));
     mask: linear-gradient(90deg, #000 var(--fill), rgb(0 0 0 / 25%) var(--fill));
   }

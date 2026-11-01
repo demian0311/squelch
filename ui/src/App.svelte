@@ -5,7 +5,7 @@
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
-  import { apply as applyTheme, groupHue, mix, resolve, waterfallStops } from './lib/theme';
+  import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
@@ -473,6 +473,8 @@
   let hues = $derived(Object.fromEntries(plan.groups.map((g) => [g.id, groupHue(theme, g.id, plan.groups.map((x) => x.id))])));
   let hue = $derived((band && hues[band.group]) ?? theme.accent);
   let stops = $derived(waterfallStops(theme));
+  // every strength bar in the page wears the waterfall's ramp on the meter's dB scale
+  let ramp = $derived(rampGradient(stops, METER_DB, setup.below_floor_db, setup.range_db));
   // the local map's shaded terrain, in theme colours
   let mapPalette = $derived({ plain: theme.lighter_background, peak: mix(theme.muted, theme.light_foreground, 0.15), shadow: theme.darker_background, light: theme.light_foreground });
   let wfColors = $derived({
@@ -714,7 +716,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="app" style:--accent={hue} style:--hue={hue}>
+<div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
     <BandRail plan={railPlan} current={bandId} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
@@ -1218,7 +1220,7 @@
     width: 100%;
     height: 8px;
     border-radius: 4px;
-    background: linear-gradient(90deg, var(--green), var(--yellow));
+    background: var(--ramp, linear-gradient(90deg, var(--green), var(--yellow)));
   }
   .fill.muted {
     background: var(--fg-dim);

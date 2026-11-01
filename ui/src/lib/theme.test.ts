@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHue, resolve, waterfallStops } from './theme';
+import { groupHue, rampGradient, resolve, waterfallStops } from './theme';
 
 const t = resolve({});
 
@@ -16,6 +16,13 @@ describe('groupHue', () => {
   });
   it('falls back to the accent with no group', () => {
     expect(groupHue(t, undefined, [])).toBe(t.accent);
+  });
+});
+
+describe('rampGradient', () => {
+  it('places the floor at the bar start and the ramp top past its end', () => {
+    const g = rampGradient(['#000000', '#ffffff'], 40, 8, 60);
+    expect(g).toBe('linear-gradient(90deg, #000000 -20.0%, #ffffff 150.0%)');
   });
 });
 
