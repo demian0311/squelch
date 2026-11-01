@@ -16,11 +16,14 @@
     hues: Record<string, string>;
     /** Per band id: `live` puts a pulsing dot on the icon; `title` replaces the tooltip; `line` replaces the frequency range. */
     marks?: Record<string, { live: boolean; title: string; line?: string }>;
+    bookmarksOpen: boolean;
+    bookmarkCount: number;
+    onBookmarks: () => void;
     settingsOpen: boolean;
     onSettings: () => void;
     settings: Snippet;
   }
-  let { plan, current, outside = false, open, onPick, onToggle, hues, marks = {}, settingsOpen, onSettings, settings }: Props = $props();
+  let { plan, current, outside = false, open, onPick, onToggle, hues, marks = {}, bookmarksOpen, bookmarkCount, onBookmarks, settingsOpen, onSettings, settings }: Props = $props();
 
   let folded = $state<Record<string, boolean>>({});
 
@@ -44,6 +47,16 @@
 
 <nav aria-label="Bands" class:closed={!open}>
   <div class="list">
+    <button class="band marks" class:sel={bookmarksOpen} onclick={onBookmarks} title="Bookmarks: every saved frequency, and times to tune in (B)" aria-label="Bookmarks" aria-expanded={bookmarksOpen}>
+      <span class="icon"><Icon name="bookmark" size={18} filled={bookmarksOpen} /></span>
+      {#if open}
+        <span class="text">
+          <span class="name">Bookmarks</span>
+          <span class="range mono">{bookmarkCount} saved</span>
+        </span>
+        <span class="key mono">B</span>
+      {/if}
+    </button>
     {#each groups as g (g.id)}
       <div class="group" style:--c={hues[g.id]}>
         {#if open}
@@ -115,6 +128,11 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  .marks {
+    --c: var(--accent);
+    flex: none;
+    margin-bottom: 6px;
   }
   .group {
     display: flex;

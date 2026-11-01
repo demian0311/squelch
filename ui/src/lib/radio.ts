@@ -71,6 +71,24 @@ export function favourites(saved: Saved[]): Saved[] {
   return saved.filter((s) => s.fav);
 }
 
+/** Pinned bookmarks in [lo, hi] with no heard signal on them: each gets a quiet card. */
+export function quietBookmarks(saved: Saved[], lo: number, hi: number, heard: { hz: number; widthHz: number }[]): Saved[] {
+  return saved.filter((s) => {
+    const hz = s.mhz * 1e6;
+    return s.pin !== false && hz >= lo && hz <= hi && !heard.some((h) => Math.abs(h.hz - hz) <= Math.max(h.widthHz / 2, 5_000));
+  });
+}
+
+/** The bookmarks of each band that has any, in the rail's order: group by group, then frequency. */
+export function bookmarksByBand(plan: BandPlan, saved: Saved[]): { group: { id: string; name: string }; bands: { band: Band; marks: Saved[] }[] }[] {
+  return plan.groups
+    .map((group) => ({
+      group,
+      bands: plan.bands.filter((b) => b.group === group.id).map((band) => ({ band, marks: saved.filter((s) => s.band.id === band.id) })).filter((b) => b.marks.length),
+    }))
+    .filter((g) => g.bands.length);
+}
+
 /** Nearest bookmark within `tolHz` of `hz`. */
 export function bookmarkNear(saved: Saved[], hz: number, tolHz: number): Saved | undefined {
   let best: Saved | undefined;

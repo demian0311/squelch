@@ -13,6 +13,8 @@ export interface Bookmark {
   notes?: string | null;
   /** Starred for one-click tuning. */
   fav?: boolean;
+  /** Off: no card on the waterfall unless something is on the air. Absent means on. */
+  pin?: boolean;
 }
 
 export interface Band {

@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
-  import { MODE_NAMES, allBookmarks, bandAt, favourites, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { MODE_NAMES, allBookmarks, bandAt, bookmarkNear, quietBookmarks, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
@@ -16,7 +16,8 @@
   import { noteHeard, stripTicks, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import SavedPanel from './components/SavedPanel.svelte';
-  import { byNext, nextStart, readSlots, reminders, when, GRACE_MS, type Slot } from './lib/schedule';
+  import BookmarksScreen from './components/BookmarksScreen.svelte';
+  import { readSlots, reminders, when, type Slot } from './lib/schedule';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
@@ -262,6 +263,7 @@
   let outside = $derived(!!band && (tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6));
 
   function pickBand(b: Band) {
+    bookmarksOpen = false;
     bandId = b.id;
     panelPick = null;
     const s = Math.min(maxSpan, (b.high_mhz - b.low_mhz) * 1e6);
@@ -299,10 +301,16 @@
   let cards = $derived.by(() => {
     const heard = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
     // on a channel plan every channel gets a card, so nobody has to remember frequencies
-    const quiet = quietChannels(band?.id, vs, ve, heard).map((c) => ({
-      hz: c.hz, widthHz: 0, snrDb: -1, title: c.name, sub: c.group ?? 'Nothing on it now', tag: 'QUIET', saved: false, channelHz: c.hz, quiet: true, steady: false,
+    // and a pinned bookmark gets one whether or not anything is on it; a bookmark on a channel speaks for that channel, so hiding it hides the card
+    const pinned = quietBookmarks(saved, vs, ve, heard).map((m) => ({
+      hz: m.mhz * 1e6, widthHz: 0, snrDb: -1, title: m.name, sub: m.notes || 'Nothing on it now', tag: 'QUIET', saved: true, channelHz: m.mhz * 1e6, quiet: true, steady: false,
     }));
-    const inView = [...heard, ...quiet];
+    const quiet = quietChannels(band?.id, vs, ve, heard)
+      .filter((c) => !bookmarkNear(saved, c.hz, 5_000))
+      .map((c) => ({
+        hz: c.hz, widthHz: 0, snrDb: -1, title: c.name, sub: c.group ?? 'Nothing on it now', tag: 'QUIET', saved: false, channelHz: c.hz, quiet: true, steady: false,
+      }));
+    const inView = [...heard, ...quiet, ...pinned];
     const minSep = ((CARD_W + 8) / boxW) * span;
     const pxHz = span / boxW;
     const isTuned = (s: Signal) => s === listening || (!!s.quiet && Math.abs(s.hz - tuned) < 1_000);
@@ -317,6 +325,7 @@
         left: Math.min(Math.max(x - CARD_W / 2, 6), boxW - CARD_W - 6),
         meter: Math.max(0, Math.min(100, Math.round((p.item.snrDb / 40) * 100))),
         selected: isTuned(p.item),
+        mark: bookmarkNear(saved, at, Math.max(p.item.widthHz / 2, 5_000)),
       };
     });
     anchors = placed.map((c) => c.at);
@@ -552,14 +561,11 @@
 
   type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'walkie' | 'activity' | 'channels' | 'saved';
   let panelPick = $state<PanelId | null>(null);
-  let savedOpen = $state(false);
-  function toggleSaved() {
-    savedOpen = panel !== 'saved';
-    panelPick = savedOpen ? 'saved' : null;
-  }
+  // every saved frequency, over the waterfall and its panel
+  let bookmarksOpen = $state(false);
 
   // Times to tune in. The list is kept in localStorage `schedule`; a reminder shows in the header from LEAD_MS
-  // before a start until it is dismissed or GRACE_MS after, and goes to the desktop once per start.
+  // before a start until it is dismissed or a grace period after, and goes to the desktop once per start.
   let slots = $state<Slot[]>(readSlots(readText('schedule')));
   function setSlots(next: Slot[]) {
     slots = next;
@@ -584,18 +590,35 @@
       api.setMode(mode);
     }
   }
-  let savedSummary = $derived.by(() => {
-    const now = new Date(nowS * 1000);
-    const next = byNext(slots, now).find((s) => nextStart(s, new Date(now.getTime() - GRACE_MS)));
-    const start = next && nextStart(next, new Date(now.getTime() - GRACE_MS));
-    return [`${favourites(saved).length} favourite${favourites(saved).length === 1 ? '' : 's'}`, next && start ? `next: ${next.name || fmtMHz(next.mhz * 1e6)} ${when(start, now)}` : ''].filter(Boolean).join(' · ');
-  });
+  let bandMarks = $derived(saved.filter((s) => s.band.id === band?.id));
+  let savedSummary = $derived(`${bandMarks.length} in this band`);
   function tuneSaved(hz: number, m: Mode | null | undefined) {
     tuneCentered(hz);
     if (m && m !== mode) {
       mode = m;
       api.setMode(m);
     }
+  }
+  /** Tunes a bookmark from the Bookmarks screen, entering its band first, and goes back to the waterfall. */
+  function tuneBookmark(m: Saved) {
+    if (m.band.id !== bandId) pickBand(m.band);
+    tuneSaved(Math.round(m.mhz * 1e6), m.mode);
+    bookmarksOpen = false;
+  }
+  /** The grey bookmark on a card saves it under the card's title; a lit one tunes it and shows it in the Bookmarks tab. */
+  function cardBookmark(e: Event, c: (typeof cards)[number]) {
+    e.stopPropagation();
+    if (c.mark) {
+      tuneSaved(Math.round(c.mark.mhz * 1e6), c.mark.mode);
+      panelPick = 'saved';
+      return;
+    }
+    const b = bandAt(plan, c.at);
+    if (b) saveBookmark(b.id, { mhz: Math.round(c.at / 100) / 1e4, name: c.item.title });
+  }
+  function cardEye(e: Event, m: Saved) {
+    e.stopPropagation();
+    saveBookmark(m.band.id, { mhz: m.mhz, name: m.name, mode: m.mode, notes: m.notes, fav: m.fav, pin: m.pin === false });
   }
   async function saveBookmark(bandId: string, b: api.Bookmark) {
     try {
@@ -632,8 +655,8 @@
       // the history is worth a tab once there are a few minutes of it
       if (walkieListened >= SHOW_AFTER_MIN) own.push('activity');
     } else if (chList.length) own.push('channels');
-    // names, favourites and times to tune in: a tab beside whatever else shows, the panel itself on `b`
-    if (own.length || savedOpen) own.push('saved');
+    // this band's bookmarks: a tab beside whatever else shows, the panel itself when nothing else does
+    if (own.length || bandMarks.length) own.push('saved');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
     return own;
@@ -670,7 +693,7 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { walkie: 'Walkie-talkies', activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
+  const PANEL_TITLE: Record<PanelId, string> = { walkie: 'Walkie-talkies', activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Bookmarks' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
@@ -789,9 +812,10 @@
     else if (e.key === '-') zoom(1.5);
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleMax('panel');
-    else if (e.key === 'b') toggleSaved();
+    else if (e.key === 'b') bookmarksOpen = !bookmarksOpen;
     else if (e.key === 'F11') toggleFull();
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
+    else if (e.key === 'Escape' && bookmarksOpen) bookmarksOpen = false;
     else if (e.key === 'Escape' && maxPane) maxed = null;
     else if (e.key === ' ') togglePlay();
     else if (e.key === 's') settingsOpen = !settingsOpen;
@@ -894,7 +918,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bandId} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen ? null : bandId} {bookmarksOpen} bookmarkCount={saved.length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -993,11 +1017,17 @@
                       <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
                     {/if}
                   </span>
-                  <span class="row2">{c.item.sub}</span>
+                  <span class="row2">
+                    <span class="subt">{c.item.sub}</span>
+                    {#if c.mark}
+                      <span class="cardicon eye" class:off={c.mark.pin === false} role="switch" aria-checked={c.mark.pin !== false} aria-label="Keep on the waterfall" tabindex="0" title={c.mark.pin === false ? 'Hidden from the waterfall unless on the air. Click to always show it.' : 'Always on the waterfall. Click to hide it unless on the air.'} onclick={(e) => c.mark && cardEye(e, c.mark)} onkeydown={(e) => c.mark && (e.key === 'Enter' || e.key === ' ') && cardEye(e, c.mark)}><Icon name={c.mark.pin === false ? 'eyeOff' : 'eye'} size={13} /></span>
+                    {/if}
+                    <span class="cardicon mark" class:on={c.mark} role="button" tabindex="0" aria-label={c.mark ? `Show bookmark ${c.mark.name}` : 'Save this frequency'} title={c.mark ? 'Saved. Click to tune it and edit it in the Bookmarks tab.' : 'Save this frequency'} onclick={(e) => cardBookmark(e, c)} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && cardBookmark(e, c)}><Icon name="bookmark" size={13} filled={!!c.mark} /></span>
+                  </span>
                   <span class="row3 mono">
                     <!-- an FM card's title already says where it is on the dial -->
                     {#if mode !== 'wfm'}<span>{fmtMHz(c.at)}</span>{/if}
-                    {#if c.item.tag !== 'HEARD'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
+                    {#if c.item.tag !== 'HEARD' && c.item.tag !== 'SAVED'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
                     <span class="bar"><Level pct={c.meter} width="100%" height="3px" /></span>
                   </span>
                 </button>
@@ -1063,7 +1093,7 @@
             {/each}
           {/snippet}
           {#if panel === 'saved'}
-            <SavedPanel {tuned} {mode} bandId={band?.id ?? bandAt(plan, tuned)?.id} bandMode={(band ?? bandAt(plan, tuned))?.mode} {saved} {slots} now={nowS} onTune={tuneSaved} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} />
+            <SavedPanel {tuned} {mode} bandId={band?.id ?? bandAt(plan, tuned)?.id} bandMode={(band ?? bandAt(plan, tuned))?.mode} {saved} onTune={tuneSaved} onSave={saveBookmark} onDelete={deleteBookmark} />
           {:else if panel === 'sondes'}
             <div class="pbody wrap">
               {#each sondes as o (o.hz)}
@@ -1274,6 +1304,9 @@
           {/if}
         </Pane>
       {/if}
+      {#if bookmarksOpen}
+        <BookmarksScreen {plan} {saved} {tuned} {mode} {slots} now={nowS} onTune={tuneBookmark} onTuneAt={tuneSaved} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
+      {/if}
     </main>
   </div>
 </div>
@@ -1326,7 +1359,7 @@
     <small>1–9 band · ← → next signal</small>
     <small>[ ] move · - + zoom · space listen</small>
     <small>f panel takes the screen · Esc back</small>
-    <small>b names, favourites, times to tune in</small>
+    <small>b every saved frequency, times to tune in</small>
     <small>s settings · F11 full screen</small>
   </div>
 {/snippet}
@@ -1563,6 +1596,7 @@
   }
   /* waterfall and panel side by side; stacked in a narrow window; either can take the screen */
   main {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: grid;
@@ -1991,6 +2025,29 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .cardicon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    color: var(--fg-dim);
+    opacity: 0.55;
+  }
+  .cardicon:hover {
+    opacity: 1;
+    background: var(--muted);
+  }
+  /* lit, so a saved card reads as saved across the room */
+  .cardicon.mark.on {
+    color: var(--orange);
+    opacity: 1;
+  }
+  .cardicon.eye:not(.off) {
+    color: var(--fg-bright);
+    opacity: 0.85;
+  }
   .more {
     padding: 0 5px;
     border-radius: 4px;
@@ -1998,9 +2055,16 @@
     font-size: 10px;
   }
   .row2 {
+    display: flex;
+    align-items: center;
+    gap: 3px;
     width: 100%;
     font-size: 10.5px;
     color: var(--fg-dim);
+  }
+  .subt {
+    flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

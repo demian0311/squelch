@@ -27,6 +27,13 @@ pub struct Bookmark {
     /// Starred: listed for one-click tuning.
     #[serde(default)]
     pub fav: bool,
+    /// Shown on the waterfall even when nothing is on the air; written only when off.
+    #[serde(default = "yes")]
+    pub pin: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -153,6 +160,11 @@ pub fn upsert_bookmark(text: &str, band_id: &str, b: &Bookmark) -> Result<String
         t.insert("fav", Value::from(true));
     } else {
         t.remove("fav");
+    }
+    if b.pin {
+        t.remove("pin");
+    } else {
+        t.insert("pin", Value::from(false));
     }
     match &b.mode {
         Some(m) => {
@@ -359,7 +371,7 @@ mod tests {
     }
 
     fn mark(mhz: f64, name: &str) -> Bookmark {
-        Bookmark { mhz, name: name.into(), mode: None, notes: None, fav: false }
+        Bookmark { mhz, name: name.into(), mode: None, notes: None, fav: false, pin: true }
     }
 
     fn bookmarks(text: &str, band: &str) -> Vec<Bookmark> {
@@ -387,7 +399,11 @@ mod tests {
         let got = bookmarks(&again, "wx");
         assert_eq!(got.len(), before + 1);
         let e = got.iter().find(|m| m.name == "Spotter net 2").unwrap();
-        assert!(!e.fav && e.mode.is_none() && e.notes.is_none());
+        assert!(!e.fav && e.mode.is_none() && e.notes.is_none() && e.pin);
+        // hidden from the waterfall is the only state that writes `pin`
+        let hidden = upsert_bookmark(&again, "wx", &Bookmark { pin: false, ..mark(162.6, "Spotter net 2") }).unwrap();
+        assert!(hidden.contains("pin = false") && !bookmarks(&hidden, "wx").iter().find(|m| m.name == "Spotter net 2").unwrap().pin);
+        assert!(!upsert_bookmark(&hidden, "wx", &mark(162.6, "Spotter net 2")).unwrap().contains("pin ="));
         // delete puts the file back
         assert_eq!(remove_bookmark(&again, "wx", 162.6).unwrap().lines().count(), text.lines().count());
         assert_eq!(bookmarks(&remove_bookmark(&again, "wx", 162.6).unwrap(), "wx").len(), before);

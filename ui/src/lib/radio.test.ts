@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, favourites, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { allBookmarks, bandAt, bookmarksByBand, favourites, quietBookmarks, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -13,6 +13,26 @@ const plan: BandPlan = {
   ],
 };
 const saved = allBookmarks(plan);
+
+describe('quietBookmarks', () => {
+  const marks = allBookmarks({ ...plan, bands: [{ ...plan.bands[0], bookmarks: [{ mhz: 146.52, name: 'Calling' }, { mhz: 144.39, name: 'APRS', pin: false }, { mhz: 146.94, name: 'Club' }] }] });
+  it('keeps pinned bookmarks in view that nothing is on', () => {
+    expect(quietBookmarks(marks, 144e6, 148e6, []).map((s) => s.name)).toEqual(['Calling', 'Club']);
+  });
+  it('drops one with a signal on it, and one out of view', () => {
+    expect(quietBookmarks(marks, 146e6, 148e6, [{ hz: 146.5215e6, widthHz: 0 }]).map((s) => s.name)).toEqual(['Club']);
+    expect(quietBookmarks(marks, 146e6, 146.6e6, []).map((s) => s.name)).toEqual(['Calling']);
+  });
+});
+
+describe('bookmarksByBand', () => {
+  it('leaves out bands and groups without bookmarks, and keeps the rail order', () => {
+    const got = bookmarksByBand(plan, saved);
+    expect(got.map((g) => g.group.id)).toEqual(['ham']);
+    expect(got[0].bands.map((b) => b.band.id)).toEqual(['2m']);
+    expect(got[0].bands[0].marks.map((s) => s.mhz)).toEqual([144.39, 146.52]);
+  });
+});
 
 describe('favourites', () => {
   it('lists only starred bookmarks, in frequency order', () => {

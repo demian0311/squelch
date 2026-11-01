@@ -1,10 +1,10 @@
 <script lang="ts">
-  // Saved frequencies. The top block is the tuned frequency's label, and typing in it saves: no edit mode, no button.
-  // Below it the starred frequencies (one click tunes) and the times to tune in. Names and notes live in the bands file
-  // (bookmarks); the schedule lives in localStorage `schedule`.
+  // A band's bookmarks. The top block is the tuned frequency's label, and typing in it saves: no edit mode, no button.
+  // Beside it every bookmark in the band: a click tunes, which brings it into the top block to edit. Names and notes
+  // live in the bands file.
   import type { Bookmark, Mode } from '../lib/api';
-  import { MODE_NAMES, bookmarkNear, favourites, fmtMHz, type Saved } from '../lib/radio';
-  import { DAY_LETTERS, byNext, newSlot, nextStart, when, GRACE_MS, type Slot } from '../lib/schedule';
+  import { MODE_NAMES, bookmarkNear, fmtMHz, type Saved } from '../lib/radio';
+  import Icon from './Icon.svelte';
 
   interface Props {
     tuned: number;
@@ -14,40 +14,23 @@
     /** That band's mode: a new label records the mode only when it differs. */
     bandMode: Mode | undefined;
     saved: Saved[];
-    slots: Slot[];
-    now: number;
     onTune: (hz: number, mode: Mode | null | undefined) => void;
     onSave: (bandId: string, b: Bookmark) => void;
     onDelete: (bandId: string, mhz: number) => void;
-    onSlots: (slots: Slot[]) => void;
   }
-  let { tuned, mode, bandId, bandMode, saved, slots, now, onTune, onSave, onDelete, onSlots }: Props = $props();
+  let { tuned, mode, bandId, bandMode, saved, onTune, onSave, onDelete }: Props = $props();
 
   let here = $derived(bookmarkNear(saved, tuned, 1_000));
-  let favs = $derived(favourites(saved));
-  let nowDate = $derived(new Date(now * 1000));
-  let sorted = $derived(byNext(slots, nowDate));
-  const MODES = Object.keys(MODE_NAMES) as Mode[];
+  let inBand = $derived(saved.filter((s) => s.band.id === bandId));
 
   /** The label as shown, with `change` applied; a new one starts from the tuned frequency. */
   function save(change: Partial<Bookmark>) {
-    const base: Bookmark = here ? { mhz: here.mhz, name: here.name, mode: here.mode, notes: here.notes, fav: here.fav } : { mhz: tuned / 1e6, name: fmtMHz(tuned), mode: mode === bandMode ? null : mode };
+    const base: Bookmark = here ? { mhz: here.mhz, name: here.name, mode: here.mode, notes: here.notes, fav: here.fav, pin: here.pin } : { mhz: tuned / 1e6, name: fmtMHz(tuned), mode: mode === bandMode ? null : mode };
     const b = { ...base, ...change };
     if (!b.name.trim()) b.name = fmtMHz(b.mhz * 1e6);
     if (bandId) onSave(here?.band.id ?? bandId, b);
   }
 
-  function patch(id: string, change: Partial<Slot>) {
-    onSlots(slots.map((s) => (s.id === id ? { ...s, ...change } : s)));
-  }
-  function toggleDay(s: Slot, d: number) {
-    const days = s.days.includes(d) ? s.days.filter((x) => x !== d) : [...s.days, d].sort();
-    patch(s.id, { days });
-  }
-  function setMhz(s: Slot, v: string) {
-    const mhz = parseFloat(v);
-    if (mhz >= 24 && mhz <= 1766) patch(s.id, { mhz });
-  }
   const text = (e: Event) => (e.currentTarget as HTMLInputElement).value;
 </script>
 
@@ -72,47 +55,19 @@
   </div>
 
   <div class="col">
-    <h2>Favourites</h2>
-    {#each favs as f (f.band.id + f.mhz)}
-      <button class="item pick" class:sel={Math.abs(f.mhz * 1e6 - tuned) < 1_000} onclick={() => onTune(Math.round(f.mhz * 1e6), f.mode)}>
-        <span class="name">{f.name}</span>
-        <span class="mono dim">{fmtMHz(f.mhz * 1e6)} MHz · {MODE_NAMES[f.mode ?? f.band.mode]}</span>
-        {#if f.notes}<span class="dim copy">{f.notes}</span>{/if}
-      </button>
-    {:else}
-      <p class="empty">Star a frequency and it waits here, one click from tuned.</p>
-    {/each}
-  </div>
-
-  <div class="col">
-    <h2>Times to tune in</h2>
-    {#each sorted as s (s.id)}
-      {@const next = nextStart(s, new Date(nowDate.getTime() - GRACE_MS))}
-      <div class="item">
-        <span class="dim">{next ? when(next, nowDate) : 'Done'}</span>
-        <input class="in" value={s.name} placeholder="Net or check-in name" aria-label="Name" onchange={(e) => patch(s.id, { name: text(e) })} />
-        <div class="line">
-          <input class="in mhz mono" value={s.mhz} inputmode="decimal" aria-label="MHz" onchange={(e) => setMhz(s, text(e))} />
-          <select class="in" value={s.mode} aria-label="Mode" onchange={(e) => patch(s.id, { mode: text(e) as Mode })}>
-            {#each MODES as m}<option value={m}>{MODE_NAMES[m]}</option>{/each}
-          </select>
-          <input class="in mono" type="time" value={s.time} aria-label="Time" onchange={(e) => text(e) && patch(s.id, { time: text(e) })} />
-        </div>
-        <div class="line">
-          {#each DAY_LETTERS as l, d}
-            <button class="day" class:on={s.days.includes(d)} aria-pressed={s.days.includes(d)} onclick={() => toggleDay(s, d)} title="Repeat every week on this day">{l}</button>
-          {/each}
-          {#if s.days.length === 0}<input class="in mono" type="date" value={s.date ?? ''} aria-label="Date" onchange={(e) => patch(s.id, { date: text(e) })} />{/if}
-        </div>
-        <div class="acts">
-          <button class="quiet" onclick={() => onTune(Math.round(s.mhz * 1e6), s.mode)}>Tune now</button>
-          <button class="quiet" onclick={() => onSlots(slots.filter((x) => x.id !== s.id))}>Delete</button>
-        </div>
+    <h2>In this band</h2>
+    {#each inBand as m (m.mhz)}
+      <div class="item pick" class:sel={Math.abs(m.mhz * 1e6 - tuned) < 1_000}>
+        <button class="tune" onclick={() => onTune(Math.round(m.mhz * 1e6), m.mode)} title="Tune here">
+          <span class="name">{m.fav ? '★ ' : ''}{m.name}</span>
+          <span class="mono dim">{fmtMHz(m.mhz * 1e6)} MHz · {MODE_NAMES[m.mode ?? m.band.mode]}</span>
+          {#if m.notes}<span class="dim copy">{m.notes}</span>{/if}
+        </button>
+        <button class="eye" class:off={m.pin === false} role="switch" aria-checked={m.pin !== false} aria-label="Keep on the waterfall" title={m.pin === false ? 'Hidden from the waterfall unless on the air. Click to always show it.' : 'Always on the waterfall. Click to hide it unless on the air.'} onclick={() => onSave(m.band.id, { mhz: m.mhz, name: m.name, mode: m.mode, notes: m.notes, fav: m.fav, pin: m.pin === false })}><Icon name={m.pin === false ? 'eyeOff' : 'eye'} size={16} /></button>
       </div>
     {:else}
-      <p class="empty">Nets and check-ins you want to catch. A cue appears a few minutes before each starts, while Squelch is running.</p>
+      <p class="empty">Nothing saved in this band. Click the bookmark on a card to save it.</p>
     {/each}
-    <button class="quiet add" onclick={() => onSlots([...slots, newSlot(tuned / 1e6, mode, nowDate)])}>+ Add a time for {fmtMHz(tuned)} MHz</button>
   </div>
 </div>
 
@@ -156,9 +111,41 @@
     color: inherit;
   }
   .item.pick {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .tune {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     gap: 3px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
     font: inherit;
+    text-align: left;
     cursor: pointer;
+    min-width: 0;
+  }
+  .eye {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--pane, var(--hue));
+    cursor: pointer;
+  }
+  .eye.off {
+    color: var(--fg-dim);
+  }
+  .eye:hover {
+    background: var(--muted);
   }
   .item.sel {
     border-color: var(--pane, var(--hue));
@@ -195,22 +182,12 @@
   textarea.in {
     resize: vertical;
   }
-  .in.mhz {
-    width: 84px;
-  }
-  .line {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
   .acts {
     display: flex;
     gap: 8px;
   }
   button.quiet,
-  button.star,
-  button.day {
+  button.star {
     min-height: 28px;
     padding: 2px 10px;
     border-radius: 6px;
@@ -221,17 +198,9 @@
     font-size: 12px;
     cursor: pointer;
   }
-  button.star.on,
-  button.day.on {
+  button.star.on {
     color: var(--fg-bright);
     border-color: var(--pane, var(--hue));
     background: color-mix(in srgb, var(--pane, var(--hue)) 18%, transparent);
-  }
-  button.day {
-    min-width: 28px;
-    padding: 2px 0;
-  }
-  button.add {
-    align-self: flex-start;
   }
 </style>

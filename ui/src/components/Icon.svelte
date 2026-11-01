@@ -1,6 +1,6 @@
 <script lang="ts">
   // Stroke icons for bands and controls, drawn on a 24×24 grid.
-  let { name, size = 22 }: { name: string; size?: number } = $props();
+  let { name, size = 22, filled = false }: { name: string; size?: number; filled?: boolean } = $props();
 
   const PATHS: Record<string, string[]> = {
     radio: ['M7 8l10-5', 'M3 10a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 'M14 12h4M14 16h4', 'M8.5 16.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z'],
@@ -19,6 +19,9 @@
     msg: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
     pin: ['M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0Z', 'M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
     star: ['M12 2l3.1 6.3 6.9 1-5 4.8 1.2 6.9-6.2-3.2-6.2 3.2 1.2-6.9-5-4.8 6.9-1z'],
+    bookmark: ['M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z'],
+    eye: ['M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
+    eyeOff: ['M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1', 'M6.6 6.6A16.6 16.6 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6', 'M14.1 14.1a3 3 0 0 1-4.2-4.2', 'M2 2l20 20'],
     key: ['M7.5 21a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z', 'M11.5 11.5 21 2', 'M18 5l3 3M15 8l2 2'],
     mesh: ['M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM19 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM19 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z', 'M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3'],
     expand: ['M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3'],
@@ -38,7 +41,7 @@
   let paths = $derived(PATHS[name] ?? PATHS.radio);
 </script>
 
-<svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+<svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   {#each paths as d}
     <path {d} />
   {/each}
