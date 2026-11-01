@@ -4,6 +4,7 @@
 pub mod ffi;
 
 use crate::demod::AUDIO_RATE;
+use crate::detect::Detected;
 use crate::dsp::{lowpass, Decimator, Mixer, C32};
 use serde::Serialize;
 use std::collections::{BTreeMap, VecDeque};
@@ -25,6 +26,8 @@ const SIDEBAND_HZ: (f64, f64) = (129_000.0, 198_000.0);
 /// Each block must average this far above the floor (dB). Measured 2026-10-31 at eagle:
 /// HD stations 5.7–8.9 dB, analog-only at most 2.9 dB.
 const SIDEBAND_DB: f32 = 4.0;
+/// How far from an FM channel a signal may sit and still be a station. A sideband centre sits 36.5 kHz off.
+const GRID_SLACK_HZ: f64 = 20_000.0;
 /// A picture that has had no fragment for this long has stopped arriving.
 const PENDING_SECS: f32 = 30.0;
 
@@ -155,6 +158,21 @@ pub(crate) fn base64(data: &[u8]) -> String {
         }
     }
     s
+}
+
+/// Drops the digital sidebands of HD stations from `signals`, so a station reads as one signal.
+/// A sideband sits `SIDEBAND_HZ` off a stronger signal and, unlike a neighbouring station, off
+/// the US FM channel grid (odd tenths of a MHz).
+pub fn drop_sidebands(signals: &mut Vec<Detected>) {
+    let off_grid = |hz: f64| ((hz - 100_000.0).rem_euclid(200_000.0) - 100_000.0).abs() < 100_000.0 - GRID_SLACK_HZ;
+    let all = signals.clone();
+    signals.retain(|s| {
+        !(off_grid(s.hz)
+            && all.iter().any(|t| {
+                let d = (t.hz - s.hz).abs();
+                t.snr_db > s.snr_db && d >= SIDEBAND_HZ.0 - GRID_SLACK_HZ && d <= SIDEBAND_HZ.1 + GRID_SLACK_HZ
+            }))
+    });
 }
 
 /// Whether the averaged spectrum `row` shows digital sidebands around `station_hz`.
@@ -459,6 +477,16 @@ fn handle(shared: &Mutex<Shared>, audio: &mut AudioRate, e: ffi::Event) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidebands_fold_into_their_station() {
+        let sig = |mhz: f64, snr_db: f32| Detected { hz: mhz * 1e6, width_hz: 70_000.0, snr_db };
+        // 106.7 with sidebands, a real neighbour at 106.9, and a lone weak signal off-grid
+        let mut v = vec![sig(106.537, 12.0), sig(106.7, 30.0), sig(106.863, 12.0), sig(106.9, 10.0), sig(105.45, 8.0)];
+        drop_sidebands(&mut v);
+        let left: Vec<f64> = v.iter().map(|s| (s.hz / 1e3).round() / 1e3).collect();
+        assert_eq!(left, vec![106.7, 106.9, 105.45]);
+    }
 
     #[test]
     fn base64_matches_rfc4648() {
