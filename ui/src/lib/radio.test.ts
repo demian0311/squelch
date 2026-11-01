@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { allBookmarks, bandAt, favourites, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -13,6 +13,14 @@ const plan: BandPlan = {
   ],
 };
 const saved = allBookmarks(plan);
+
+describe('favourites', () => {
+  it('lists only starred bookmarks, in frequency order', () => {
+    const starred: BandPlan = { ...plan, bands: [{ ...plan.bands[0], bookmarks: [{ mhz: 146.52, name: 'Calling', fav: true }, { mhz: 144.39, name: 'APRS' }, { mhz: 145.5, name: 'Net', fav: true }] }] };
+    expect(favourites(allBookmarks(starred)).map((s) => s.name)).toEqual(['Net', 'Calling']);
+    expect(favourites(saved)).toEqual([]);
+  });
+});
 
 describe('frequency text', () => {
   it('groups digits like a radio dial', () => {

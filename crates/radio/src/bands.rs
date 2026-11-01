@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Value};
 
 pub const DEFAULT_BANDS: &str = include_str!("default_bands.toml");
 
@@ -20,6 +21,12 @@ pub struct Bookmark {
     pub name: String,
     #[serde(default)]
     pub mode: Option<Mode>,
+    /// Free text about the frequency ("county ambulance dispatch").
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Starred: listed for one-click tuning.
+    #[serde(default)]
+    pub fav: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -97,6 +104,94 @@ impl BandPlan {
             .filter(|b| mhz >= b.low_mhz && mhz <= b.high_mhz)
             .min_by(|a, b| (a.high_mhz - a.low_mhz).partial_cmp(&(b.high_mhz - b.low_mhz)).unwrap())
     }
+}
+
+/// Two bookmark frequencies are the same entry when they agree to 1 Hz.
+fn same_mhz(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-6
+}
+
+fn mhz_of(v: &Value) -> Option<f64> {
+    let m = v.as_inline_table()?.get("mhz")?;
+    m.as_float().or_else(|| m.as_integer().map(|i| i as f64))
+}
+
+/// The `bookmarks` array of band `band_id`, created when the band has none.
+fn bookmarks_of<'a>(doc: &'a mut DocumentMut, band_id: &str) -> Result<&'a mut Array> {
+    let bands = doc.get_mut("band").and_then(Item::as_array_of_tables_mut).context("no [[band]] tables")?;
+    let band = bands.iter_mut().find(|b| b.get("id").and_then(Item::as_str) == Some(band_id)).with_context(|| format!("no band {band_id}"))?;
+    if !band.contains_key("bookmarks") {
+        let mut a = Array::new();
+        a.set_trailing("\n");
+        a.set_trailing_comma(true);
+        band.insert("bookmarks", value(a));
+    }
+    band.get_mut("bookmarks").and_then(Item::as_array_mut).context("bookmarks is not an inline list")
+}
+
+/// Add or update a bookmark in the text of a bands file, keeping everything else (comments,
+/// order, layout) as written. The entry is found by its frequency within `band_id`.
+pub fn upsert_bookmark(text: &str, band_id: &str, b: &Bookmark) -> Result<String> {
+    let mut doc: DocumentMut = text.parse()?;
+    let list = bookmarks_of(&mut doc, band_id)?;
+    let at = list.iter().position(|v| mhz_of(v).is_some_and(|m| same_mhz(m, b.mhz)));
+    let multiline = list.is_empty() || list.iter().next().is_some_and(|v| v.decor().prefix().and_then(|p| p.as_str()).is_some_and(|s| s.contains('\n')));
+    let mut fresh = InlineTable::new();
+    let t = match at {
+        Some(i) => list.get_mut(i).and_then(Value::as_inline_table_mut).context("bookmark is not a table")?,
+        None => {
+            fresh.insert("mhz", Value::from((b.mhz * 1e6).round() / 1e6));
+            &mut fresh
+        }
+    };
+    t.insert("name", Value::from(b.name.as_str()));
+    match b.notes.as_deref().filter(|n| !n.is_empty()) {
+        Some(n) => t.insert("notes", Value::from(n)),
+        None => t.remove("notes"),
+    };
+    if b.fav {
+        t.insert("fav", Value::from(true));
+    } else {
+        t.remove("fav");
+    }
+    match &b.mode {
+        Some(m) => {
+            let name = toml::Value::try_from(m)?;
+            t.insert("mode", Value::from(name.as_str().unwrap_or_default()))
+        }
+        None => t.remove("mode"),
+    };
+    if at.is_none() {
+        if multiline {
+            fresh.decor_mut().set_prefix("\n  ");
+            list.set_trailing("\n");
+            list.set_trailing_comma(true);
+        }
+        list.push(fresh);
+    }
+    Ok(doc.to_string())
+}
+
+/// Remove the bookmark at `mhz` from band `band_id`; the text is unchanged when it is not there.
+pub fn remove_bookmark(text: &str, band_id: &str, mhz: f64) -> Result<String> {
+    let mut doc: DocumentMut = text.parse()?;
+    let list = bookmarks_of(&mut doc, band_id)?;
+    let at = list.iter().position(|v| mhz_of(v).is_some_and(|m| same_mhz(m, mhz)));
+    if let Some(i) = at {
+        list.remove(i);
+    }
+    Ok(doc.to_string())
+}
+
+/// Apply `edit` to the bands file and write it back through a temp file, so a crash never leaves half a file.
+pub fn edit_file(edit: impl FnOnce(&str) -> Result<String>) -> Result<()> {
+    let path = BandPlan::path().context("no config directory")?;
+    let new = edit(&std::fs::read_to_string(&path)?)?;
+    BandPlan::parse(&new).context("the edit would break the bands file")?;
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, new)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
 }
 
 /// `group:<id>` and `band:<id>` for every entry of a bands file, in file order.
@@ -261,6 +356,50 @@ mod tests {
         let user = DEFAULT_BANDS.replace("id = \"ps800\"", "id = \"elsewhere\"");
         let new = add_new_defaults(&user, DEFAULT_BANDS, Some(&seen)).unwrap();
         assert!(BandPlan::parse(&new).unwrap().bands.iter().any(|b| b.id == "ps800"));
+    }
+
+    fn mark(mhz: f64, name: &str) -> Bookmark {
+        Bookmark { mhz, name: name.into(), mode: None, notes: None, fav: false }
+    }
+
+    fn bookmarks(text: &str, band: &str) -> Vec<Bookmark> {
+        BandPlan::parse(text).unwrap().bands.into_iter().find(|b| b.id == band).unwrap().bookmarks
+    }
+
+    #[test]
+    fn bookmark_edits_keep_comments_and_layout() {
+        let text = DEFAULT_BANDS.replacen("[[band]]", "# my own comment\n[[band]]", 1);
+        let before = bookmarks(&text, "wx").len();
+        let mut b = mark(162.6, "Spotter net");
+        b.notes = Some("storm \"spotter\" net".into());
+        b.fav = true;
+        b.mode = Some(Mode::Nfm);
+        let new = upsert_bookmark(&text, "wx", &b).unwrap();
+        assert!(new.contains("# my own comment"));
+        let got = bookmarks(&new, "wx");
+        assert_eq!(got.len(), before + 1);
+        let added = got.iter().find(|m| m.name == "Spotter net").unwrap();
+        assert!(added.fav && added.mode == Some(Mode::Nfm) && added.notes.as_deref() == Some("storm \"spotter\" net"));
+        // the only new line is the bookmark
+        assert_eq!(new.lines().count(), text.lines().count() + 1, "{new}");
+        // editing in place keeps the count, and clearing fields drops their keys
+        let again = upsert_bookmark(&new, "wx", &mark(162.6, "Spotter net 2")).unwrap();
+        let got = bookmarks(&again, "wx");
+        assert_eq!(got.len(), before + 1);
+        let e = got.iter().find(|m| m.name == "Spotter net 2").unwrap();
+        assert!(!e.fav && e.mode.is_none() && e.notes.is_none());
+        // delete puts the file back
+        assert_eq!(remove_bookmark(&again, "wx", 162.6).unwrap().lines().count(), text.lines().count());
+        assert_eq!(bookmarks(&remove_bookmark(&again, "wx", 162.6).unwrap(), "wx").len(), before);
+    }
+
+    #[test]
+    fn bookmark_goes_into_a_band_that_has_none() {
+        let plan = BandPlan::parse(DEFAULT_BANDS).unwrap();
+        let bare = plan.bands.iter().find(|b| b.bookmarks.is_empty()).unwrap();
+        let new = upsert_bookmark(DEFAULT_BANDS, &bare.id, &mark(bare.start_mhz, "Mine")).unwrap();
+        assert_eq!(bookmarks(&new, &bare.id)[0].name, "Mine");
+        assert!(upsert_bookmark(DEFAULT_BANDS, "nope", &mark(bare.start_mhz, "x")).is_err());
     }
 
     #[test]

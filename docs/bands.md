@@ -71,6 +71,8 @@ A bookmark names one frequency. It goes in the `bookmarks` list of any band.
 | `name` | yes | Shown on the signal's card. |
 | `mode` | no | Overrides the band's `mode` for this frequency. |
 
+A bookmark can also carry `notes = "free text"` and `fav = true` (listed under Favourites in the app). The app writes these itself when you name a frequency; hand edits stay as written.
+
 A signal takes a bookmark's name when it is within half its own width, or within 5 kHz, of that bookmark. Bookmarks from every band apply everywhere, not only inside their own band.
 
 There is no field for a repeater's input offset or its CTCSS tone (the sub-audible tone that opens the repeater). A receiver does not need either one to listen. Put them in the `name` if you want to see them, for example `"W0ABC +0.6 100.0"`.

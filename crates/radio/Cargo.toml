@@ -16,3 +16,4 @@ rustfft = "6"
 serde = { version = "1", features = ["derive"] }
 sgp4 = { version = "2.4", default-features = false, features = ["std"] }
 toml = "1"
+toml_edit = "0.25"

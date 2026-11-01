@@ -9,6 +9,10 @@ export interface Bookmark {
   mhz: number;
   name: string;
   mode?: Mode | null;
+  /** Free text about the frequency. */
+  notes?: string | null;
+  /** Starred for one-click tuning. */
+  fav?: boolean;
 }
 
 export interface Band {
@@ -243,6 +247,12 @@ export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 /** Correct the dongle's crystal by `ppm`, positive when it runs fast. */
 export const setPpm = (ppm: number) => invoke('set_ppm', { ppm });
+
+/** Add or change a bookmark in the bands file (found by frequency within band `band`); resolves to the list as now read. */
+export const saveBookmark = (band: string, bookmark: Bookmark) => invoke<Bands>('save_bookmark', { band, bookmark });
+export const deleteBookmark = (band: string, mhz: number) => invoke<Bands>('delete_bookmark', { band, mhz });
+/** A desktop notification, if the system has one. */
+export const notify = (title: string, body: string) => invoke<void>('notify', { title, body });
 
 /** Space station passes over a ZIP code, state or "lat, lon" for the next two days. */
 export const iss = (location: string) => invoke<Iss>('iss', { location });

@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
-  import { allBookmarks, bandAt, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { MODE_NAMES, allBookmarks, bandAt, favourites, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
@@ -14,6 +14,8 @@
   import BandStrip from './components/BandStrip.svelte';
   import { noteHeard, stripTicks, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
+  import SavedPanel from './components/SavedPanel.svelte';
+  import { byNext, nextStart, readSlots, reminders, when, GRACE_MS, type Slot } from './lib/schedule';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import Level from './components/Level.svelte';
@@ -508,8 +510,73 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels';
+  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
   let panelPick = $state<PanelId | null>(null);
+  let savedOpen = $state(false);
+  function toggleSaved() {
+    savedOpen = panel !== 'saved';
+    panelPick = savedOpen ? 'saved' : null;
+  }
+
+  // Times to tune in. The list is kept in localStorage `schedule`; a reminder shows in the header from LEAD_MS
+  // before a start until it is dismissed or GRACE_MS after, and goes to the desktop once per start.
+  let slots = $state<Slot[]>(readSlots(readText('schedule')));
+  function setSlots(next: Slot[]) {
+    slots = next;
+    remember('schedule', JSON.stringify(next));
+  }
+  let dismissed = $state(new Set<string>());
+  let due = $derived(reminders(slots, new Date(nowS * 1000)).filter((r) => !dismissed.has(r.key)));
+  const notified = new Set<string>();
+  $effect(() => {
+    for (const r of due) {
+      const key = r.key + r.phase;
+      if (notified.has(key)) continue;
+      notified.add(key);
+      api.notify(`${r.slot.name || 'Time to tune in'} ${r.phase === 'now' ? 'is starting' : when(r.start, new Date())}`, `${fmtMHz(r.slot.mhz * 1e6)} MHz ${MODE_NAMES[r.slot.mode]}`).catch(() => {});
+    }
+  });
+  function followReminder(r: (typeof due)[number]) {
+    dismissed = new Set(dismissed).add(r.key);
+    tuneCentered(Math.round(r.slot.mhz * 1e6));
+    if (r.slot.mode !== mode) {
+      mode = r.slot.mode;
+      api.setMode(mode);
+    }
+  }
+  let savedSummary = $derived.by(() => {
+    const now = new Date(nowS * 1000);
+    const next = byNext(slots, now).find((s) => nextStart(s, new Date(now.getTime() - GRACE_MS)));
+    const start = next && nextStart(next, new Date(now.getTime() - GRACE_MS));
+    return [`${favourites(saved).length} favourite${favourites(saved).length === 1 ? '' : 's'}`, next && start ? `next: ${next.name || fmtMHz(next.mhz * 1e6)} ${when(start, now)}` : ''].filter(Boolean).join(' · ');
+  });
+  function tuneSaved(hz: number, m: Mode | null | undefined) {
+    tuneCentered(hz);
+    if (m && m !== mode) {
+      mode = m;
+      api.setMode(m);
+    }
+  }
+  async function saveBookmark(bandId: string, b: api.Bookmark) {
+    try {
+      applyBands(await api.saveBookmark(bandId, b));
+    } catch (e) {
+      bandsError = String(e);
+    }
+  }
+  async function deleteBookmark(bandId: string, mhz: number) {
+    try {
+      applyBands(await api.deleteBookmark(bandId, mhz));
+    } catch (e) {
+      bandsError = String(e);
+    }
+  }
+  function applyBands(nb: api.Bands) {
+    setRepeaters(repeaters, nb.plan.bands);
+    plan = nb.plan;
+    bandsPath = nb.path;
+    bandsError = nb.error;
+  }
   let panels = $derived.by(() => {
     const own: PanelId[] = [];
     if (band?.id === 'iss') own.push('iss');
@@ -519,6 +586,8 @@
     // decoded in the background as soon as the station shows HD sidebands
     if (hd) own.push('hd');
     if (chList.length) own.push('channels');
+    // names, favourites and times to tune in: a tab beside whatever else shows, the panel itself on `b`
+    if (own.length || savedOpen) own.push('saved');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
     return own;
@@ -527,11 +596,11 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
   );
 
   let wfSummary = $derived(
@@ -636,7 +705,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
     const keyed = railPlan.groups.flatMap((g) => railPlan.bands.filter((b) => b.group === g.id)).slice(0, 9);
     if (/^[1-9]$/.test(e.key) && keyed[+e.key - 1]) pickBand(keyed[+e.key - 1]);
     else if (e.key === 'ArrowRight') step(1);
@@ -646,6 +715,7 @@
     else if (e.key === '-') zoom(1.5);
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleMax('panel');
+    else if (e.key === 'b') toggleSaved();
     else if (e.key === 'F11') toggleFull();
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
     else if (e.key === 'Escape' && maxPane) maxed = null;
@@ -700,12 +770,7 @@
       unsubs.push(api.onIss(loadIss));
       unsubs.push(api.onTheme(setTheme));
       unsubs.push(
-        api.onBands((nb) => {
-          setRepeaters(repeaters, nb.plan.bands);
-          plan = nb.plan;
-          bandsPath = nb.path;
-          bandsError = nb.error;
-        }),
+        api.onBands(applyBands),
       );
       unsubs.push(
         api.onRepeaters(loadRepeaters),
@@ -810,6 +875,12 @@
         <span>{localTime(nowS)}</span>
         <span>{utcTime(nowS)} <small>UTC</small></span>
       </div>
+      {#each due as r (r.key)}
+        <span class="chip warn remind">
+          <button onclick={() => followReminder(r)} title="Tune {fmtMHz(r.slot.mhz * 1e6)} MHz {MODE_NAMES[r.slot.mode]}">{r.slot.name || 'Time to tune in'} · {r.phase === 'now' ? 'starting now' : when(r.start, new Date(nowS * 1000))} · Tune</button>
+          <button onclick={() => (dismissed = new Set(dismissed).add(r.key))} aria-label="Dismiss" title="Dismiss">×</button>
+        </span>
+      {/each}
       {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
       {#if status?.error || bandsError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? ''}>Problem · details</button>{/if}
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
@@ -930,7 +1001,9 @@
               </button>
             {/each}
           {/snippet}
-          {#if panel === 'sondes'}
+          {#if panel === 'saved'}
+            <SavedPanel {tuned} {mode} bandId={band?.id ?? bandAt(plan, tuned)?.id} bandMode={(band ?? bandAt(plan, tuned))?.mode} {saved} {slots} now={nowS} onTune={tuneSaved} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} />
+          {:else if panel === 'sondes'}
             <div class="pbody wrap">
               {#each sondes as o (o.hz)}
                 {@const drift = sondeDrift(o)}
@@ -1150,6 +1223,7 @@
     <small>1–9 band · ← → next signal</small>
     <small>[ ] move · - + zoom · space listen</small>
     <small>f panel takes the screen · Esc back</small>
+    <small>b names, favourites, times to tune in</small>
     <small>s settings · F11 full screen</small>
   </div>
 {/snippet}
@@ -1356,6 +1430,19 @@
   .chip.err {
     color: var(--red);
     background: color-mix(in srgb, var(--red) 16%, transparent);
+  }
+  .chip.remind {
+    display: flex;
+    gap: 2px;
+    padding: 0;
+  }
+  .chip.remind button {
+    padding: 2px 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
   }
   .iconbtn {
     display: grid;

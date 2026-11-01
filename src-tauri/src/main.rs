@@ -4,7 +4,7 @@
 mod feed;
 
 use feed::Feed;
-use radio::bands::BandPlan;
+use radio::bands::{BandPlan, Bookmark};
 use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
@@ -72,6 +72,27 @@ fn setup() -> Setup {
 #[tauri::command]
 fn bands() -> Bands {
     load_bands()
+}
+
+/// Add or change a bookmark in the bands file (found by its frequency in band `band`), keeping the
+/// rest of the file as the user wrote it. Returns the list as now read, so the page need not wait
+/// for the file poll.
+#[tauri::command]
+fn save_bookmark(band: String, bookmark: Bookmark) -> Result<Bands, String> {
+    radio::bands::edit_file(|t| radio::bands::upsert_bookmark(t, &band, &bookmark)).map_err(|e| format!("{e:#}"))?;
+    Ok(load_bands())
+}
+
+#[tauri::command]
+fn delete_bookmark(band: String, mhz: f64) -> Result<Bands, String> {
+    radio::bands::edit_file(|t| radio::bands::remove_bookmark(t, &band, mhz)).map_err(|e| format!("{e:#}"))?;
+    Ok(load_bands())
+}
+
+/// A desktop notification, best effort: no `notify-send`, no notice.
+#[tauri::command]
+fn notify(title: String, body: String) {
+    let _ = std::process::Command::new("notify-send").args(["--app-name=Squelch", "--urgency=normal", &title, &body]).spawn().map(|mut c| std::thread::spawn(move || c.wait()));
 }
 
 /// Repeaters near `location` (ZIP code, state or "lat, lon"); a state keeps the whole file.
@@ -313,7 +334,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

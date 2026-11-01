@@ -66,6 +66,11 @@ export function allBookmarks(plan: BandPlan): Saved[] {
   return out.sort((a, b) => a.mhz - b.mhz);
 }
 
+/** The starred bookmarks, in frequency order. */
+export function favourites(saved: Saved[]): Saved[] {
+  return saved.filter((s) => s.fav);
+}
+
 /** Nearest bookmark within `tolHz` of `hz`. */
 export function bookmarkNear(saved: Saved[], hz: number, tolHz: number): Saved | undefined {
   let best: Saved | undefined;
