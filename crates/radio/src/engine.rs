@@ -1,6 +1,7 @@
 //! The receive loop: reads the dongle, produces spectrum rows, finds signals and plays audio.
 
 use crate::audio::AudioOut;
+use crate::record::Recorder;
 use crate::demod::{Demodulator, Mode};
 use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
@@ -39,6 +40,8 @@ pub enum Command {
     SetGain(Gain),
     SetVolume(f32),
     SetPlaying(bool),
+    /// Start or stop recording what is heard to a file (`record::info` says which).
+    Record(bool),
     /// Mute below this many dB above the floor; `None` turns squelch off.
     SetSquelch(Option<f32>),
     /// Run the radiosonde decoders on every narrow signal in the capture.
@@ -199,6 +202,7 @@ fn run(
     let p25_for = |mode: Mode, tuned: f64| (mode == Mode::P25).then(|| P25::new(rate, tuned));
     let mut p25: Option<P25> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
+    let mut recorder: Option<Recorder> = None;
     let mut prof = Prof::new();
 
     loop {
@@ -282,6 +286,15 @@ fn run(
                     }
                 }
                 Ok(Command::SetVolume(v)) => volume = v.clamp(0.0, 1.5),
+                Ok(Command::Record(on)) => {
+                    recorder = None;
+                    if on {
+                        match Recorder::start(crate::record::dir(), tuned, mode) {
+                            Ok(r) => recorder = Some(r),
+                            Err(e) => crate::record::fail(&e),
+                        }
+                    }
+                }
                 Ok(Command::SetPlaying(p)) => {
                     playing = p;
                     if let (false, Some(a)) = (p, &audio) {
@@ -389,6 +402,9 @@ fn run(
         }
         if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
+        }
+        if let Some(r) = &recorder {
+            r.push(&pcm);
         }
         prof.lap("audio");
 

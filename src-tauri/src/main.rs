@@ -244,6 +244,17 @@ fn set_hd(app: State<App>, program: Option<u32>) {
     send(&app, Command::SetHd(program));
 }
 
+/// Start or stop recording the audio; `recording` says what happened.
+#[tauri::command]
+fn record(app: State<App>, on: bool) {
+    send(&app, Command::Record(on));
+}
+
+#[tauri::command]
+fn recording() -> radio::record::Info {
+    radio::record::info()
+}
+
 #[tauri::command]
 fn set_playing(app: State<App>, playing: bool) {
     send(&app, Command::SetPlaying(playing));
@@ -302,7 +313,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

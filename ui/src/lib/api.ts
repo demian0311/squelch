@@ -225,6 +225,15 @@ export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { cent
 export const setMode = (mode: Mode) => invoke('set_mode', { mode });
 export const setGain = (tenths: number | null) => invoke('set_gain', { tenths });
 export const setVolume = (volume: number) => invoke('set_volume', { volume });
+/** Where recording stands: the file being written, or the last one finished. */
+export interface Recording {
+  recording: boolean;
+  file: string | null;
+  secs: number;
+  error: string | null;
+}
+export const record = (on: boolean) => invoke('record', { on });
+export const recording = () => invoke<Recording>('recording');
 export const setPlaying = (playing: boolean) => invoke('set_playing', { playing });
 /** Mute below `db` above the noise floor; null turns squelch off. */
 /** Run the weather-balloon decoders on every narrow signal in the capture. */

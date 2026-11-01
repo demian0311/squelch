@@ -51,6 +51,9 @@
   let tuned = $state(101_100_000);
   let mode = $state<Mode>('wfm');
   let playing = $state(true);
+  // recording: what the engine says, and the moment it started on the clock below
+  let rec = $state<api.Recording | null>(null);
+  let recAt = $state(0);
   let volume = $state(0.7);
   let gain = $state<string>('auto');
   // crystal correction: measured unless typed in by hand
@@ -623,6 +626,15 @@
     api.setPlaying(playing);
   }
 
+  async function toggleRecord() {
+    await api.record(!rec?.recording);
+    // the engine starts or ends the file on its next pass
+    setTimeout(async () => {
+      rec = await api.recording();
+      recAt = Date.now() / 1000 - rec.secs;
+    }, 250);
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     const keyed = railPlan.groups.flatMap((g) => railPlan.bands.filter((b) => b.group === g.id)).slice(0, 9);
@@ -759,6 +771,16 @@
       <button class="play" class:on={playing} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title="{playing ? 'Pause' : 'Play'} (space)">
         <Icon name={playing ? 'pause' : 'play'} size={20} />
       </button>
+      <button class="rec" class:on={rec?.recording} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
+        <Icon name="record" size={18} />
+      </button>
+      {#if rec?.recording}
+        <span class="rec-note mono">{Math.floor(Math.max(0, nowS - recAt) / 60)}:{String(Math.floor(Math.max(0, nowS - recAt)) % 60).padStart(2, '0')}</span>
+      {:else if rec?.error}
+        <span class="rec-note err copy" title={rec.error}>Not recording: {rec.error}</span>
+      {:else if rec?.file}
+        <span class="rec-note copy" title={rec.file}>Saved {rec.file.split('/').pop()}</span>
+      {/if}
       <div class="levels">
         <div class="ctl">
           <span>Signal · squelch {squelch > 0 ? `${squelch} dB` : 'off'}</span>
@@ -1218,6 +1240,35 @@
   .play.on {
     background: var(--hue);
     color: var(--bg-darker);
+  }
+  .rec {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--muted);
+    background: transparent;
+    color: var(--red);
+  }
+  .rec :global(svg) {
+    fill: currentColor;
+  }
+  .rec.on {
+    border-color: var(--red);
+    background: var(--red);
+    color: var(--bg-darker);
+  }
+  .rec-note {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-dim);
+    font-size: 12px;
+  }
+  .rec-note.err {
+    color: var(--red);
   }
   .ctl {
     display: flex;
