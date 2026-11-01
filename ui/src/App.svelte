@@ -607,7 +607,8 @@
     }
     const wake = nextWake(slots, now);
     const at = wake && Math.round(wake.getTime() / 1000);
-    if (at !== wakeAt) {
+    // while it can't, keep trying: the setup command runs in a terminal and nothing tells us when it is done
+    if (at !== wakeAt || (wakeError && now.getSeconds() % 5 === 0)) {
       wakeAt = at;
       api.setWake(at).then(
         () => (wakeError = null),

@@ -1,12 +1,14 @@
 //! Waking the computer for a plan and keeping it awake through it. The alarm is the RTC's one-shot wake alarm, writable
-//! after `./setup-wake.sh` (systemd's WakeSystem= timers need privileges a user manager does not have). The hold is a
+//! after `squelch --setup-wake` (systemd's WakeSystem= timers need privileges a user manager does not have). The hold is a
 //! `systemd-inhibit` child: logind goes back to sleep on a closed lid after its holdoff unless something inhibits it.
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 pub const ALARM: &str = "/sys/class/rtc/rtc0/wakealarm";
+const RULES: &str = "/etc/udev/rules.d/90-squelch-wake.rules";
 
 /// Set the alarm to `at` (seconds since the epoch), or clear it. An armed alarm must be cleared before a new one is written.
 pub fn set_alarm(path: impl AsRef<Path>, at: Option<i64>) -> Result<()> {
@@ -17,6 +19,59 @@ pub fn set_alarm(path: impl AsRef<Path>, at: Option<i64>) -> Result<()> {
         write(at.to_string())?;
     }
     Ok(())
+}
+
+/// The udev rule giving `user` the alarm file on every boot. udev splits RUN on spaces, as root, so the name must be plain.
+fn rule(user: &str) -> Result<String> {
+    if user.is_empty() || !user.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) {
+        bail!("unusual user name: {user:?}");
+    }
+    Ok(format!("ACTION==\"add|change\", SUBSYSTEM==\"rtc\", KERNEL==\"rtc0\", RUN+=\"/usr/bin/chown {user} {ALARM}\"\n"))
+}
+
+fn sudo(args: &[&str]) -> Result<()> {
+    let ok = Command::new("sudo").args(args).status().context("sudo")?.success();
+    if !ok {
+        bail!("sudo {} failed", args.join(" "));
+    }
+    Ok(())
+}
+
+/// `squelch --setup-wake`: let this user set the alarm, for good. Asks for the password in the terminal.
+pub fn setup() -> Result<()> {
+    if !Path::new(ALARM).exists() {
+        bail!("this computer has no wake alarm ({ALARM})");
+    }
+    let id = Command::new("id").arg("-un").output().context("id")?;
+    let user = String::from_utf8_lossy(&id.stdout).trim().to_string();
+    if user == "root" {
+        bail!("run it as yourself, without sudo: it gives the alarm to whoever runs it");
+    }
+    let rule = rule(&user)?;
+    let mut tee = Command::new("sudo").args(["tee", RULES]).stdin(Stdio::piped()).stdout(Stdio::null()).spawn().context("sudo")?;
+    tee.stdin.take().context("sudo tee")?.write_all(rule.as_bytes())?;
+    if !tee.wait()?.success() {
+        bail!("could not write {RULES}");
+    }
+    sudo(&["udevadm", "control", "--reload-rules"])?;
+    sudo(&["udevadm", "trigger", "--subsystem-match=rtc", "--action=change"])?;
+    sudo(&["udevadm", "settle"])?;
+    std::fs::OpenOptions::new().write(true).open(ALARM).with_context(|| format!("{ALARM} is still not writable"))?;
+    Ok(())
+}
+
+/// What to run for `setup`, ready to paste. An AppImage's own path is inside a mount that goes when it exits.
+pub fn setup_command() -> String {
+    let exe = std::env::var("APPIMAGE").ok().or_else(|| std::env::current_exe().ok().map(|p| p.display().to_string())).unwrap_or_else(|| "squelch".into());
+    command_for(&exe)
+}
+
+fn command_for(exe: &str) -> String {
+    if exe.chars().all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c)) {
+        format!("{exe} --setup-wake")
+    } else {
+        format!("'{}' --setup-wake", exe.replace('\'', "'\\''"))
+    }
 }
 
 static HOLD: Mutex<Option<Child>> = Mutex::new(None);
@@ -54,6 +109,20 @@ mod tests {
         set_alarm(&path, None).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "0");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_rule_names_a_plain_user_and_nothing_else() {
+        assert!(rule("demian").unwrap().contains("chown demian /sys/class/rtc/rtc0/wakealarm"));
+        assert!(rule("x /tmp/y").is_err());
+        assert!(rule("x\", RUN+=\"z").is_err());
+        assert!(rule("").is_err());
+    }
+
+    #[test]
+    fn the_command_pastes_whatever_the_path() {
+        assert_eq!(command_for("/home/a/.local/bin/squelch"), "/home/a/.local/bin/squelch --setup-wake");
+        assert_eq!(command_for("/home/a/my apps/it's"), "'/home/a/my apps/it'\\''s' --setup-wake");
     }
 
     #[test]

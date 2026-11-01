@@ -1,7 +1,7 @@
 <script lang="ts">
   // One time to tune in. Under a bookmark the frequency comes from the bookmark; a time with no bookmark (`full`) has its
   // own. Everything saves as it changes.
-  import type { Mode } from '../lib/api';
+  import { wakeSetupCommand, type Mode } from '../lib/api';
   import { MODE_NAMES } from '../lib/radio';
   import { DAY_LETTERS, EVERY_3_HOURS, EVERY_DAY, GRACE_MS, nextStart, plan333, when, withTimes, type Action, type Slot } from '../lib/schedule';
 
@@ -27,6 +27,15 @@
     ['record', 'Tune and record', 'Tunes by itself and records to a file until it ends'],
   ];
   const WEEKS: [number, string][] = [[0, 'every week'], [1, '1st of the month'], [2, '2nd of the month'], [3, '3rd of the month'], [4, '4th of the month'], [5, 'last of the month']];
+  let fix = $state('');
+  let copied = $state(false);
+  $effect(() => {
+    if (wakeError && !fix) wakeSetupCommand().then((c) => (fix = c));
+  });
+  async function copyFix() {
+    await navigator.clipboard.writeText(fix);
+    copied = true;
+  }
   const patch = (change: Partial<Slot>) => onChange({ ...slot, ...change });
   const setTimes = (times: string[]) => onChange(withTimes(slot, times, nowDate));
   function toggleDay(d: number) {
@@ -94,9 +103,15 @@
     </span>
   </div>
   {#if slot.action !== 'remind' && slot.times.length}
-    <p class="dim wake">
-      {#if wakeError}Runs only while the computer is awake. To let Squelch wake it, run ./setup-wake.sh once.{:else}Wakes the computer if it is asleep. Squelch has to be open.{/if}
-    </p>
+    {#if wakeError}
+      <p class="dim wake">Runs only while the computer is awake. To let Squelch wake it, run this once in a terminal:</p>
+      <div class="line fix">
+        <code class="copy">{fix}</code>
+        <button class="chip" onclick={copyFix}>{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+    {:else}
+      <p class="dim wake">Wakes the computer if it is asleep. Squelch has to be open.</p>
+    {/if}
   {/if}
 </div>
 
@@ -147,6 +162,12 @@
   }
   .wake {
     margin: 0;
+  }
+  .fix code {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
   }
   .acts {
     display: flex;

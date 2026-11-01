@@ -138,6 +138,12 @@ fn set_wake(at: Option<i64>) -> Result<(), String> {
     radio::wake::set_alarm(radio::wake::ALARM, at).map_err(|e| format!("{e:#}"))
 }
 
+/// The command that lets Squelch set the wake alarm, ready to paste in a terminal.
+#[tauri::command]
+fn wake_setup_command() -> String {
+    radio::wake::setup_command()
+}
+
 /// Keep the computer awake for this many seconds from now; 0 lets it go.
 #[tauri::command]
 fn hold_awake(secs: u32) {
@@ -375,6 +381,16 @@ fn mtime(p: Option<std::path::PathBuf>) -> Option<SystemTime> {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--setup-wake") {
+        match radio::wake::setup() {
+            Ok(()) => println!("Done: Squelch can wake this computer."),
+            Err(e) => {
+                eprintln!("Squelch cannot wake this computer: {e:#}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     tauri::Builder::default()
         .manage(App::default())
         .setup(|app| {
@@ -435,7 +451,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

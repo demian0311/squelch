@@ -312,6 +312,8 @@ export const schedule = () => invoke<ScheduleFile>('schedule');
 export const saveSchedule = (slots: Slot[]) => invoke<ScheduleFile>('save_schedule', { slots });
 /** Wake the computer at this time (seconds since the epoch), or at no time. Rejects with why it can't. */
 export const setWake = (at: number | null) => invoke<void>('set_wake', { at });
+/** The command that lets Squelch set the wake alarm, ready to paste in a terminal. */
+export const wakeSetupCommand = () => invoke<string>('wake_setup_command');
 /** Keep the computer awake for this many seconds from now; 0 lets it go. */
 export const holdAwake = (secs: number) => invoke<void>('hold_awake', { secs });
 export const readState = () => invoke<string>('read_state');

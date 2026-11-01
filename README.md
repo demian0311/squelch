@@ -64,6 +64,14 @@ For police and fire voice, install mbelib:
 sudo pacman -S mbelib
 ```
 
+To let Squelch wake the computer for a planned time, run this once. It asks for your password:
+
+```sh
+squelch --setup-wake
+```
+
+If you built from source, the clock form under a bookmark shows the full command to paste. Squelch has to stay open for a plan to run, and whether the alarm wakes the computer depends on the hardware.
+
 ## Police and fire
 
 Squelch follows a P25 site from its control channel: the one channel the site keeps on all the time to assign calls to voice channels.
