@@ -338,22 +338,7 @@
     return [...hidden, ...quiet, ...steady];
   });
 
-  function edge(side: 'left' | 'right') {
-    const out = (hz: number) => (side === 'left' ? hz < vs : hz > ve);
-    const heard = signals.filter((s) => out(s.hz) && (showSteady || !s.steady)).sort((a, b) => (side === 'left' ? b.hz - a.hz : a.hz - b.hz));
-    if (heard.length) return { count: `${heard.length} on air`, nearest: heard[0].hz };
-    const lo = band ? band.low_mhz * 1e6 : 0;
-    const hi = band ? band.high_mhz * 1e6 : Infinity;
-    const marks = saved
-      .map((s) => s.mhz * 1e6)
-      .filter((hz) => out(hz) && hz >= lo && hz <= hi)
-      .sort((a, b) => (side === 'left' ? b - a : a - b));
-    if (marks.length) return { count: `${marks.length} saved`, nearest: marks[0] };
-    return null;
-  }
   let stripMarks = $derived(band?.id === 'fm' ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6) : []);
-  let leftEdge = $derived.by(() => (void signals, void vs, edge('left')));
-  let rightEdge = $derived.by(() => (void signals, void ve, edge('right')));
 
   function step(dir: 1 | -1) {
     const heard = signals.filter((s) => showSteady || !s.steady).map((s) => s.hz);
@@ -1057,20 +1042,6 @@
             />
           {/if}
           {#if maxPane !== 'panel'}
-            {#if leftEdge}
-              {@const e = leftEdge}
-              <button class="edge left" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneClick(e.nearest)} title="Jump to the nearest signal on the left">
-                <span class="arrow">‹</span>
-                <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
-              </button>
-            {/if}
-            {#if rightEdge}
-              {@const e = rightEdge}
-              <button class="edge right" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneClick(e.nearest)} title="Jump to the nearest signal on the right">
-                <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
-                <span class="arrow">›</span>
-              </button>
-            {/if}
             {#if !hintSeen}
               <div class="hint">
                 <span>Drag sideways to move · scroll to zoom · click a signal to tune</span>
@@ -2177,40 +2148,6 @@
     left: 8px;
     right: 8px;
     bottom: 3px;
-  }
-  .edge {
-    position: absolute;
-    min-height: 52px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 10px;
-    border: 1px solid var(--accent);
-    background: color-mix(in srgb, var(--bg-dark) 90%, transparent);
-    color: var(--fg-bright);
-  }
-  .edge.left {
-    left: 8px;
-  }
-  .edge.right {
-    right: 8px;
-  }
-  .edge .arrow {
-    font-size: 18px;
-    color: var(--accent);
-  }
-  .edge .txt {
-    display: flex;
-    flex-direction: column;
-    font-size: 13px;
-  }
-  .edge.right .txt {
-    text-align: right;
-  }
-  .edge .txt span {
-    font-size: 11px;
-    color: var(--fg-dim);
   }
   .err {
     color: var(--red);
