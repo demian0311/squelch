@@ -87,6 +87,8 @@ export interface Status {
   hd_images: HdImage[] | null;
   /** Trunked radio receiver, in P25 mode. */
   p25: P25 | null;
+  /** Aircraft messages, while a band with the ACARS decoder is selected. */
+  acars: Acars | null;
   /** Crystal correction applied now, ppm; positive means the crystal runs fast. */
   ppm: number;
   /** The crystal error last measured, on a strong FM station or a P25 control channel. */
@@ -161,6 +163,35 @@ export interface Rds {
   pty: string | null;
   title: string | null;
   artist: string | null;
+}
+
+/** An ACARS block. Downlinks (block id a digit) carry `msn` and `flight`; the others leave them empty. */
+export interface AcarsMessage {
+  /** Counts up from 1 each time decoding starts. */
+  id: number;
+  at_ms: number;
+  /** The channel it was heard on. */
+  hz: number;
+  mode: string;
+  registration: string;
+  /** The block it acknowledges; null is NAK. */
+  ack: string | null;
+  label: string;
+  block_id: string;
+  /** More blocks of the same message follow. */
+  more: boolean;
+  msn: string;
+  flight: string;
+  text: string;
+}
+
+export interface Acars {
+  /** Channels being decoded now. */
+  channels: number[];
+  /** Messages of the last few seconds, oldest first; the panel keeps its own list. */
+  messages: AcarsMessage[];
+  /** Blocks decoded since decoding started. */
+  heard: number;
 }
 
 /** A weather balloon heard by the decoders. Position fields are null until a GPS fix arrives. */
@@ -242,6 +273,8 @@ export const setPlaying = (playing: boolean) => invoke('set_playing', { playing 
 /** Mute below `db` above the noise floor; null turns squelch off. */
 /** Run the weather-balloon decoders on every narrow signal in the capture. */
 export const setSondes = (on: boolean) => invoke('set_sondes', { on });
+/** Decode ACARS on the US channels in the capture. */
+export const setAcars = (on: boolean) => invoke('set_acars', { on });
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });

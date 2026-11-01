@@ -1,5 +1,6 @@
 //! The receive loop: reads the dongle, produces spectrum rows, finds signals and plays audio.
 
+use crate::acars::Acars;
 use crate::audio::AudioOut;
 use crate::record::Recorder;
 use crate::demod::{Demodulator, Mode};
@@ -46,6 +47,8 @@ pub enum Command {
     SetSquelch(Option<f32>),
     /// Run the radiosonde decoders on every narrow signal in the capture.
     SetSondes(bool),
+    /// Decode ACARS on every US channel in the capture.
+    SetAcars(bool),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
     SetHd(Option<u32>),
     /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
@@ -98,6 +101,8 @@ pub struct Status {
     pub hd_images: Option<Vec<HdImage>>,
     /// Trunked radio state, in P25 mode.
     pub p25: Option<crate::p25::Info>,
+    /// Aircraft messages, while ACARS decoding is on.
+    pub acars: Option<crate::acars::Info>,
     /// Correction applied now.
     pub ppm: i32,
     pub crystal: Option<Crystal>,
@@ -193,6 +198,7 @@ fn run(
     let mut squelch = Squelch::new();
     let mut squelch_db: Option<f32> = None;
     let mut scanner: Option<Scanner> = None;
+    let mut acars: Option<Acars> = None;
     let mut hd_program: Option<u32> = None;
     let mut hd: Option<Hd> = None;
     let mut hd_sidebands = false;
@@ -256,6 +262,11 @@ fn run(
                         scanner = on.then(|| Scanner::new(rate, all_decoders));
                     }
                 }
+                Ok(Command::SetAcars(on)) => {
+                    if on != acars.is_some() {
+                        acars = on.then(|| Acars::new(rate));
+                    }
+                }
                 Ok(Command::SetHd(p)) => {
                     match (&hd, p) {
                         (Some(h), Some(p)) => {
@@ -310,7 +321,7 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None, ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &[], hd_sidebands, None, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -366,6 +377,11 @@ fn run(
         }
         prof.lap("sondes");
 
+        if let Some(a) = &mut acars {
+            a.process(&iq, center);
+        }
+        prof.lap("acars");
+
         if let Some(p) = &mut p25 {
             // the receiver opens and closes on calls itself, so the squelch stays out of it
             if let Some(c) = p.process(&iq, center, &signals, &mut pcm) {
@@ -417,7 +433,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, ppm, crystal);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, acars.as_ref().map(Acars::info), ppm, crystal);
         }
         prof.lap("status");
         prof.report();
@@ -510,6 +526,7 @@ fn send_status(
     hd: Option<HdInfo>,
     hd_images: Option<Vec<HdImage>>,
     p25: Option<crate::p25::Info>,
+    acars: Option<crate::acars::Info>,
     ppm: i32,
     crystal: Option<Crystal>,
 ) {
@@ -535,6 +552,7 @@ fn send_status(
         hd,
         hd_images,
         p25,
+        acars,
         ppm,
         crystal,
     });

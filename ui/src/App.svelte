@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
@@ -8,6 +8,7 @@
   import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
+  import { acarsSummary, acarsTime, acarsWho, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -428,6 +429,19 @@
     api.setSondes(decoding);
   });
 
+  // ── aircraft messages ───────────────────────────
+
+  let acarsOn = $derived(band?.decoder === 'acars');
+  // the engine sends only the last few seconds; the list is kept here
+  let acarsList = $state<api.AcarsMessage[]>([]);
+  $effect(() => {
+    const incoming = status?.acars?.messages;
+    if (incoming?.length) acarsList = mergeMessages(untrack(() => acarsList), incoming);
+  });
+  $effect(() => {
+    api.setAcars(acarsOn);
+  });
+
   // weather services launch twice a day at about 00:00 and 12:00 UTC
   const launchTimes = [0, 12]
     .map((h) => {
@@ -510,7 +524,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
+  type PanelId = 'sondes' | 'acars' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
   let panelPick = $state<PanelId | null>(null);
   let savedOpen = $state(false);
   function toggleSaved() {
@@ -581,6 +595,7 @@
     const own: PanelId[] = [];
     if (band?.id === 'iss') own.push('iss');
     if (decoding) own.push('sondes');
+    if (acarsOn) own.push('acars');
     if (p25) own.push('p25');
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
     // decoded in the background as soon as the station shows HD sidebands
@@ -596,16 +611,16 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
+  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', acars: 'Aircraft messages', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
   );
 
   let wfSummary = $derived(
     `${band?.name ?? 'Tuned'} · ${fmtMHz(vs)} – ${fmtMHz(ve)} MHz` +
-      (decoding ? ` · decoding weather balloons on ${status?.decoding_hz.length ?? 0} signal${status?.decoding_hz.length === 1 ? '' : 's'}` : band?.decoder ? ` · the ${band.decoder} decoder is not built yet; this is the raw signal` : ''),
+      (decoding ? ` · decoding weather balloons on ${status?.decoding_hz.length ?? 0} signal${status?.decoding_hz.length === 1 ? '' : 's'}` : acarsOn ? ' · decoding ACARS' : band?.decoder ? ` · the ${band.decoder} decoder is not built yet; this is the raw signal` : ''),
   );
 
   // which pane has the screen; it lets go when the panel changes
@@ -1017,6 +1032,22 @@
               {:else}
                 <p class="empty">None decoded yet. Each narrow signal in view gets about 20 seconds of listening.</p>
                 <p class="empty">Weather services launch around {launchTimes} your time. A balloon flies for about two hours and can be heard a few hundred kilometres away; an antenna outdoors helps.</p>
+              {/each}
+            </div>
+          {:else if panel === 'acars'}
+            <div class="pbody acars">
+              {#each acarsList as m (m.at_ms + ':' + m.id)}
+                <div class="item msg copy">
+                  <span class="mhead">
+                    <span class="name">{acarsWho(m)}</span>
+                    {#if m.flight && m.registration}<span class="dim">{m.registration}</span>{/if}
+                    <span class="mono dim" title="Message label">{m.label}</span>
+                    <span class="mono dim when">{acarsTime(m.at_ms)} · {fmtMHz(m.hz)} MHz</span>
+                  </span>
+                  {#if m.text}<span class="mono mtext">{m.text}{m.more ? ' …' : ''}</span>{/if}
+                </div>
+              {:else}
+                <p class="empty">None decoded yet. Every US ACARS channel in the capture is decoded all the time; aircraft on the ground or climbing out nearby send the most.</p>
               {/each}
             </div>
           {:else if panel === 'hd' && hd}
@@ -1617,6 +1648,28 @@
   .item.balloon {
     flex: 0 1 260px;
     min-width: 200px;
+  }
+  .pbody.acars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .item.msg {
+    flex: none;
+  }
+  .mhead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+  .mhead .when {
+    margin-left: auto;
+  }
+  .mtext {
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .item.sel {
     border-color: var(--pane, var(--hue));

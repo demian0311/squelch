@@ -1,3 +1,4 @@
+pub mod acars;
 pub mod audio;
 pub mod bands;
 pub mod demod;

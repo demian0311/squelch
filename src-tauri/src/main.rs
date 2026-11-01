@@ -202,6 +202,11 @@ fn set_sondes(app: State<App>, on: bool) {
     send(&app, Command::SetSondes(on));
 }
 
+#[tauri::command]
+fn set_acars(app: State<App>, on: bool) {
+    send(&app, Command::SetAcars(on));
+}
+
 #[derive(Serialize)]
 struct Iss {
     /// The location text did not parse as a ZIP code, state or "lat, lon".
@@ -334,7 +339,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

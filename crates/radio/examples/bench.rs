@@ -43,4 +43,8 @@ fn main() {
     let t = Instant::now();
     sc.process(&iq);
     println!("sondes x{}     {:>6.0} ms", sc.channels().len(), t.elapsed().as_secs_f64() * 1e3);
+    let mut ac = radio::acars::Acars::new(SAMPLE_RATE);
+    let t = Instant::now();
+    ac.process(&iq, 130_500_000.0);
+    println!("acars x{}      {:>6.0} ms", ac.info().channels.len(), t.elapsed().as_secs_f64() * 1e3);
 }
