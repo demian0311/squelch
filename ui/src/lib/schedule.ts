@@ -95,6 +95,28 @@ export function newSlot(mhz: number, mode: Mode, now: Date): Slot {
   return { id, name: '', mhz, mode, time: `${p(d.getHours())}:${p(d.getMinutes())}`, days: [], date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
 }
 
+/** The slots on a frequency: a time belongs to a bookmark by being on it. */
+export function slotsAt(slots: Slot[], mhz: number): Slot[] {
+  return slots.filter((s) => Math.abs(s.mhz - mhz) < 0.0005);
+}
+
+/** The slots on no bookmark's frequency. */
+export function loneSlots(slots: Slot[], marks: { mhz: number }[]): Slot[] {
+  return slots.filter((s) => !marks.some((m) => slotsAt([s], m.mhz).length));
+}
+
+/** The slot at a new time of day. A one-off whose date would now be past moves to the next day that time comes. */
+export function withTime(s: Slot, time: string, now: Date): Slot {
+  const next = { ...s, time };
+  if (s.days.length || nextStart(next, now)) return next;
+  const t = parseTime(time);
+  if (!t) return next;
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), t[0], t[1]);
+  if (d < now) d.setDate(d.getDate() + 1);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return { ...next, date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
+}
+
 /** Read the stored list, dropping anything malformed. */
 export function readSlots(raw: string | null): Slot[] {
   try {

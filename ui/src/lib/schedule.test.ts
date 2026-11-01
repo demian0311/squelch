@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GRACE_MS, LEAD_MS, byNext, newSlot, nextStart, parseTime, readSlots, reminders, when, type Slot } from './schedule';
+import { GRACE_MS, LEAD_MS, byNext, loneSlots, newSlot, nextStart, parseTime, readSlots, reminders, slotsAt, when, withTime, type Slot } from './schedule';
 
 const slot = (o: Partial<Slot>): Slot => ({ id: 'a', name: 'Net', mhz: 146.52, mode: 'nfm', time: '19:00', days: [], ...o });
 // local times, so the tests hold in any zone
@@ -73,6 +73,33 @@ describe('byNext', () => {
     const later = slot({ id: 'later', date: '2026-11-05' });
     const sooner = slot({ id: 'sooner', date: '2026-11-02' });
     expect(byNext([done, later, sooner], now).map((s) => s.id)).toEqual(['sooner', 'later', 'done']);
+  });
+});
+
+describe('slots on a bookmark', () => {
+  const a = slot({ id: 'a', mhz: 146.52 });
+  const b = slot({ id: 'b', mhz: 146.94 });
+  it('finds them by frequency', () => {
+    expect(slotsAt([a, b], 146.5201).map((s) => s.id)).toEqual(['a']);
+    expect(slotsAt([a, b], 146.53)).toEqual([]);
+  });
+  it('leaves the rest as lone', () => {
+    expect(loneSlots([a, b], [{ mhz: 146.52 }]).map((s) => s.id)).toEqual(['b']);
+  });
+});
+
+describe('withTime', () => {
+  const now = at(2026, 11, 1, 12, 0);
+  it('keeps a one-off date that is still ahead', () => {
+    expect(withTime(slot({ days: [], date: '2026-11-01' }), '13:00', now).date).toBe('2026-11-01');
+  });
+  it('moves a one-off already past to tomorrow', () => {
+    const s = withTime(slot({ days: [], date: '2026-11-01' }), '11:00', now);
+    expect(s.time).toBe('11:00');
+    expect(s.date).toBe('2026-11-02');
+  });
+  it('leaves a weekly slot alone', () => {
+    expect(withTime(slot({ days: [2], date: undefined }), '11:00', now).date).toBeUndefined();
   });
 });
 

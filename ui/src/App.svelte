@@ -918,7 +918,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bookmarksOpen ? null : bandId} {bookmarksOpen} bookmarkCount={saved.length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen ? null : bandId} {bookmarksOpen} bookmarkCount={saved.filter((m) => railPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -1305,7 +1305,7 @@
         </Pane>
       {/if}
       {#if bookmarksOpen}
-        <BookmarksScreen {plan} {saved} {tuned} {mode} {slots} now={nowS} onTune={tuneBookmark} onTuneAt={tuneSaved} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
+        <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
       {/if}
     </main>
   </div>

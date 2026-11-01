@@ -44,6 +44,9 @@ export function bandEntryHz(b: Band, lastHz: Record<string, number>): number {
   return hz !== undefined && hz >= b.low_mhz * 1e6 && hz <= b.high_mhz * 1e6 ? hz : Math.round(b.start_mhz * 1e6);
 }
 
+/** "2 m", "70 cm": the name says more than an icon five bands share. */
+export const bandShort = (b: Band) => (/^[\d.]+ c?m$/.test(b.name) ? b.name.replace(' ', '') : null);
+
 export interface Saved extends Bookmark {
   band: Band;
 }

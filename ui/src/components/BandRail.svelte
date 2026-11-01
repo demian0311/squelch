@@ -2,6 +2,7 @@
   // Band list: groups that fold, a narrow icon-only form, and the settings drawer that slides over it.
   import type { Snippet } from 'svelte';
   import type { Band, BandPlan } from '../lib/api';
+  import { bandShort } from '../lib/radio';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -41,8 +42,6 @@
     const f = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(v % 1 === 0 ? 0 : 2));
     return `${f(b.low_mhz)}–${f(b.high_mhz)} MHz`;
   }
-  // "2 m", "70 cm": the name says more than an icon five bands share
-  const short = (b: Band) => (/^[\d.]+ c?m$/.test(b.name) ? b.name.replace(' ', '') : null);
 </script>
 
 <nav aria-label="Bands" class:closed={!open}>
@@ -69,8 +68,8 @@
         {#each g.bands as { band, key } (band.id)}
           {#if !open || !folded[g.id] || band.id === current}
             <button class="band" class:sel={band.id === current} class:outside={band.id === current && outside} onclick={() => onPick(band)} title={marks[band.id] ? `${marks[band.id].title} · ${range(band)}` : `${band.name} · ${range(band)}`} aria-label={marks[band.id]?.live ? `${band.name}, overhead now` : band.name}>
-              <span class="icon" class:txt={short(band)}>
-                {#if short(band)}{short(band)}{:else}<Icon name={band.icon} size={18} />{/if}
+              <span class="icon" class:txt={bandShort(band)}>
+                {#if bandShort(band)}{bandShort(band)}{:else}<Icon name={band.icon} size={18} />{/if}
                 {#if marks[band.id]?.live}<span class="live"></span>{/if}
               </span>
               {#if open}
