@@ -190,6 +190,8 @@
     slideView(tuned - span / 2, tuned + span / 2);
   }
 
+  const tuneSnapped = (hz: number) => tuneCentered(snapTune(hz, status?.signals ?? [], saved, span / boxW, mode, band?.id));
+
   /** A click on a frequency: tune it and bring it to the middle; a walkie-talkie channel shows its whole side. */
   function tuneClick(hz: number) {
     if (!walkieBand || !walkieAt(hz)) return tuneCentered(hz);
@@ -303,16 +305,16 @@
 
   let dots = $derived.by(() => {
     const hidden = cards.flatMap((c) =>
-      c.hidden.map((h) => ({ x: ((h.hz - vs) / span) * boxW, cls: h.quiet ? 'quiet' : 'hidden', title: `${fmtMHz(h.hz)} ${h.title} — ${h.quiet ? 'quiet; zoom in for its card' : 'behind a stronger signal; zoom in'}` })),
+      c.hidden.map((h) => ({ hz: h.hz, x: ((h.hz - vs) / span) * boxW, cls: h.quiet ? 'quiet' : 'hidden', title: `${fmtMHz(h.hz)} ${h.title} — ${h.quiet ? 'quiet' : 'no room for a card'}; click to tune` })),
     );
     const quiet = saved
       .filter((s) => s.mhz * 1e6 >= vs && s.mhz * 1e6 <= ve && !signals.some((g) => Math.abs(g.hz - s.mhz * 1e6) < Math.max(g.widthHz / 2, 5_000)))
-      .map((s) => ({ x: ((s.mhz * 1e6 - vs) / span) * boxW, cls: 'quiet', title: `${fmtMHz(s.mhz * 1e6)} ${s.name} — quiet` }));
+      .map((s) => ({ hz: s.mhz * 1e6, x: ((s.mhz * 1e6 - vs) / span) * boxW, cls: 'quiet', title: `${fmtMHz(s.mhz * 1e6)} ${s.name} — quiet; click to tune` }));
     const steady = showSteady
       ? []
       : signals
           .filter((s) => s.steady && s.hz >= vs && s.hz <= ve)
-          .map((s) => ({ x: ((s.hz - vs) / span) * boxW, cls: 'steady', title: `${fmtMHz(s.hz)} — steady carrier, probably interference` }));
+          .map((s) => ({ hz: s.hz, x: ((s.hz - vs) / span) * boxW, cls: 'steady', title: `${fmtMHz(s.hz)} — steady carrier, probably interference; click to tune` }));
     return [...hidden, ...quiet, ...steady];
   });
 
@@ -1070,11 +1072,11 @@
           {#if maxPane !== 'panel'}
             <div class="lane l{fit.level}" style:height="{fit.lane}px">
               {#each dots as d}
-                <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
+                <button class="dot {d.cls}" style:left="{d.x}px" title={d.title} aria-label={d.title} onclick={() => tuneSnapped(d.hz)}></button>
               {/each}
               {#each fit.level < LANES.length - 1 ? cards : [] as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{cardLeft(c.x, c.selected ? selW : CARD_W)}px" style:width={c.selected ? 'max-content' : `${CARD_W}px`} style:min-width="{CARD_W}px" style:max-height={c.selected ? `${boxH - 12}px` : null} {@attach c.selected && measureSel} onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{cardLeft(c.x, c.selected ? selW : CARD_W)}px" style:width={c.selected ? 'max-content' : `${CARD_W}px`} style:min-width="{CARD_W}px" style:max-height={c.selected ? `${boxH - 12}px` : null} {@attach c.selected && measureSel} onclick={() => tuneSnapped(c.item.hz)}>
                   <span class="row1">
                     <span class="ttl">{c.item.title}</span>
                     {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
@@ -2042,7 +2044,19 @@
     width: 6px;
     height: 6px;
     margin-left: -3px;
+    padding: 0;
+    border: 0;
     border-radius: 3px;
+  }
+  /* a 6 px dot is too small to hit */
+  .dot::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+  .dot:hover {
+    outline: 1px solid var(--fg-bright);
+    outline-offset: 2px;
   }
   .dot.hidden {
     background: var(--yellow);
