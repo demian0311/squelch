@@ -794,13 +794,11 @@
                     {#if c.hidden.length}
                       <span class="more mono" title={c.hidden.map((h) => `${fmtMHz(h.hz)} ${h.title}`).join(', ') + ' — zoom in to separate'}>+{c.hidden.length}</span>
                     {/if}
-                  </span>
-                  <span class="row2">
-                    <span class="sub">{c.item.sub}</span>
                     {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
                       <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
                     {/if}
                   </span>
+                  <span class="row2">{c.item.sub}</span>
                   <span class="row3 mono">
                     <span>{fmtMHz(c.at)}</span>
                     {#if c.item.tag !== 'HEARD'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
@@ -1644,7 +1642,7 @@
   }
   .row1 {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 6px;
     width: 100%;
   }
@@ -1664,16 +1662,9 @@
     font-size: 10px;
   }
   .row2 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
     width: 100%;
     font-size: 10.5px;
     color: var(--fg-dim);
-  }
-  .row2 .sub {
-    flex: 1;
-    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
