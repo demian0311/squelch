@@ -11,6 +11,8 @@
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
+  import BandStrip from './components/BandStrip.svelte';
+  import { noteHeard, stripTicks, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
@@ -115,6 +117,17 @@
   let waterfall: Waterfall;
   /** Station data per FM channel, kept after tuning away. */
   let rdsHeard = $state(new Map<number, api.Rds>());
+  /** Stations heard per band, across runs, for the band strip; localStorage `stations`. */
+  let heard = $state<Record<string, Heard[]>>(readHeard());
+  function readHeard(): Record<string, Heard[]> {
+    try {
+      return JSON.parse(localStorage.getItem('stations') ?? '{}');
+    } catch {
+      return {};
+    }
+  }
+  /** Ticks heard before this are from an earlier run, and the station may be gone. */
+  const startedAt = Date.now();
   const persist = new Persistence();
   // status arrives every 200 ms, so a 15 s window holds 75 updates
   const UPDATES_PER_WINDOW = 75;
@@ -300,6 +313,7 @@
     if (marks.length) return { count: `${marks.length} saved`, nearest: marks[0] };
     return null;
   }
+  let stripMarks = $derived(band?.id === 'fm' ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6) : []);
   let leftEdge = $derived.by(() => (void signals, void vs, edge('left')));
   let rightEdge = $derived.by(() => (void signals, void ve, edge('right')));
 
@@ -651,6 +665,14 @@
             const old = rdsHeard.get(ch);
             if (JSON.stringify(old) !== JSON.stringify(s.rds)) rdsHeard = new Map(rdsHeard).set(ch, s.rds);
           }
+          if (s.mode === 'wfm' && band?.id === 'fm') {
+            const list = heard.fm ?? [];
+            const next = noteHeard(list, s.signals, rdsHeard, Date.now());
+            if (next !== list) {
+              heard = { ...heard, fm: next };
+              remember('stations', JSON.stringify(heard));
+            }
+          }
           persist.update(s.signals.map((d) => d.hz), Date.now());
           if (s.hd_images) hdImages = s.hd_images;
           if (!s.hd) hdImages = [];
@@ -830,6 +852,23 @@
               bandId={band?.id}
             />
           </div>
+          {#if band?.id === 'fm' && maxPane !== 'panel'}
+            <BandStrip
+              lo={band.low_mhz * 1e6}
+              hi={band.high_mhz * 1e6}
+              {vs}
+              {ve}
+              {tuned}
+              ticks={stripMarks}
+              {hue}
+              onTune={tuneCentered}
+              onView={(a, b) => {
+                cancelAnimationFrame(slideFrame);
+                setView(a, b);
+              }}
+              onGlide={slideView}
+            />
+          {/if}
           {#if maxPane !== 'panel'}
             {#if leftEdge}
               {@const e = leftEdge}
