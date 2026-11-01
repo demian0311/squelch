@@ -1,6 +1,7 @@
 // What draws the scrolling waterfall: WebGL when the machine has it, a 2D canvas otherwise.
 import { CpuWaterfall } from './cpu';
 import { GlWaterfall } from './gl';
+import { getSettings } from '../store';
 
 export interface Renderer {
   /** Size in device pixels; each row is `rowPx` tall. */
@@ -13,15 +14,8 @@ export interface Renderer {
   draw(vs: number, ve: number): void;
 }
 
-/** localStorage `waterfall` = `cpu` forces the 2D renderer, to check it on a machine that has WebGL. */
-const FORCE_KEY = 'waterfall';
-
 export function makeRenderer(canvas: HTMLCanvasElement): Renderer {
-  try {
-    if (localStorage.getItem(FORCE_KEY) === 'cpu') return new CpuWaterfall(canvas);
-  } catch {
-    // storage blocked: use the usual choice
-  }
+  if (getSettings().waterfall === 'cpu') return new CpuWaterfall(canvas);
   try {
     return new GlWaterfall(canvas);
   } catch (e) {

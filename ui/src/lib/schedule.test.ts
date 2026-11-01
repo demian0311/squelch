@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GRACE_MS, LEAD_MS, byNext, loneSlots, newSlot, nextStart, parseTime, readSlots, reminders, slotsAt, when, withTime, type Slot } from './schedule';
+import { GRACE_MS, LEAD_MS, byNext, loneSlots, newSlot, nextStart, parseTime, reminders, slotsAt, when, withTime, withIds, type Slot } from './schedule';
 
 const slot = (o: Partial<Slot>): Slot => ({ id: 'a', name: 'Net', mhz: 146.52, mode: 'nfm', time: '19:00', days: [], ...o });
 // local times, so the tests hold in any zone
@@ -103,16 +103,39 @@ describe('withTime', () => {
   });
 });
 
-describe('newSlot / readSlots', () => {
+describe('newSlot', () => {
   it('starts at the next quarter hour, once', () => {
     const s = newSlot(146.52, 'nfm', at(2026, 11, 1, 12, 7));
     expect(s.time).toBe('12:15');
     expect(s.date).toBe('2026-11-01');
     expect(nextStart(s, at(2026, 11, 1, 12, 7))).toEqual(at(2026, 11, 1, 12, 15));
   });
+});
 
-  it('drops junk from storage', () => {
-    expect(readSlots('nope')).toEqual([]);
-    expect(readSlots(JSON.stringify([slot({}), { id: 1 }]))).toHaveLength(1);
+describe('withIds', () => {
+  const read = (s: Slot) => {
+    const { id: _, ...r } = s;
+    return r;
+  };
+  it('keeps the id of a slot saved for the first time', () => {
+    const fresh = slot({ id: 'draft', at: undefined });
+    expect(withIds([fresh], [{ ...read(fresh), at: 0 }])).toEqual([{ ...fresh, at: 0 }]);
+  });
+  it('follows a slot edited in the file, by its place', () => {
+    const a = slot({ id: 'a', at: 0, name: 'One' });
+    const b = slot({ id: 'b', at: 1, name: 'Two' });
+    expect(withIds([a, b], [read(a), { ...read(b), name: 'Renamed' }]).map((s) => s.id)).toEqual(['a', 'b']);
+  });
+  it('follows a slot that moved up when one before it went', () => {
+    const a = slot({ id: 'a', at: 0, name: 'One' });
+    const b = slot({ id: 'b', at: 1, name: 'Two' });
+    const out = withIds([a, b], [{ ...read(b), at: 0 }]);
+    expect(out.map((s) => [s.id, s.at])).toEqual([['b', 0]]);
+  });
+  it('gives a slot added in the file a new id', () => {
+    const a = slot({ id: 'a', at: 0, name: 'One' });
+    const out = withIds([a], [read(a), { ...read(a), name: 'Two', at: 1 }]);
+    expect(out[0].id).toBe('a');
+    expect(out[1].id).not.toBe('a');
   });
 });

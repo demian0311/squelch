@@ -10,6 +10,7 @@ pub mod engine;
 pub mod hd;
 pub mod iss;
 pub mod p25;
+pub mod prefs;
 pub mod rds;
 pub mod repeaters;
 pub mod sonde;

@@ -2,6 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { bytesFromBase64, decodeFeed } from './feed';
 import { listen } from '@tauri-apps/api/event';
+import type { ReadSlot, Slot } from './schedule';
 
 export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25';
 
@@ -281,7 +282,36 @@ export interface Row {
 
 export type Theme = Record<string, string>;
 
+/** settings.toml; a missing key takes the app's default. */
+export interface Settings {
+  location?: string | null;
+  squelch?: number | null;
+  /** Set by hand; without it the measured error applies. */
+  crystal_ppm?: number | null;
+  show_dead_air?: boolean | null;
+  /** `cpu` forces the 2D renderer, to check it on a machine that has WebGL. */
+  waterfall?: string | null;
+}
+
+export interface SettingsFile {
+  settings: Settings;
+  path: string | null;
+  error: string | null;
+}
+
+export interface ScheduleFile {
+  slots: ReadSlot[];
+  path: string | null;
+  error: string | null;
+}
+
 export const setup = () => invoke<Setup>('setup');
+export const settings = () => invoke<SettingsFile>('settings');
+export const saveSettings = (settings: Settings) => invoke<void>('save_settings', { settings });
+export const schedule = () => invoke<ScheduleFile>('schedule');
+export const saveSchedule = (slots: Slot[]) => invoke<ScheduleFile>('save_schedule', { slots });
+export const readState = () => invoke<string>('read_state');
+export const saveState = (json: string) => invoke<void>('save_state', { json });
 export const bands = () => invoke<Bands>('bands');
 export const repeaters = (location: string) => invoke<Repeater[]>('repeaters', { location });
 export const theme = () => invoke<Theme>('theme');
@@ -354,6 +384,8 @@ async function pull() {
 
 export const onTheme = (f: (t: Theme) => void) => listen<Theme>('theme', (e) => f(e.payload));
 export const onRepeaters = (f: () => void) => listen('repeaters', () => f());
+export const onSettings = (f: (s: SettingsFile) => void) => listen<SettingsFile>('settings', (e) => f(e.payload));
+export const onSchedule = (f: (s: ScheduleFile) => void) => listen<ScheduleFile>('schedule', (e) => f(e.payload));
 export const onBands = (f: (b: Bands) => void) => listen<Bands>('bands', (e) => f(e.payload));
 /** Fresh orbit data was downloaded. */
 export const onIss = (f: () => void) => listen('iss', () => f());

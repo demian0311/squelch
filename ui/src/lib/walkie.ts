@@ -2,7 +2,7 @@
 // GMRS repeaters listen 5 MHz above 15–22 and repeat on them; those inputs are "15R"–"22R".
 // The dongle hears 2.4 MHz at once, so the 462 MHz side (1–7, 15–22) and the 467 MHz side (8–14, inputs) are heard
 // one at a time. While either side is in the capture, each minute records which channels were on air; the last
-// KEEP_MIN minutes are kept (localStorage `walkie.history`) and drawn as the Activity tab.
+// KEEP_MIN minutes are kept (`walkie.history` in the state file) and drawn as the Activity tab.
 
 export const WALKIE_BANDS = new Set(['walkie', 'frs_only', 'gmrs']);
 
@@ -113,15 +113,10 @@ export function record(hist: Minute[], ms: number, sides: Side[], live: Iterable
   return started;
 }
 
-export function parseHistory(text: string, nowMs: number): Minute[] {
-  try {
-    const t = Math.floor(nowMs / 60_000);
-    const list = JSON.parse(text);
-    if (!Array.isArray(list)) return [];
-    return list.filter((m): m is Minute => typeof m?.t === 'number' && typeof m.sides === 'number' && Array.isArray(m.on) && m.t > t - KEEP_MIN && m.t <= t);
-  } catch {
-    return [];
-  }
+export function parseHistory(list: unknown, nowMs: number): Minute[] {
+  const t = Math.floor(nowMs / 60_000);
+  if (!Array.isArray(list)) return [];
+  return list.filter((m): m is Minute => typeof m?.t === 'number' && typeof m.sides === 'number' && Array.isArray(m.on) && m.t > t - KEEP_MIN && m.t <= t);
 }
 
 /** Minutes in the window during which either side was listened to. */

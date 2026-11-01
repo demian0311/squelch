@@ -47,8 +47,8 @@ describe('walkie history', () => {
   });
   it('reads back saved minutes, skipping old and broken ones', () => {
     const now = T0 + 10 * MIN;
-    const text = JSON.stringify([{ t: T0 / MIN - KEEP_MIN, sides: 1, on: [] }, { t: T0 / MIN, sides: 1, on: ['3'] }, { t: 'x' }]);
-    expect(parseHistory(text, now)).toEqual([{ t: T0 / MIN, sides: 1, on: ['3'] }]);
+    const list = [{ t: T0 / MIN - KEEP_MIN, sides: 1, on: [] }, { t: T0 / MIN, sides: 1, on: ['3'] }, { t: 'x' }];
+    expect(parseHistory(list, now)).toEqual([{ t: T0 / MIN, sides: 1, on: ['3'] }]);
     expect(parseHistory('nope', now)).toEqual([]);
   });
   it('counts only minutes something was listened to', () => {

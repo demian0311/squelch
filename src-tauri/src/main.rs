@@ -8,6 +8,7 @@ use radio::bands::{BandPlan, Bookmark};
 use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
+use radio::prefs::{self, Slot};
 use radio::repeaters::{nearby, Repeater, Repeaters, NEARBY_KM};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -87,6 +88,70 @@ fn save_bookmark(band: String, bookmark: Bookmark) -> Result<Bands, String> {
 fn delete_bookmark(band: String, mhz: f64) -> Result<Bands, String> {
     radio::bands::edit_file(|t| radio::bands::remove_bookmark(t, &band, mhz)).map_err(|e| format!("{e:#}"))?;
     Ok(load_bands())
+}
+
+#[derive(Serialize, Clone)]
+struct ScheduleFile {
+    slots: Vec<Slot>,
+    path: Option<String>,
+    error: Option<String>,
+}
+
+fn load_schedule() -> ScheduleFile {
+    let path = prefs::schedule_path().map(|p| p.display().to_string());
+    match prefs::load_schedule() {
+        Ok(slots) => ScheduleFile { slots, path, error: None },
+        Err(e) => ScheduleFile { slots: vec![], path, error: Some(format!("schedule file: {e:#}")) },
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct SettingsFile {
+    settings: prefs::Settings,
+    path: Option<String>,
+    error: Option<String>,
+}
+
+fn load_settings() -> SettingsFile {
+    let path = prefs::settings_path().map(|p| p.display().to_string());
+    match prefs::load_settings() {
+        Ok(settings) => SettingsFile { settings, path, error: None },
+        Err(e) => SettingsFile { settings: Default::default(), path, error: Some(format!("settings file: {e:#}")) },
+    }
+}
+
+#[tauri::command]
+fn schedule() -> ScheduleFile {
+    load_schedule()
+}
+
+/// Returns the list as now read, with new slots' places in the file.
+#[tauri::command]
+fn save_schedule(slots: Vec<Slot>) -> Result<ScheduleFile, String> {
+    prefs::save_schedule(&slots).map_err(|e| format!("{e:#}"))?;
+    Ok(load_schedule())
+}
+
+#[tauri::command]
+fn settings() -> SettingsFile {
+    load_settings()
+}
+
+#[tauri::command]
+fn save_settings(settings: prefs::Settings) -> Result<(), String> {
+    prefs::save_settings(&settings).map_err(|e| format!("{e:#}"))
+}
+
+/// What the app remembers for this machine, as the page wrote it; empty before the first save.
+#[tauri::command]
+fn read_state() -> String {
+    prefs::state_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_state(json: String) -> Result<(), String> {
+    let path = prefs::state_path().ok_or("no state directory")?;
+    prefs::write_file(&path, &json).map_err(|e| format!("{e:#}"))
 }
 
 /// A desktop notification, best effort: no `notify-send`, no notice.
@@ -306,6 +371,8 @@ fn main() {
                 let mut theme = radio::theme::stamp();
                 let mut bands = mtime(BandPlan::path());
                 let mut reps = mtime(Repeaters::path());
+                let mut sched = mtime(prefs::schedule_path());
+                let mut sets = mtime(prefs::settings_path());
                 loop {
                     std::thread::sleep(Duration::from_secs(2));
                     let t = radio::theme::stamp();
@@ -322,6 +389,16 @@ fn main() {
                     if r != reps {
                         reps = r;
                         let _ = handle.emit("repeaters", ());
+                    }
+                    let s = mtime(prefs::schedule_path());
+                    if s != sched {
+                        sched = s;
+                        let _ = handle.emit("schedule", load_schedule());
+                    }
+                    let s = mtime(prefs::settings_path());
+                    if s != sets {
+                        sets = s;
+                        let _ = handle.emit("settings", load_settings());
                     }
                 }
             });
@@ -344,7 +421,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

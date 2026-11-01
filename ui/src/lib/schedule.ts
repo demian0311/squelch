@@ -3,7 +3,10 @@
 import type { Mode } from './api';
 
 export interface Slot {
+  /** Stays the same while the page is open, so a form keeps its focus across saves. */
   id: string;
+  /** Its place in schedule.toml when last read; none until first saved. */
+  at?: number;
   name: string;
   mhz: number;
   mode: Mode;
@@ -62,7 +65,7 @@ export function reminders(slots: Slot[], now: Date): Reminder[] {
   for (const slot of slots) {
     const start = nextStart(slot, new Date(now.getTime() - GRACE_MS));
     if (!start || start.getTime() - now.getTime() > LEAD_MS) continue;
-    out.push({ slot, start, phase: start <= now ? 'now' : 'soon', key: `${slot.id}@${start.getTime()}` });
+    out.push({ slot, start, phase: start <= now ? 'now' : 'soon', key: `${slot.mhz}@${start.getTime()}` });
   }
   return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
@@ -88,11 +91,12 @@ export function byNext(slots: Slot[], now: Date): Slot[] {
 }
 
 /** A new slot on the given frequency, once, at the next quarter hour after `now`. */
+const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 export function newSlot(mhz: number, mode: Mode, now: Date): Slot {
   const d = new Date(Math.ceil((now.getTime() + 60_000) / 900_000) * 900_000);
   const p = (n: number) => String(n).padStart(2, '0');
-  const id = `${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  return { id, name: '', mhz, mode, time: `${p(d.getHours())}:${p(d.getMinutes())}`, days: [], date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
+  return { id: newId(), name: '', mhz, mode, time: `${p(d.getHours())}:${p(d.getMinutes())}`, days: [], date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
 }
 
 /** The slots on a frequency: a time belongs to a bookmark by being on it. */
@@ -117,12 +121,17 @@ export function withTime(s: Slot, time: string, now: Date): Slot {
   return { ...next, date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` };
 }
 
-/** Read the stored list, dropping anything malformed. */
-export function readSlots(raw: string | null): Slot[] {
-  try {
-    const v = JSON.parse(raw ?? '[]');
-    return Array.isArray(v) ? v.filter((s) => s && typeof s.id === 'string' && typeof s.mhz === 'number' && typeof s.time === 'string' && Array.isArray(s.days)) : [];
-  } catch {
-    return [];
-  }
+/** A slot as the file gives it. */
+export type ReadSlot = Omit<Slot, 'id'>;
+
+/** The list as read, each slot keeping the id of the same slot in `prev`: one that reads the same, else one at its place in the file. */
+export function withIds(prev: Slot[], read: ReadSlot[]): Slot[] {
+  const free = [...prev];
+  const claim = (match: (p: Slot) => boolean) => {
+    const i = free.findIndex(match);
+    return i < 0 ? undefined : free.splice(i, 1)[0].id;
+  };
+  const alike = (a: ReadSlot, b: ReadSlot) => a.name === b.name && a.mhz === b.mhz && a.mode === b.mode && a.time === b.time && (a.date ?? '') === (b.date ?? '') && a.days.join() === b.days.join();
+  const same = read.map((s) => claim((p) => alike(p, s)));
+  return read.map((s, i) => ({ ...s, id: same[i] ?? claim((p) => p.at === s.at) ?? newId() }));
 }

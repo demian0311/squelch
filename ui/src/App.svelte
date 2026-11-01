@@ -17,7 +17,8 @@
   import Pane from './components/Pane.svelte';
   import SavedPanel from './components/SavedPanel.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
-  import { readSlots, reminders, when, type Slot } from './lib/schedule';
+  import { reminders, when, withIds, type Slot } from './lib/schedule';
+  import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
@@ -73,60 +74,31 @@
   let volume = $state(0.7);
   let gain = $state<string>('auto');
   // crystal correction: measured unless typed in by hand
-  let ppm = $state(readNumber('ppm', 0));
-  let ppmByHand = $state(readNumber('ppm.hand', 0) === 1);
-  let railOpen = $state(readNumber('rail', 1) === 1);
+  let ppm = $state(store.getSettings().crystal_ppm ?? store.getState('ppm.measured', 0));
+  let ppmByHand = $state(store.getSettings().crystal_ppm != null);
+  let railOpen = $state(store.getState('rail', true));
   let settingsOpen = $state(false);
   // dB above the noise floor; 0 means off. Empty channels read 3–10 dB on this dongle.
-  let squelch = $state(readNumber('squelch', 12));
-
-  function readNumber(key: string, fallback: number): number {
-    try {
-      const v = localStorage.getItem(key);
-      return v === null ? fallback : +v;
-    } catch {
-      return fallback;
-    }
-  }
+  const DEFAULT_SQUELCH = 12;
+  let squelch = $state(store.getSettings().squelch ?? DEFAULT_SQUELCH);
+  // settings.toml does not parse or save: shown with the other problems, and the file is left alone
+  let settingsError = $state(store.startupSettings().error);
+  let settingsPath = store.startupSettings().path;
+  store.onProblem((m) => (settingsError = m));
   // bands that rarely give us anything stay off the rail until someone wants to investigate them
-  let showDeadAir = $state(readNumber('deadAir', 0) === 1);
+  let showDeadAir = $state(store.getSettings().show_dead_air ?? false);
   let railPlan = $derived(showDeadAir ? plan : withoutDeadAir(plan));
   function toggleDeadAir() {
     showDeadAir = !showDeadAir;
-    try {
-      localStorage.setItem('deadAir', showDeadAir ? '1' : '0');
-    } catch {
-      // remembering the choice is a nicety
-    }
+    store.setSetting('show_dead_air', showDeadAir);
   }
   /** HD Radio program chosen per FM station (by channel Hz); a station without an entry plays analog. */
-  let hdPrefs = $state<Record<string, number>>(readHdPrefs());
-  function readHdPrefs(): Record<string, number> {
-    try {
-      return JSON.parse(localStorage.getItem('hd') ?? '{}');
-    } catch {
-      return {};
-    }
-  }
+  let hdPrefs = $state<Record<string, number>>(store.getState('hd', {}));
   /** Last frequency used in each band, so returning to a band picks up where it left off. */
-  const lastHz: Record<string, number> = readLastHz();
-  function readLastHz(): Record<string, number> {
-    try {
-      return JSON.parse(localStorage.getItem('lastHz') ?? '{}');
-    } catch {
-      return {};
-    }
-  }
-  function remember(key: string, v: string) {
-    try {
-      localStorage.setItem(key, v);
-    } catch {
-      // remembering the choice is a nicety
-    }
-  }
+  const lastHz: Record<string, number> = store.getState('lastHz', {});
   function toggleRail() {
     railOpen = !railOpen;
-    remember('rail', railOpen ? '1' : '0');
+    store.setState('rail', railOpen);
   }
   let full = $state(false);
   let boxW = $state(1000);
@@ -136,15 +108,8 @@
   let waterfall: Waterfall;
   /** Station data per FM channel, kept after tuning away. */
   let rdsHeard = $state(new Map<number, api.Rds>());
-  /** Stations heard per band, across runs, for the band strip; localStorage `stations`. */
-  let heard = $state<Record<string, Heard[]>>(readHeard());
-  function readHeard(): Record<string, Heard[]> {
-    try {
-      return JSON.parse(localStorage.getItem('stations') ?? '{}');
-    } catch {
-      return {};
-    }
-  }
+  /** Stations heard per band, across runs, for the band strip; `stations` in the state file. */
+  let heard = $state<Record<string, Heard[]>>(store.getState('stations', {}));
   /** Ticks heard before this are from an earlier run, and the station may be gone. */
   const startedAt = Date.now();
   const persist = new Persistence();
@@ -253,11 +218,7 @@
   $effect(() => {
     if (!band || tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6) return;
     lastHz[band.id] = tuned;
-    try {
-      localStorage.setItem('lastHz', JSON.stringify(lastHz));
-    } catch {
-      // remembering is a nicety
-    }
+    store.setState('lastHz', lastHz);
   });
 
   let outside = $derived(!!band && (tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6));
@@ -363,14 +324,10 @@
   // ── location ────────────────────────────────────
   // one setting for everything that depends on where you are: station passes, nearby repeaters
 
-  let location = $state(readText('location'));
+  let location = $state(store.getSettings().location ?? '');
   function setLocation(v: string) {
     location = v.trim();
-    try {
-      localStorage.setItem('location', location);
-    } catch {
-      // without storage the location lasts until the app closes
-    }
+    store.setSetting('location', location || null);
     loadIss();
     loadRepeaters();
   }
@@ -395,13 +352,6 @@
     iss?.passes.length ? { iss: { live: issUp !== null, title: issTitle(iss.passes, nowS, issAge), line: issRailLine(iss.passes, nowS, issAge) } } : {},
   );
 
-  function readText(key: string): string {
-    try {
-      return localStorage.getItem(key) ?? '';
-    } catch {
-      return '';
-    }
-  }
   // Ground track for the map; it covers 100 min ahead, so it is reloaded well before it runs out.
   let issTrack = $state<GroundPoint[]>([]);
   let issHere = $derived(groundAt(issTrack, nowS));
@@ -518,11 +468,7 @@
     if (p === null) delete next[key];
     else next[key] = p;
     hdPrefs = next;
-    try {
-      localStorage.setItem('hd', JSON.stringify(next));
-    } catch {
-      // not remembered across restarts
-    }
+    store.setState('hd', next);
   }
   function toggleHd(e: Event) {
     e.stopPropagation();
@@ -564,13 +510,36 @@
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
 
-  // Times to tune in. The list is kept in localStorage `schedule`; a reminder shows in the header from LEAD_MS
+  // Times to tune in. The list is kept in schedule.toml; a reminder shows in the header from LEAD_MS
   // before a start until it is dismissed or a grace period after, and goes to the desktop once per start.
-  let slots = $state<Slot[]>(readSlots(readText('schedule')));
-  function setSlots(next: Slot[]) {
-    slots = next;
-    remember('schedule', JSON.stringify(next));
+  let slots = $state<Slot[]>(withIds([], store.startupSchedule().slots));
+  let schedulePath = store.startupSchedule().path;
+  let scheduleError = $state(store.startupSchedule().error);
+  function applySchedule(f: api.ScheduleFile) {
+    scheduleError = f.error;
+    // a file that does not parse keeps the list on screen
+    if (!f.error) slots = withIds(slots, f.slots);
   }
+  async function setSlots(next: Slot[]) {
+    slots = next;
+    try {
+      applySchedule(await api.saveSchedule(next));
+    } catch (e) {
+      scheduleError = String(e);
+    }
+  }
+  /** settings.toml changed, by hand or by our own save. */
+  function applySettings(f: api.SettingsFile) {
+    settingsError = f.error;
+    if (f.error || !store.adoptSettings(f.settings)) return;
+    const s = f.settings;
+    squelch = s.squelch ?? DEFAULT_SQUELCH;
+    showDeadAir = s.show_dead_air ?? false;
+    ppmByHand = s.crystal_ppm != null;
+    if (s.crystal_ppm != null) ppm = s.crystal_ppm;
+    if ((s.location ?? '') !== location) setLocation(s.location ?? '');
+  }
+  let fileError = $derived(settingsError ?? scheduleError);
   let dismissed = $state(new Set<string>());
   let due = $derived(reminders(slots, new Date(nowS * 1000)).filter((r) => !dismissed.has(r.key)));
   const notified = new Set<string>();
@@ -664,11 +633,11 @@
   let chList = $derived(channelList(band?.id, status?.signals ?? []));
 
   // Walkie-talkies: FRS and GMRS as one panel, and each minute's channels on air for the Activity tab
-  // (localStorage `walkie.history`, last KEEP_MIN minutes, recorded whenever a side is in the capture).
+  // (`walkie.history` in the state file, last KEEP_MIN minutes, recorded whenever a side is in the capture).
   let walkieBand = $derived(WALKIE_BANDS.has(band?.id ?? ''));
   let walkieSides = $derived(sidesIn(center - rate * 0.45, center + rate * 0.45));
   let walkieLive = $derived(liveWalkies(status?.signals ?? []));
-  const walkieHist: Minute[] = parseHistory(readText('walkie.history'), Date.now());
+  const walkieHist: Minute[] = parseHistory(store.getState('walkie.history', []), Date.now());
   // bumped when a minute ends, so the grid redraws once a minute and not per status
   let walkieRev = $state(0);
   let walkieListened = $derived.by(() => {
@@ -682,7 +651,7 @@
   function recordWalkies(signals: { hz: number; snr_db?: number }[]) {
     if (!walkieSides.length && !walkieHist.length) return;
     if (record(walkieHist, Date.now(), walkieSides, liveWalkies(signals).keys())) {
-      remember('walkie.history', JSON.stringify(walkieHist));
+      store.setState('walkie.history', walkieHist);
       walkieRev++;
     }
   }
@@ -714,7 +683,7 @@
   }
 
   // the panel's share of the width (or height when stacked), dragged at the divider
-  let panelShare = $state(readNumber('panel.size', 30));
+  let panelShare = $state(store.getState('panel.size', 30));
   let stacked = $state(false);
   let mainEl: HTMLElement;
   function startDivider(e: PointerEvent) {
@@ -730,17 +699,17 @@
     const stop = () => {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', stop);
-      remember('panel.size', String(panelShare));
+      store.setState('panel.size', panelShare);
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', stop);
   }
 
   // drag, zoom and tune are shown once, until dismissed
-  let hintSeen = $state(readNumber('hint.seen', 0) === 1);
+  let hintSeen = $state(store.getState('hint.seen', false));
   function dismissHint() {
     hintSeen = true;
-    remember('hint.seen', '1');
+    store.setState('hint.seen', true);
   }
 
   // ── squelch on the signal meter ─────────────────────
@@ -852,7 +821,7 @@
             const next = noteHeard(list, s.signals, rdsHeard, Date.now());
             if (next !== list) {
               heard = { ...heard, fm: next };
-              remember('stations', JSON.stringify(heard));
+              store.setState('stations', heard);
             }
           }
           persist.update(s.signals.map((d) => d.hz), Date.now());
@@ -870,6 +839,12 @@
       unsubs.push(api.onTheme(setTheme));
       unsubs.push(
         api.onBands(applyBands),
+      );
+      unsubs.push(
+        api.onSettings(applySettings),
+      );
+      unsubs.push(
+        api.onSchedule(applySchedule),
       );
       unsubs.push(
         api.onRepeaters(loadRepeaters),
@@ -890,18 +865,15 @@
   });
   $effect(() => {
     api.setSquelch(squelch > 0 ? squelch : null);
-    try {
-      localStorage.setItem('squelch', String(squelch));
-    } catch {
-      // remembering the level is a nicety
-    }
+    if (squelch !== (store.getSettings().squelch ?? DEFAULT_SQUELCH)) store.setSetting('squelch', squelch);
   });
   $effect(() => {
     api.setGain(gain === 'auto' ? null : +gain);
   });
   $effect(() => {
     api.setPpm(ppm);
-    remember('ppm', String(ppm));
+    if (ppmByHand) store.setSetting('crystal_ppm', ppm);
+    else store.setState('ppm.measured', ppm);
   });
   $effect(() => {
     const m = status?.crystal ? Math.round(status.crystal.ppm) : null;
@@ -909,7 +881,7 @@
   });
   function setPpmByHand(v: string) {
     ppmByHand = v.trim() !== '' && Number.isFinite(+v);
-    remember('ppm.hand', ppmByHand ? '1' : '0');
+    if (!ppmByHand) store.setSetting('crystal_ppm', null);
     if (ppmByHand) ppm = Math.max(-MAX_PPM, Math.min(MAX_PPM, Math.round(+v)));
   }
 </script>
@@ -981,7 +953,7 @@
         </span>
       {/each}
       {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
-      {#if status?.error || bandsError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? ''}>Problem · details</button>{/if}
+      {#if status?.error || bandsError || fileError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? fileError ?? ''}>Problem · details</button>{/if}
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
         <Icon name={full ? 'shrink' : 'expand'} size={18} />
       </button>
@@ -1341,17 +1313,21 @@
     <span>Show quiet bands<small>Data and tracking, railroad and military aircraft: bands that have given us nothing so far</small></span>
     <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
   </label>
-  {#if status?.error || bandsError}
+  {#if status?.error || bandsError || fileError}
     <div class="field">
       <span class="lbl">Problems</span>
       {#if status?.error}<small class="err copy">{status.error}</small>{/if}
       {#if bandsError}<small class="err copy">Bands file: {bandsError}</small>{/if}
+      {#if settingsError}<small class="err copy">{settingsError}</small>{/if}
+      {#if scheduleError}<small class="err copy">{scheduleError}</small>{/if}
     </div>
   {/if}
   <div class="field">
     <span class="lbl">Receiver</span>
     <small class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</small>
     <small class="copy" title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</small>
+    {#if schedulePath}<small class="copy" title={schedulePath}>Times to tune in in {schedulePath.replace(/^\/home\/[^/]+/, '~')}</small>{/if}
+    {#if settingsPath}<small class="copy" title={settingsPath}>Settings in {settingsPath.replace(/^\/home\/[^/]+/, '~')}</small>{/if}
     <small>Colours: {theme.name ?? 'Omarchy theme'}</small>
   </div>
   <div class="field keys mono">
