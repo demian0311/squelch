@@ -15,3 +15,5 @@ Ideas to work later. One line each, newest at the bottom; an indented note under
   The band exists with `decoder = "acars"`, but no decoder. US ACARS channels span 129.125–131.55 MHz, a little over one 2.4 MHz capture, so one tuning gets most of them; VDL Mode 2 (digital successor, 136.x MHz) could follow.
 - Replace the off-screen channel overlays at the waterfall's left and right edges with a better-looking cue.
   Keep the idea of showing what lies beyond each edge of the view, but the current overlays look poor; needs a design pass first.
+- Research what other radios the computer itself has (Wi-Fi, Bluetooth, maybe others) and what the app could show from them beside the dongle.
+  Open question, not a design yet: list the radio hardware on eagle and what each can report without root (scans, signal strength, nearby devices).
