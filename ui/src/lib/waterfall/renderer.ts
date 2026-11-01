@@ -13,7 +13,15 @@ export interface Renderer {
   draw(vs: number, ve: number): void;
 }
 
+/** localStorage `waterfall` = `cpu` forces the 2D renderer, to check it on a machine that has WebGL. */
+const FORCE_KEY = 'waterfall';
+
 export function makeRenderer(canvas: HTMLCanvasElement): Renderer {
+  try {
+    if (localStorage.getItem(FORCE_KEY) === 'cpu') return new CpuWaterfall(canvas);
+  } catch {
+    // storage blocked: use the usual choice
+  }
   try {
     return new GlWaterfall(canvas);
   } catch (e) {
