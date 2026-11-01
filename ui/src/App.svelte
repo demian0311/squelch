@@ -891,9 +891,9 @@
                     <span class="dim">{hd.error}</span>
                   {:else}
                     <span class="hdstat" title={hdState({ ...hd, digital: hdAudio }, hdProgram !== null)}>
-                      <span class="step" class:on={hd.synced} class:seek={!hd.synced}><Icon name="tower" size={16} /></span>
-                      <span class="step" class:on={hdAudio} class:live={hdAudio && hdProgram !== null}><Icon name="speaker" size={16} /></span>
-                      <Level pct={hd.synced && hd.mer_db !== null ? ((hd.mer_db - HD_MER_DB[0]) / (HD_MER_DB[1] - HD_MER_DB[0])) * 100 : 0} width="64px" />
+                      <span class="step" class:on={hd.synced} class:seek={!hd.synced}><Icon name="tower" size={20} /></span>
+                      <span class="step" class:on={hdAudio} class:live={hdAudio && hdProgram !== null}><Icon name="speaker" size={20} /></span>
+                      <Level pct={hd.synced && hd.mer_db !== null ? ((hd.mer_db - HD_MER_DB[0]) / (HD_MER_DB[1] - HD_MER_DB[0])) * 100 : 0} width="110px" height="10px" />
                     </span>
                   {/if}
                   {#if hd.message}<span class="dim">{hd.message}</span>{/if}
@@ -1727,18 +1727,28 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 4px;
+    margin-top: 6px;
   }
   .hdstat .step {
-    display: flex;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
     color: var(--fg-dim);
-    opacity: 0.35;
+    background: var(--bg-light);
+    opacity: 0.45;
+    transition: color 0.3s, background 0.3s, opacity 0.3s;
   }
   .hdstat .step.on {
     opacity: 1;
+    color: var(--green);
+    background: color-mix(in srgb, var(--green) 18%, transparent);
   }
   .hdstat .step.live {
     color: var(--orange);
+    background: color-mix(in srgb, var(--orange) 22%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--orange) 35%, transparent);
   }
   .hdstat .step.seek {
     animation: hdseek 1.6s ease-in-out infinite;
