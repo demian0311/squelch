@@ -751,7 +751,7 @@
       </div>
       <div class="now">
         <span class="title">{nowTitle}</span>
-        <span class="sub">{nowSub}</span>
+        <span class="sub copy">{nowSub}</span>
       </div>
       <button class="play" class:on={playing} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title="{playing ? 'Pause' : 'Play'} (space)">
         <Icon name={playing ? 'pause' : 'play'} size={20} />
@@ -1109,14 +1109,14 @@
   {#if status?.error || bandsError}
     <div class="field">
       <span class="lbl">Problems</span>
-      {#if status?.error}<small class="err">{status.error}</small>{/if}
-      {#if bandsError}<small class="err">Bands file: {bandsError}</small>{/if}
+      {#if status?.error}<small class="err copy">{status.error}</small>{/if}
+      {#if bandsError}<small class="err copy">Bands file: {bandsError}</small>{/if}
     </div>
   {/if}
   <div class="field">
     <span class="lbl">Receiver</span>
     <small class:warn={status?.simulated}>{status?.device ?? 'Starting…'}</small>
-    <small title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</small>
+    <small class="copy" title={bandsPath ?? ''}>Bands from {bandsPath?.replace(/^\/home\/[^/]+/, '~') ?? 'built-in list'}</small>
     <small>Colours: {theme.name ?? 'Omarchy theme'}</small>
   </div>
   <div class="field keys mono">

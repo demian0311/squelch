@@ -34,6 +34,19 @@ body,
   font-size: 14px;
 }
 
+/* an app, not a page: labels, axes and buttons don't select; text worth copying opts in with .copy.
+   WebKitGTK still honours only the prefixed property. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input,
+textarea,
+.copy {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 button,
 input,
 select {

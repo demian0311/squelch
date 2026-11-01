@@ -97,7 +97,6 @@
     border-top: 1px solid var(--bg-light);
     background: var(--bg-dark);
     cursor: pointer;
-    user-select: none;
     touch-action: none;
     overflow: hidden;
   }

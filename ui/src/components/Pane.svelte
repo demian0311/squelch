@@ -64,7 +64,6 @@
     padding: 4px 6px 4px 12px;
     border-bottom: 1px solid var(--muted);
     min-width: 0;
-    user-select: none;
   }
   .mini .bar {
     border-bottom: 0;
