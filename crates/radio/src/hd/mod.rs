@@ -75,6 +75,8 @@ struct Shared {
     /// Album art LOT per program, from ID3.
     art: BTreeMap<u32, u32>,
     here: BTreeMap<(bool, u32), Lot>,
+    /// Whether digital audio replaces analog; off while decoding in the background.
+    play: bool,
 }
 
 impl Shared {
@@ -264,9 +266,10 @@ pub struct Hd {
 }
 
 impl Hd {
-    /// `offset_hz` is the station relative to the capture centre.
-    pub fn new(offset_hz: f64, in_rate: u32, program: u32) -> Self {
-        let shared = Arc::new(Mutex::new(Shared::default()));
+    /// `offset_hz` is the station relative to the capture centre. `play` = false decodes
+    /// for the panel only and leaves the analog audio playing.
+    pub fn new(offset_hz: f64, in_rate: u32, program: u32, play: bool) -> Self {
+        let shared = Arc::new(Mutex::new(Shared { play, ..Shared::default() }));
         shared.lock().unwrap().info.program = program;
         let s = shared.clone();
         let (tx, rx) = sync_channel::<Vec<C32>>(BACKLOG);
@@ -315,7 +318,11 @@ impl Hd {
         }
     }
 
-    /// Replace `pcm` with digital audio when enough is queued. Returns whether it did.
+    pub fn set_play(&self, play: bool) {
+        self.shared.lock().unwrap().play = play;
+    }
+
+    /// Replace `pcm` with digital audio when enough is queued and playing. Returns whether it did.
     pub fn fill(&self, pcm: &mut [f32]) -> bool {
         let mut s = self.shared.lock().unwrap();
         let queued = s.audio.len();
@@ -333,6 +340,11 @@ impl Hd {
             return false;
         }
         let n = pcm.len();
+        if !s.play {
+            // keep the queue moving so `digital` still says whether audio would be there
+            s.audio.drain(..n);
+            return false;
+        }
         for (o, a) in pcm.iter_mut().zip(s.audio.drain(..n)) {
             *o = a;
         }

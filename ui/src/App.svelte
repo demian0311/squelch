@@ -435,7 +435,7 @@
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
   let p25 = $derived(status?.mode === 'p25' ? (status.p25 ?? null) : null);
-  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hdState(hd)].filter(Boolean).join(' · ') : '');
+  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hdState(hd, hdProgram !== null)].filter(Boolean).join(' · ') : '');
   function setHdProgram(p: number | null) {
     const key = String(fmChannel(tuned));
     const next = { ...hdPrefs };
@@ -489,7 +489,8 @@
     if (decoding) own.push('sondes');
     if (p25) own.push('p25');
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
-    if (hd) own.push('hd');
+    // decoded in the background on any HD station; worth a panel once there is something to show
+    if (hd && (hdProgram !== null || hd.digital || hdImages.length)) own.push('hd');
     if (chList.length) own.push('channels');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
@@ -879,13 +880,13 @@
                   {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
                   {#if hd.title}<span class="big">{hd.title}</span>{/if}
                   {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
-                  <span class="dim">{hdState(hd)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
+                  <span class="dim">{hdState(hd, hdProgram !== null)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
                   {#if hd.message}<span class="dim">{hd.message}</span>{/if}
                 </div>
                 {#if hd.programs.length > 1}
                   <div class="hdprogs">
                     {#each hd.programs as p}
-                      <button class:sel={p === hd.program} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
+                      <button class:sel={p === hdProgram} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
                     {/each}
                   </div>
                 {/if}

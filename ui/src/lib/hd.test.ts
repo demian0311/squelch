@@ -29,8 +29,12 @@ describe('trafficGrid', () => {
 
 describe('hdState', () => {
   it('reports the furthest stage reached', () => {
-    expect(hdState({ error: null, synced: false, digital: false })).toMatch(/Looking/);
-    expect(hdState({ error: null, synced: true, digital: true })).toBe('Playing digital audio');
-    expect(hdState({ error: 'no lib', synced: false, digital: false })).toBe('no lib');
+    expect(hdState({ error: null, synced: false, digital: false }, true)).toMatch(/Looking/);
+    expect(hdState({ error: null, synced: true, digital: true }, true)).toBe('Playing digital audio');
+    expect(hdState({ error: 'no lib', synced: false, digital: false }, true)).toBe('no lib');
+  });
+  it('offers digital audio while decoding in the background', () => {
+    expect(hdState({ error: null, synced: true, digital: true }, false)).toMatch(/available/);
+    expect(hdState({ error: null, synced: true, digital: false }, false)).toBe('Locked on');
   });
 });

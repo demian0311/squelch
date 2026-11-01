@@ -194,7 +194,7 @@ fn run(
     let mut hd: Option<Hd> = None;
     let mut hd_sidebands = false;
     let hd_for = |program: Option<u32>, mode: Mode, center: f64, tuned: f64| -> Option<Hd> {
-        program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p))
+        program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p, true))
     };
     let p25_for = |mode: Mode, tuned: f64| (mode == Mode::P25).then(|| P25::new(rate, tuned));
     let mut p25: Option<P25> = None;
@@ -254,7 +254,12 @@ fn run(
                 }
                 Ok(Command::SetHd(p)) => {
                     match (&hd, p) {
-                        (Some(h), Some(p)) => h.set_program(p),
+                        (Some(h), Some(p)) => {
+                            h.set_program(p);
+                            h.set_play(true);
+                        }
+                        // back to analog; keep decoding for the panel
+                        (Some(h), None) => h.set_play(false),
                         _ => {
                             hd = hd_for(p, mode, center, tuned);
                         }
@@ -330,6 +335,9 @@ fn run(
             }
             signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
             hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor, center, tuned, rate as f64);
+            if hd_sidebands && hd.is_none() {
+                hd = Some(Hd::new(tuned - center, rate, 0, false));
+            }
             if let Some(sc) = &mut scanner {
                 sc.retarget(center, &signals);
             }

@@ -20,10 +20,11 @@ export function trafficGrid(images: HdImage[]): (string | null)[] | null {
   return grid;
 }
 
-/** What the panel says about the decoder. */
-export function hdState(hd: { error: string | null; synced: boolean; digital: boolean }): string {
+/** What the panel says about the decoder. `chosen`: the listener picked a program, so digital audio plays. */
+export function hdState(hd: { error: string | null; synced: boolean; digital: boolean }, chosen: boolean): string {
   if (hd.error) return hd.error;
   if (!hd.synced) return 'Looking for the digital signal…';
+  if (!chosen) return hd.digital ? 'Digital audio available — pick a program to switch' : 'Locked on';
   if (!hd.digital) return 'Locked on — digital audio starts in a moment';
   return 'Playing digital audio';
 }
