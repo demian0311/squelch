@@ -23,6 +23,12 @@
     expand: ['M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3'],
     play: ['M7 4.5v15l12.5-7.5z'],
     pause: ['M6.5 4.5h3.5v15H6.5z', 'M14 4.5h3.5v15H14z'],
+    sidebarClose: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 3v18', 'M16 15l-3-3 3-3'],
+    sidebarOpen: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M9 3v18', 'M14 9l3 3-3 3'],
+    maximize: ['M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M3 8h18'],
+    restore: ['M4 10h10v10H4z', 'M8 10V5h12v12h-6'],
+    chevronRight: ['M9 6l6 6-6 6'],
+    chevronDown: ['M6 9l6 6 6-6'],
     shrink: ['M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3'],
   };
   let paths = $derived(PATHS[name] ?? PATHS.radio);

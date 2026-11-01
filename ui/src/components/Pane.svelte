@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import Icon from './Icon.svelte';
 
   // A titled panel. `onMax` adds the give-it-the-screen button and makes a double-click on the title do the same.
   // `mini` folds it to the title line, for the panel that gave its room away.
@@ -35,7 +36,7 @@
     <span class="tools">
       {#if tools && !mini}{@render tools()}{/if}
       {#if onMax}
-        <button class="max" onclick={onMax} title={maxed || mini ? 'Restore (F)' : `Give ${title} the screen (F)`} aria-label={maxed || mini ? 'Restore' : `Give ${title} the screen`}>{maxed || mini ? '⤡' : '⤢'}</button>
+        <button class="max" onclick={onMax} title={maxed || mini ? 'Restore (F)' : `Give ${title} the screen (F)`} aria-label={maxed || mini ? 'Restore' : `Give ${title} the screen`}><Icon name={maxed || mini ? 'restore' : 'maximize'} size={16} /></button>
       {/if}
     </span>
   </div>
@@ -123,7 +124,8 @@
     color: var(--pane);
   }
   .max {
-    font-size: 15px !important;
+    display: grid;
+    place-items: center;
   }
   .content {
     position: relative;

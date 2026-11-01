@@ -46,7 +46,7 @@
       <div class="group" style:--c={hues[g.id]}>
         {#if open}
           <button class="head" onclick={() => (folded[g.id] = !folded[g.id])} aria-expanded={!folded[g.id]}>
-            <span class="swatch"></span>{g.name}<span class="chev">{folded[g.id] ? '▸' : '▾'}</span>
+            <span class="swatch"></span>{g.name}<span class="chev"><Icon name={folded[g.id] ? 'chevronRight' : 'chevronDown'} size={14} /></span>
           </button>
         {:else}
           <div class="divider"></div>
@@ -85,7 +85,7 @@
       <span class="glyph">⚙</span>{#if open}<span>Settings</span>{/if}
     </button>
     <button class="toggle" onclick={onToggle} aria-label={open ? 'Narrow the band list' : 'Widen the band list'} title={open ? 'Narrow the band list' : 'Widen the band list'}>
-      {open ? '«' : '»'}
+      <Icon name={open ? 'sidebarClose' : 'sidebarOpen'} size={18} />
     </button>
   </div>
 </nav>
@@ -141,8 +141,9 @@
     background: var(--c);
   }
   .chev {
+    display: flex;
     margin-left: auto;
-    opacity: 0;
+    opacity: 0.5;
     transition: opacity 0.15s;
   }
   .head:hover .chev,
