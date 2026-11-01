@@ -17,7 +17,7 @@
   import Pane from './components/Pane.svelte';
   import SavedPanel from './components/SavedPanel.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
-  import { reminders, when, withIds, type Slot } from './lib/schedule';
+  import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
@@ -541,16 +541,77 @@
   }
   let fileError = $derived(settingsError ?? scheduleError);
   let dismissed = $state(new Set<string>());
-  let due = $derived(reminders(slots, new Date(nowS * 1000)).filter((r) => !dismissed.has(r.key)));
+  // plans that tune by themselves give no reminder, unless another plan already has the radio
+  let due = $derived(reminders(slots, new Date(nowS * 1000)).filter((r) => !dismissed.has(r.key) && (r.slot.action === 'remind' || (r.phase === 'now' && !!onPlan && r.key !== onPlan.key))));
   const notified = new Set<string>();
   $effect(() => {
     for (const r of due) {
       const key = r.key + r.phase;
       if (notified.has(key)) continue;
       notified.add(key);
-      api.notify(`${r.slot.name || 'Time to tune in'} ${r.phase === 'now' ? 'is starting' : when(r.start, new Date())}`, `${fmtMHz(r.slot.mhz * 1e6)} MHz ${MODE_NAMES[r.slot.mode]}`).catch(() => {});
+      if (r.slot.action === 'remind') api.notify(`${r.slot.name || 'Time to tune in'} ${r.phase === 'now' ? 'is starting' : when(r.start, new Date())}`, `${fmtMHz(r.slot.mhz * 1e6)} MHz ${MODE_NAMES[r.slot.mode]}`).catch(() => {});
     }
   });
+  // A plan that tunes by itself: takes the radio when it starts, gives it back when it ends if asked to.
+  let onPlan = $state<(Window & { back: { hz: number; mode: Mode } | null; recording: boolean; toRecord: boolean }) | null>(null);
+  const planSeen = new Set<string>();
+  function startPlan(w: Window) {
+    planSeen.add(w.key);
+    const back = w.slot.go_back ? { hz: tuned, mode } : null;
+    const hz = Math.round(w.slot.mhz * 1e6);
+    goTo(hz, w.slot.mode);
+    if (!playing) togglePlay();
+    onPlan = { ...w, back, recording: false, toRecord: w.slot.action === 'record' && !rec?.recording };
+  }
+  function endPlan() {
+    if (!onPlan) return;
+    const { back, recording, slot } = onPlan;
+    onPlan = null;
+    if (recording) setRecording(false);
+    // moved away by hand: stay where they went
+    if (back && Math.abs(tuned - slot.mhz * 1e6) < 1_000) goTo(back.hz, back.mode);
+  }
+  function goTo(hz: number, m: Mode) {
+    const b = bandAt(plan, hz);
+    if (b && b.id !== bandId) pickBand(b);
+    tuneSaved(hz, m);
+    // `send` waits for a frame, and a window nobody can see (lid shut, screen off) never draws one
+    cancelAnimationFrame(pending);
+    pending = 0;
+    api.tune(center, tuned);
+  }
+  /** Called each second: starts and ends plans, and keeps the wake alarm and the awake hold up to date. */
+  let wakeAt: number | null | undefined;
+  let holdTo: number | null = null;
+  let wakeError = $state<string | null>(null);
+  function runPlans() {
+    const now = new Date();
+    if (onPlan && now >= onPlan.end) endPlan();
+    // only once the engine is there, so the file has the plan's frequency in its name and nothing from before
+    if (onPlan?.toRecord && status && Math.abs(status.tuned_hz - onPlan.slot.mhz * 1e6) < 1_000) {
+      onPlan.toRecord = false;
+      onPlan.recording = true;
+      setRecording(true);
+    }
+    if (!onPlan) {
+      const w = openWindows(slots, now).find((x) => !planSeen.has(x.key));
+      if (w) startPlan(w);
+    }
+    const wake = nextWake(slots, now);
+    const at = wake && Math.round(wake.getTime() / 1000);
+    if (at !== wakeAt) {
+      wakeAt = at;
+      api.setWake(at).then(
+        () => (wakeError = null),
+        (e) => (wakeError = String(e)),
+      );
+    }
+    const until = awakeUntil(slots, now)?.getTime() ?? null;
+    if (until !== holdTo) {
+      holdTo = until;
+      api.holdAwake(until ? Math.ceil((until - now.getTime()) / 1000) : 0).catch(() => {});
+    }
+  }
   function followReminder(r: (typeof due)[number]) {
     dismissed = new Set(dismissed).add(r.key);
     tuneCentered(Math.round(r.slot.mhz * 1e6));
@@ -761,8 +822,11 @@
     api.setPlaying(playing);
   }
 
-  async function toggleRecord() {
-    await api.record(!rec?.recording);
+  function toggleRecord() {
+    setRecording(!rec?.recording);
+  }
+  async function setRecording(on: boolean) {
+    await api.record(on);
     // the engine starts or ends the file on its next pass
     setTimeout(async () => {
       rec = await api.recording();
@@ -851,7 +915,10 @@
       );
     })();
     // Drives the header clocks and keeps the pass list current.
-    const tick = setInterval(() => (nowS = Date.now() / 1000), 1000);
+    const tick = setInterval(() => {
+      nowS = Date.now() / 1000;
+      runPlans();
+    }, 1000);
     const reload = setInterval(loadIss, 5 * 60_000);
     return () => {
       clearInterval(tick);
@@ -958,6 +1025,20 @@
         <Icon name={full ? 'shrink' : 'expand'} size={18} />
       </button>
     </header>
+
+    {#if onPlan}
+      <div class="planbar">
+        <b>{onPlan.slot.name || fmtMHz(onPlan.slot.mhz * 1e6)}</b>
+        <span class="mono">{fmtMHz(onPlan.slot.mhz * 1e6)} MHz</span>
+        <span class="mono">{Math.floor(Math.max(0, onPlan.end.getTime() / 1000 - nowS) / 60)}:{String(Math.floor(Math.max(0, onPlan.end.getTime() / 1000 - nowS)) % 60).padStart(2, '0')} left</span>
+        {#if onPlan.recording}<span>recording</span>{/if}
+        {#if onPlan.back}<span class="dim">then back to {fmtMHz(onPlan.back.hz)}</span>{/if}
+        <span class="planacts">
+          {#if onPlan.back}<button onclick={() => onPlan && (onPlan.back = null)}>Stay here after</button>{/if}
+          <button onclick={endPlan}>End now</button>
+        </span>
+      </div>
+    {/if}
 
     <main bind:this={mainEl} bind:clientWidth={null, (w) => (stacked = (w ?? 0) < 1000)} class:stacked class:has-panel={panel} class:max-wf={maxPane === 'wf'} class:max-panel={maxPane === 'panel'} style:--share="{panelShare}%">
       <Pane title="Spectrum" summary={wfSummary} maxed={maxPane === 'wf'} onMax={panel ? () => toggleMax('wf') : undefined}>
@@ -1277,7 +1358,7 @@
         </Pane>
       {/if}
       {#if bookmarksOpen}
-        <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
+        <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
       {/if}
     </main>
   </div>
@@ -1571,6 +1652,41 @@
     color: var(--fg-bright);
   }
   /* waterfall and panel side by side; stacked in a narrow window; either can take the screen */
+  .planbar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 10px 0;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, var(--bg-light));
+    font-size: 13px;
+  }
+  .planbar b {
+    color: var(--fg-bright);
+  }
+  .planbar .dim {
+    color: var(--fg-dim);
+  }
+  .planacts {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .planacts button {
+    min-height: 24px;
+    padding: 1px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--muted);
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
   main {
     position: relative;
     flex: 1;

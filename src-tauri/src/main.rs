@@ -132,6 +132,20 @@ fn save_schedule(slots: Vec<Slot>) -> Result<ScheduleFile, String> {
     Ok(load_schedule())
 }
 
+/// Wake the computer at this time (seconds since the epoch), or at no time. The error says why it can't.
+#[tauri::command]
+fn set_wake(at: Option<i64>) -> Result<(), String> {
+    radio::wake::set_alarm(radio::wake::ALARM, at).map_err(|e| format!("{e:#}"))
+}
+
+/// Keep the computer awake for this many seconds from now; 0 lets it go.
+#[tauri::command]
+fn hold_awake(secs: u32) {
+    if let Err(e) = radio::wake::hold(secs) {
+        eprintln!("hold awake: {e:#}");
+    }
+}
+
 #[tauri::command]
 fn settings() -> SettingsFile {
     load_settings()
@@ -421,7 +435,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

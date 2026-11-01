@@ -23,8 +23,10 @@
     onDelete: (bandId: string, mhz: number) => void;
     onSlots: (slots: Slot[]) => void;
     onClose: () => void;
+    /** Why the computer can't be woken, if it can't. */
+    wakeError: string | null;
   }
-  let { plan, saved, hues, tuned, slots, now, onTune, onTuneAt, onBand, onSave, onDelete, onSlots, onClose }: Props = $props();
+  let { plan, saved, hues, tuned, slots, now, wakeError, onTune, onTuneAt, onBand, onSave, onDelete, onSlots, onClose }: Props = $props();
 
   let query = $state('');
   let inRail = $derived(saved.filter((s) => plan.bands.some((b) => b.id === s.band.id)));
@@ -46,7 +48,7 @@
   const isOpen = (m: Saved, what: 'note' | 'clock') => open?.key === keyOf(m) && open.what === what;
 
   function blank(m: Saved): Slot {
-    return { ...newSlot(m.mhz, m.mode ?? m.band.mode, nowDate), name: m.name, time: '' };
+    return newSlot(m.name, m.mhz, m.mode ?? m.band.mode, nowDate);
   }
   function toggle(m: Saved, what: 'note' | 'clock') {
     open = isOpen(m, what) ? null : { key: keyOf(m), what };
@@ -54,7 +56,7 @@
   }
   function change(next: Slot) {
     if (draft?.id !== next.id) return onSlots(slots.map((s) => (s.id === next.id ? next : s)));
-    if (next.time) {
+    if (next.times.length) {
       onSlots([...slots, next]);
       draft = null;
     } else draft = next;
@@ -64,8 +66,8 @@
     const b: Bookmark = { mhz: m.mhz, name: m.name, mode: m.mode, notes: m.notes, fav: m.fav, pin: m.pin, ...change };
     if (!b.name.trim()) b.name = fmtMHz(b.mhz * 1e6);
     onSave(m.band.id, b);
-    // the reminder says the bookmark's name
-    if (b.name !== m.name) onSlots(slots.map((s) => (slotsAt([s], m.mhz).length ? { ...s, name: b.name } : s)));
+    // a time still called after the bookmark stays called after it
+    if (b.name !== m.name) onSlots(slots.map((s) => (s.name === m.name && slotsAt([s], m.mhz).length ? { ...s, name: b.name } : s)));
   }
   const text = (e: Event) => (e.currentTarget as HTMLInputElement).value;
   const focus = (el: HTMLElement) => el.focus();
@@ -113,7 +115,7 @@
           {:else if isOpen(m, 'clock')}
             <div class="more">
               {#each draft ? [...times, draft] : times as s (s.id)}
-                <SlotForm slot={s} {now} onChange={change} onDelete={s.id === draft?.id ? undefined : () => onSlots(slots.filter((x) => x.id !== s.id))} />
+                <SlotForm slot={s} {now} {wakeError} onChange={change} onDelete={s.id === draft?.id ? undefined : () => onSlots(slots.filter((x) => x.id !== s.id))} />
               {/each}
               {#if !draft}<button class="add" onclick={() => (draft = blank(m))}>+ Add another time</button>{/if}
             </div>
@@ -129,7 +131,7 @@
     <div class="group" style:--c="var(--hue)">
       <h2><Icon name="clock" size={13} /> Times with no bookmark</h2>
       {#each lone as s (s.id)}
-        <div class="more"><SlotForm slot={s} {now} full onChange={change} onDelete={() => onSlots(slots.filter((x) => x.id !== s.id))} onTune={() => onTuneAt(s)} /></div>
+        <div class="more"><SlotForm slot={s} {now} {wakeError} full onChange={change} onDelete={() => onSlots(slots.filter((x) => x.id !== s.id))} onTune={() => onTuneAt(s)} /></div>
       {/each}
     </div>
   {/if}

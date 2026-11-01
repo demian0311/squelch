@@ -19,3 +19,4 @@ pub mod spectrum;
 pub mod squelch;
 pub mod terrain;
 pub mod theme;
+pub mod wake;

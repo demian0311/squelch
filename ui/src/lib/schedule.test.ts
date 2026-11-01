@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { GRACE_MS, LEAD_MS, byNext, loneSlots, newSlot, nextStart, parseTime, reminders, slotsAt, when, withTime, withIds, type Slot } from './schedule';
+import { GRACE_MS, LEAD_MS, byNext, awakeUntil, loneSlots, newSlot, nextStart, nextWake, openWindows, parseTime, plan333, reminders, slotsAt, when, withTimes, withIds, type Slot } from './schedule';
 
-const slot = (o: Partial<Slot>): Slot => ({ id: 'a', name: 'Net', mhz: 146.52, mode: 'nfm', time: '19:00', days: [], ...o });
+const slot = (o: Partial<Slot>): Slot => ({ id: 'a', name: 'Net', mhz: 146.52, mode: 'nfm', times: ['19:00'], days: [], minutes: 60, action: 'remind', go_back: false, ...o });
 // local times, so the tests hold in any zone
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi);
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
@@ -88,27 +88,65 @@ describe('slots on a bookmark', () => {
   });
 });
 
-describe('withTime', () => {
+describe('withTimes', () => {
   const now = at(2026, 11, 1, 12, 0);
   it('keeps a one-off date that is still ahead', () => {
-    expect(withTime(slot({ days: [], date: '2026-11-01' }), '13:00', now).date).toBe('2026-11-01');
+    expect(withTimes(slot({ days: [], date: '2026-11-01' }), ['13:00'], now).date).toBe('2026-11-01');
   });
   it('moves a one-off already past to tomorrow', () => {
-    const s = withTime(slot({ days: [], date: '2026-11-01' }), '11:00', now);
-    expect(s.time).toBe('11:00');
+    const s = withTimes(slot({ days: [], date: '2026-11-01' }), ['11:00'], now);
+    expect(s.times).toEqual(['11:00']);
     expect(s.date).toBe('2026-11-02');
   });
-  it('leaves a weekly slot alone', () => {
-    expect(withTime(slot({ days: [2], date: undefined }), '11:00', now).date).toBeUndefined();
+  it('sorts, and drops a repeat', () => {
+    expect(withTimes(slot({ days: [2] }), ['21:00', '03:00', '21:00'], now).times).toEqual(['03:00', '21:00']);
+  });
+});
+
+describe('several times and weeks of the month', () => {
+  it('finds the next of several times, across midnight', () => {
+    const s = plan333(slot({}));
+    expect(nextStart(s, at(2026, 11, 1, 14, 0))).toEqual(at(2026, 11, 1, 15, 0));
+    expect(nextStart(s, at(2026, 11, 1, 22, 0))).toEqual(at(2026, 11, 2, 0, 0));
+  });
+  it('keeps only the asked week of the month', () => {
+    // Nov 2026: Tuesdays are the 3rd, 10th, 17th, 24th
+    const first = slot({ days: [2], week: 1 });
+    expect(nextStart(first, at(2026, 11, 1, 0, 0))).toEqual(at(2026, 11, 3, 19, 0));
+    expect(nextStart(first, at(2026, 11, 4, 0, 0))).toEqual(at(2026, 12, 1, 19, 0));
+    expect(nextStart(slot({ days: [2], week: 5 }), at(2026, 11, 1, 0, 0))).toEqual(at(2026, 11, 24, 19, 0));
+  });
+});
+
+describe('plans that act by themselves', () => {
+  const plan = plan333(slot({ id: 'p' }));
+  it('is open only during its minutes', () => {
+    expect(openWindows([plan], at(2026, 11, 1, 15, 2)).map((w) => w.end)).toEqual([at(2026, 11, 1, 15, 3)]);
+    expect(openWindows([plan], at(2026, 11, 1, 15, 3))).toEqual([]);
+    expect(openWindows([plan], at(2026, 11, 1, 14, 59))).toEqual([]);
+  });
+  it('leaves reminders alone', () => {
+    expect(openWindows([slot({ days: [0], times: ['12:00'] })], at(2026, 11, 1, 12, 1))).toEqual([]);
+    expect(nextWake([slot({ days: [0] })], at(2026, 11, 1, 12, 0))).toBeNull();
+  });
+  it('wakes ahead of the next start, skipping one already within the lead', () => {
+    expect(nextWake([plan], at(2026, 11, 1, 14, 0))).toEqual(new Date(at(2026, 11, 1, 15, 0).getTime() - 90_000));
+    expect(nextWake([plan], at(2026, 11, 1, 14, 59))).toEqual(new Date(at(2026, 11, 1, 18, 0).getTime() - 90_000));
+  });
+  it('stays awake from the lead until the end', () => {
+    expect(awakeUntil([plan], at(2026, 11, 1, 14, 0))).toBeNull();
+    expect(awakeUntil([plan], at(2026, 11, 1, 14, 59))).toEqual(at(2026, 11, 1, 15, 3));
+    expect(awakeUntil([plan], at(2026, 11, 1, 15, 1))).toEqual(at(2026, 11, 1, 15, 3));
   });
 });
 
 describe('newSlot', () => {
-  it('starts at the next quarter hour, once', () => {
-    const s = newSlot(146.52, 'nfm', at(2026, 11, 1, 12, 7));
-    expect(s.time).toBe('12:15');
+  it('has no time yet, and runs once from today', () => {
+    const s = newSlot('Net', 146.52, 'nfm', at(2026, 11, 1, 12, 7));
+    expect(s.times).toEqual([]);
     expect(s.date).toBe('2026-11-01');
-    expect(nextStart(s, at(2026, 11, 1, 12, 7))).toEqual(at(2026, 11, 1, 12, 15));
+    expect(s.action).toBe('remind');
+    expect(s.go_back).toBe(false);
   });
 });
 

@@ -310,6 +310,10 @@ export const settings = () => invoke<SettingsFile>('settings');
 export const saveSettings = (settings: Settings) => invoke<void>('save_settings', { settings });
 export const schedule = () => invoke<ScheduleFile>('schedule');
 export const saveSchedule = (slots: Slot[]) => invoke<ScheduleFile>('save_schedule', { slots });
+/** Wake the computer at this time (seconds since the epoch), or at no time. Rejects with why it can't. */
+export const setWake = (at: number | null) => invoke<void>('set_wake', { at });
+/** Keep the computer awake for this many seconds from now; 0 lets it go. */
+export const holdAwake = (secs: number) => invoke<void>('hold_awake', { secs });
 export const readState = () => invoke<string>('read_state');
 export const saveState = (json: string) => invoke<void>('save_state', { json });
 export const bands = () => invoke<Bands>('bands');

@@ -10,7 +10,9 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value};
 const DAYS: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 const SCHEDULE_HEADER: &str = "# Times to tune in. Squelch rereads this file when it changes.
-# time is local. days = [\"mon\", \"wed\"] repeats weekly; without days, date = \"2026-11-08\" is once.
+# time is local; times = [\"09:00\", \"21:00\"] for several a day. days = [\"mon\", \"wed\"] repeats weekly; without days,
+# date = \"2026-11-08\" is once. week = 1 to 4, or 5 for the last, keeps only that week of the month.
+# minutes is how long it runs (60). action is remind, tune or record; go_back = true returns to the earlier frequency.
 #
 # [[slot]]
 # name = \"Tuesday net\"
@@ -18,6 +20,14 @@ const SCHEDULE_HEADER: &str = "# Times to tune in. Squelch rereads this file whe
 # mode = \"nfm\"
 # time = \"19:30\"
 # days = [\"tue\"]
+#
+# [[slot]]
+# name = \"3-3-3\"
+# mhz = 462.6125
+# times = [\"00:00\", \"03:00\", \"06:00\", \"09:00\", \"12:00\", \"15:00\", \"18:00\", \"21:00\"]
+# days = [\"sun\", \"mon\", \"tue\", \"wed\", \"thu\", \"fri\", \"sat\"]
+# minutes = 3
+# action = \"tune\"
 
 ";
 
@@ -30,6 +40,22 @@ const SETTINGS_HEADER: &str = "# Squelch settings. Squelch rereads this file whe
 
 ";
 
+/// What happens when a time to tune in starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Action {
+    #[default]
+    Remind,
+    Tune,
+    Record,
+}
+
+const DEFAULT_MINUTES: u32 = 60;
+
+fn default_minutes() -> u32 {
+    DEFAULT_MINUTES
+}
+
 /// A time to tune in. `at` is its position in the file when read, none for a new one.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Slot {
@@ -38,13 +64,23 @@ pub struct Slot {
     pub name: String,
     pub mhz: f64,
     pub mode: Mode,
-    /// Local "HH:MM".
-    pub time: String,
+    /// Local "HH:MM", at least one.
+    pub times: Vec<String>,
     /// 0 = Sunday. Empty = once, on `date`.
     pub days: Vec<u8>,
     /// Local "YYYY-MM-DD".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date: Option<String>,
+    /// Only this week of the month, 1 to 4, or 5 for the last. None = every week.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub week: Option<u8>,
+    #[serde(default = "default_minutes")]
+    pub minutes: u32,
+    #[serde(default)]
+    pub action: Action,
+    /// When it ends, back to the frequency it took over from.
+    #[serde(default)]
+    pub go_back: bool,
 }
 
 #[derive(Deserialize)]
@@ -55,10 +91,18 @@ struct FileSlot {
     mhz: f64,
     #[serde(default = "default_mode")]
     mode: Mode,
-    time: String,
+    time: Option<String>,
+    times: Option<Vec<String>>,
     #[serde(default)]
     days: Vec<String>,
     date: Option<String>,
+    week: Option<u8>,
+    #[serde(default = "default_minutes")]
+    minutes: u32,
+    #[serde(default)]
+    action: Action,
+    #[serde(default)]
+    go_back: bool,
 }
 
 fn default_mode() -> Mode {
@@ -119,8 +163,18 @@ pub fn parse_schedule(text: &str) -> Result<Vec<Slot>> {
         .enumerate()
         .map(|(i, s)| {
             let at = i + 1;
-            if !is_time(&s.time) {
-                bail!("slot {at}: time {:?} is not HH:MM", s.time);
+            let times: Vec<String> = s.time.into_iter().chain(s.times.into_iter().flatten()).collect();
+            if times.is_empty() {
+                bail!("slot {at}: needs a time");
+            }
+            if let Some(t) = times.iter().find(|t| !is_time(t)) {
+                bail!("slot {at}: time {t:?} is not HH:MM");
+            }
+            if s.week.is_some_and(|w| !(1..=5).contains(&w)) {
+                bail!("slot {at}: week is 1 to 4, or 5 for the last");
+            }
+            if s.minutes == 0 {
+                bail!("slot {at}: minutes must be above 0");
             }
             if let Some(d) = s.date.as_deref().filter(|d| !is_date(d)) {
                 bail!("slot {at}: date {d:?} is not YYYY-MM-DD");
@@ -130,7 +184,7 @@ pub fn parse_schedule(text: &str) -> Result<Vec<Slot>> {
                 .iter()
                 .map(|d| day_number(d).with_context(|| format!("slot {at}: day {d:?} is not one of {DAYS:?}")))
                 .collect::<Result<_>>()?;
-            Ok(Slot { at: Some(i), name: s.name, mhz: s.mhz, mode: s.mode, time: s.time, days, date: s.date })
+            Ok(Slot { at: Some(i), name: s.name, mhz: s.mhz, mode: s.mode, times, days, date: s.date, week: s.week, minutes: s.minutes, action: s.action, go_back: s.go_back })
         })
         .collect()
 }
@@ -223,13 +277,29 @@ fn set_slot(t: &mut Table, s: &Slot) -> Result<()> {
     put(t, "name", (!s.name.is_empty()).then(|| s.name.as_str().into()));
     put(t, "mhz", Some(s.mhz.into()));
     put(t, "mode", mode.map(|m| m.as_str().unwrap_or_default().into()));
-    put(t, "time", Some(s.time.as_str().into()));
+    // one time reads as `time`, several as `times`
+    match s.times.as_slice() {
+        [one] => {
+            put(t, "time", Some(one.as_str().into()));
+            t.remove("times");
+        }
+        many => {
+            let times: Array = many.iter().map(String::as_str).collect();
+            put(t, "times", Some(times.into()));
+            t.remove("time");
+        }
+    }
     let written = t.get("days").and_then(Item::as_array).map(|a| a.iter().filter_map(|d| day_number(d.as_str()?)).collect::<Vec<u8>>());
     if written.as_ref() != Some(&s.days) {
         let days: Array = s.days.iter().filter_map(|d| DAYS.get(*d as usize).copied()).collect();
         put(t, "days", (!days.is_empty()).then(|| days.into()));
     }
     put(t, "date", s.date.as_deref().filter(|d| !d.is_empty()).map(Value::from));
+    put(t, "week", s.week.map(|w| i64::from(w).into()));
+    put(t, "minutes", (t.contains_key("minutes") || s.minutes != DEFAULT_MINUTES).then(|| i64::from(s.minutes).into()));
+    let action = (t.contains_key("action") || s.action != Action::default()).then(|| toml::Value::try_from(s.action)).transpose()?;
+    put(t, "action", action.map(|a| a.as_str().unwrap_or_default().into()));
+    put(t, "go_back", s.go_back.then(|| true.into()));
     Ok(())
 }
 
@@ -309,7 +379,7 @@ mod tests {
     use super::*;
 
     fn slot(name: &str) -> Slot {
-        Slot { at: None, name: name.into(), mhz: 146.52, mode: Mode::Nfm, time: "19:30".into(), days: vec![2, 4], date: None }
+        Slot { at: None, name: name.into(), mhz: 146.52, mode: Mode::Nfm, times: vec!["19:30".into()], days: vec![2, 4], date: None, week: None, minutes: 60, action: Action::Remind, go_back: false }
     }
 
     const FILE: &str = "# my nets
@@ -339,8 +409,21 @@ days = [\"SUN\"]
     }
 
     #[test]
+    fn a_plan_with_several_times_round_trips() {
+        let plan = Slot { times: vec!["00:00".into(), "03:00".into()], days: vec![0, 1, 2, 3, 4, 5, 6], minutes: 3, action: Action::Tune, go_back: true, week: Some(1), ..slot("3-3-3") };
+        let text = edit_schedule("", &[plan.clone()]).unwrap();
+        assert!(text.contains("times = [\"00:00\", \"03:00\"]") && !text.contains("time ="), "{text}");
+        assert!(text.contains("action = \"tune\"") && text.contains("go_back = true") && text.contains("minutes = 3") && text.contains("week = 1"), "{text}");
+        let read = parse_schedule(&text).unwrap();
+        assert_eq!(read[0], Slot { at: Some(0), ..plan });
+        // back to one time and the defaults: only `time` is left
+        let plain = edit_schedule(&text, &[Slot { at: Some(0), ..slot("3-3-3") }]).unwrap();
+        assert!(plain.contains("time = \"19:30\"") && !plain.contains("times") && !plain.contains("go_back") && !plain.contains("week"), "{plain}");
+    }
+
+    #[test]
     fn refuses_what_it_cannot_read() {
-        for bad in ["[[slot]]\nmhz = 1.0\ntime = \"25:00\"", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\ndays = [\"funday\"]", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\nwhen = 1", "nope"] {
+        for bad in ["[[slot]]\nmhz = 1.0", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\nweek = 6", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\nminutes = 0", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\naction = \"dance\"", "[[slot]]\nmhz = 1.0\ntime = \"25:00\"", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\ndays = [\"funday\"]", "[[slot]]\nmhz = 1.0\ntime = \"9:00\"\nwhen = 1", "nope"] {
             assert!(parse_schedule(bad).is_err(), "{bad}");
         }
         assert!(edit_schedule("nope", &[]).is_err());
@@ -355,7 +438,7 @@ days = [\"SUN\"]
     #[test]
     fn an_edit_keeps_comments_and_touches_only_that_key() {
         let mut s = parse_schedule(FILE).unwrap();
-        s[1].time = "10:15".into();
+        s[1].times = vec!["10:15".into()];
         let new = edit_schedule(FILE, &s).unwrap();
         assert_eq!(new, FILE.replace("\"9:00\"", "\"10:15\""));
     }

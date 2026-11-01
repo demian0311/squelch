@@ -1,5 +1,6 @@
 //! The receive loop: reads the dongle, produces spectrum rows, finds signals and plays audio.
 
+use anyhow::{bail, Result};
 use crate::acars::Acars;
 use crate::adsb::Adsb;
 use crate::audio::AudioOut;
@@ -118,6 +119,33 @@ pub struct Engine {
     handle: Option<JoinHandle<()>>,
 }
 
+/// Stands in between a dongle that died and the next one that opens.
+struct Closed;
+
+impl IqSource for Closed {
+    fn name(&self) -> String {
+        "No dongle".into()
+    }
+    fn sample_rate(&self) -> u32 {
+        SAMPLE_RATE
+    }
+    fn set_center(&mut self, _hz: u32) -> Result<()> {
+        Ok(())
+    }
+    fn set_gain(&mut self, _gain: Gain) -> Result<()> {
+        Ok(())
+    }
+    fn set_ppm(&mut self, _ppm: i32) -> Result<()> {
+        Ok(())
+    }
+    fn gains(&self) -> Vec<i32> {
+        vec![]
+    }
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+        bail!("the dongle is gone; looking for it again")
+    }
+}
+
 impl Engine {
     /// Open the first dongle, or a simulated receiver if none answers or `SQUELCH_SIM` is set.
     pub fn open_source() -> (Box<dyn IqSource>, Option<String>) {
@@ -179,6 +207,7 @@ fn run(
     let mut ppm = 0i32;
     let mut crystal: Option<Crystal> = None;
     let mut error: Option<String> = None;
+    let mut gain: Option<Gain> = None;
     let _ = src.set_center(center as u32);
 
     let audio = match AudioOut::open() {
@@ -255,6 +284,7 @@ fn run(
                     hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
+                    gain = Some(g);
                     if let Err(e) = src.set_gain(g) {
                         error = Some(e.to_string());
                     }
@@ -334,6 +364,19 @@ fn run(
                 error = Some(e.to_string());
                 send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
+                // a sleep or a replug kills the USB handle: close it and open the dongle again
+                if !simulated {
+                    src = Box::new(Closed);
+                    if let Ok(d) = RtlSdr::open(0, SAMPLE_RATE) {
+                        src = Box::new(d);
+                        let _ = src.set_ppm(ppm);
+                        let _ = src.set_center(center as u32);
+                        if let Some(g) = gain {
+                            let _ = src.set_gain(g);
+                        }
+                        error = None;
+                    }
+                }
                 continue;
             }
         };
