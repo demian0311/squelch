@@ -49,7 +49,9 @@ describe('labels', () => {
     expect(s.saved).toBe(true);
   });
   it('names broadcast FM by its channel', () => {
-    expect(label(plan, saved, { hz: 101_097_000, width_hz: 170_000, snr_db: 25 }).title).toBe('FM 101.1');
+    const s = label(plan, saved, { hz: 101_097_000, width_hz: 170_000, snr_db: 25 });
+    expect(s.title).toBe('FM 101.1');
+    expect(s.byFreq).toBe(true);
   });
 });
 
@@ -98,6 +100,7 @@ describe('station data', () => {
     const sig = label(plan, saved, { hz: 107_903_000, width_hz: 150_000, snr_db: 25 });
     const [named] = withRds([sig], new Map([[107_900_000, kbpi]]));
     expect(named.title).toBe('KBPI 107.9');
+    expect(named.byFreq).toBe(false);
     expect(named.sub).toBe('AC/DC – Shoot To Thrill');
   });
 });

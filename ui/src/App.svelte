@@ -459,7 +459,7 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? listening?.title ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
@@ -800,7 +800,8 @@
                   </span>
                   <span class="row2">{c.item.sub}</span>
                   <span class="row3 mono">
-                    <span>{fmtMHz(c.at)}</span>
+                    <!-- an FM card's title already says where it is on the dial -->
+                    {#if mode !== 'wfm'}<span>{fmtMHz(c.at)}</span>{/if}
                     {#if c.item.tag !== 'HEARD'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
                     <span class="bar"><Level pct={c.meter} width="100%" height="3px" /></span>
                   </span>

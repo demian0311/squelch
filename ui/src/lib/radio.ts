@@ -94,6 +94,8 @@ export interface Signal {
   channelHz?: number;
   /** A channel card with nothing on it. */
   quiet?: boolean;
+  /** The title is only the frequency, so the header shows the band instead. */
+  byFreq?: boolean;
 }
 
 /** Name each detected signal from the bookmarks, or describe it. */
@@ -108,7 +110,8 @@ export function label(plan: BandPlan, saved: Saved[], d: Detected): Signal {
   const ch = channelAt(band?.id, d.hz);
   if (mark) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: mark.name, sub, tag: 'SAVED', saved: true, channelHz: ch?.hz };
   if (ch) return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: ch.name, sub, tag: 'HEARD', saved: false, channelHz: ch.hz };
-  const title = band?.mode === 'wfm' ? `FM ${fmtMHz(Math.round(d.hz / 1e5) * 1e5, 1)}` : band ? `${band.name} signal` : 'Unknown signal';
+  if (band?.mode === 'wfm') return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title: `FM ${fmtMHz(fmChannel(d.hz), 1)}`, sub, tag: 'HEARD', saved: false, byFreq: true };
+  const title = band ? `${band.name} signal` : 'Unknown signal';
   return { hz: d.hz, widthHz: d.width_hz, snrDb: d.snr_db, title, sub, tag: 'HEARD', saved: false };
 }
 
@@ -173,7 +176,7 @@ export function withRds<T extends Signal>(signals: T[], heard: Map<number, Rds>)
     const r = heard.get(fmChannel(sig.hz));
     const name = r && rdsName(r);
     if (!r || !name || sig.saved) return sig;
-    return { ...sig, title: `${name} ${(fmChannel(sig.hz) / 1e6).toFixed(1)}`, sub: rdsNow(r) ?? sig.sub };
+    return { ...sig, title: `${name} ${(fmChannel(sig.hz) / 1e6).toFixed(1)}`, sub: rdsNow(r) ?? sig.sub, byFreq: false };
   });
 }
 
