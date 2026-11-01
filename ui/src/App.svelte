@@ -26,7 +26,7 @@
   import Icon from './components/Icon.svelte';
   import WalkiePanel from './components/WalkiePanel.svelte';
   import WalkieActivity from './components/WalkieActivity.svelte';
-  import { SHOW_AFTER_MIN, WALKIE_BANDS, activity, listened, liveWalkies, parseHistory, record, sidesIn, spanText, walkieAt, type Minute } from './lib/walkie';
+  import { SHOW_AFTER_MIN, WALKIE_BANDS, activity, listened, liveWalkies, parseHistory, record, sideView, sidesIn, spanText, walkieAt, type Minute } from './lib/walkie';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
   const CARD_W = 128;
@@ -224,6 +224,14 @@
     slideView(tuned - span / 2, tuned + span / 2);
   }
 
+  /** A click on a frequency: tune it and bring it to the middle; a walkie-talkie channel shows its whole side. */
+  function tuneClick(hz: number) {
+    if (!walkieBand || !walkieAt(hz)) return tuneCentered(hz);
+    tuneTo(hz);
+    const [a, b] = sideView(hz);
+    slideView(a, b);
+  }
+
   // an eased glide to a new view; dragging or zooming meanwhile stops it
   const SLIDE_MS = 260;
   let slideFrame = 0;
@@ -263,6 +271,8 @@
     if (s >= (b.high_mhz - b.low_mhz) * 1e6) nvs = (b.low_mhz * 1e6 + b.high_mhz * 1e6) / 2 - s / 2;
     vs = nvs;
     ve = nvs + s;
+    // walkie-talkies: just the channels, not the empty 5 MHz around them
+    if (WALKIE_BANDS.has(b.id)) [vs, ve] = sideView(start);
     tuned = Math.round(start);
     mode = modeAt(plan, saved, tuned, b.mode);
     api.setMode(mode);
@@ -1020,7 +1030,7 @@
               bandwidth={BANDWIDTH[mode]}
               specH={maxPane === 'panel' ? STRIP_SPEC_H : fit.spec}
               colors={wfColors}
-              onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
+              onTune={(hz, pxHz) => tuneClick(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
               onView={(a, b) => {
                 cancelAnimationFrame(slideFrame);
                 setView(a, b);
@@ -1049,14 +1059,14 @@
           {#if maxPane !== 'panel'}
             {#if leftEdge}
               {@const e = leftEdge}
-              <button class="edge left" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the left">
+              <button class="edge left" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneClick(e.nearest)} title="Jump to the nearest signal on the left">
                 <span class="arrow">‹</span>
                 <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
               </button>
             {/if}
             {#if rightEdge}
               {@const e = rightEdge}
-              <button class="edge right" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the right">
+              <button class="edge right" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneClick(e.nearest)} title="Jump to the nearest signal on the right">
                 <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
                 <span class="arrow">›</span>
               </button>
@@ -1087,7 +1097,7 @@
             <div class="pbody wrap">
               {#each sondes as o (o.hz)}
                 {@const drift = sondeDrift(o)}
-                <button class="item balloon" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneTo(o.hz)}>
+                <button class="item balloon" class:sel={Math.abs(o.hz - tuned) < 10_000} onclick={() => tuneClick(o.hz)}>
                   <span class="name">{sondeName(o)}</span>
                   <span class="big">{sondeSummary(o)}</span>
                   {#if drift}<span class="dim">{drift}</span>{/if}
@@ -1239,15 +1249,15 @@
               </div>
             </div>
           {:else if panel === 'walkie'}
-            <WalkiePanel live={walkieLive} {tuned} sides={walkieSides} fullDb={METER_DB} onTune={(hz) => tuneTo(hz)} />
+            <WalkiePanel live={walkieLive} {tuned} sides={walkieSides} fullDb={METER_DB} onTune={tuneClick} />
           {:else if panel === 'activity'}
-            <WalkieActivity act={walkieAct} tunedKey={walkieAt(tuned)?.key} now={nowS * 1000} onTune={(hz) => tuneTo(hz)} />
+            <WalkieActivity act={walkieAct} tunedKey={walkieAt(tuned)?.key} now={nowS * 1000} onTune={tuneClick} />
           {:else if panel === 'channels'}
             <div class="list chlist">
               {#each chList as sec, i (i)}
                 {#if sec.group}<h3 class="chgroup">{sec.group}</h3>{/if}
                 {#each sec.channels as { channel: c, live, snr } (c.hz)}
-                  <button class="reprow chrow" class:sel={c.hz === tunedChannel?.hz} class:live onclick={() => tuneTo(c.hz)} title={live ? `On air${snr !== null ? `, ${snr.toFixed(0)} dB above the noise` : ''}` : undefined}>
+                  <button class="reprow chrow" class:sel={c.hz === tunedChannel?.hz} class:live onclick={() => tuneClick(c.hz)} title={live ? `On air${snr !== null ? `, ${snr.toFixed(0)} dB above the noise` : ''}` : undefined}>
                     <span class="dot"></span>
                     <span class="name town">{c.name}</span>
                     {#if snr !== null}<Level pct={(snr / METER_DB) * 100} />{/if}
@@ -1260,7 +1270,7 @@
             {#if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
-                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} live={new Set(repLive.keys())} onTune={(hz) => tuneTo(hz)} site={iss.site} palette={mapPalette} />
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} live={new Set(repLive.keys())} onTune={tuneClick} site={iss.site} palette={mapPalette} />
                   <span class="maplabel">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
                 </div>
                 <div class="list">
@@ -1273,7 +1283,7 @@
                   {/if}
                   {#each repRows as p (p.hz)}
                     {@const snr = repLive.get(p.hz)}
-                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneTo(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
+                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneClick(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
                       <span class="dot"></span>
                       <span class="name">{p.call}</span>
                       <span class="dim town">{p.city}</span>

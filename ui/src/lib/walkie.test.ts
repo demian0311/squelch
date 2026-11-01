@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEEP_MIN, activity, ago, listened, liveWalkies, parseHistory, record, sidesIn, walkieAt, type Minute } from './walkie';
+import { KEEP_MIN, activity, ago, listened, liveWalkies, parseHistory, record, sideView, sidesIn, walkieAt, type Minute } from './walkie';
 
 const MIN = 60_000;
 const T0 = 29_000_000 * MIN;
@@ -13,6 +13,10 @@ describe('walkie channels', () => {
   });
   it('keeps the strongest signal per channel', () => {
     expect([...liveWalkies([{ hz: 462_675_000, snr_db: 20 }, { hz: 462_675_200, snr_db: 30 }, { hz: 100e6, snr_db: 40 }])]).toEqual([['20', 30]]);
+  });
+  it('zooms to the side holding a channel', () => {
+    expect(sideView(462_600_000)).toEqual([462_525_000, 462_750_000]);
+    expect(sideView(467_625_000)).toEqual([467_525_000, 467_750_000]);
   });
   it('hears a side only when all of it is in the capture', () => {
     expect(sidesIn(461.5e6, 463.5e6)).toEqual([462]);

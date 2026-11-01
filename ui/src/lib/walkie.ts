@@ -46,6 +46,15 @@ export const sideOf = (hz: number): Side => (hz < 465e6 ? 462 : 467);
 const SIDE_BIT: Record<Side, number> = { 462: 1, 467: 2 };
 const SPAN: Record<Side, [number, number]> = { 462: [462_550_000, 462_725_000], 467: [467_550_000, 467_725_000] };
 
+// room either side of a side's channels when the view zooms to it
+const VIEW_MARGIN_HZ = 25_000;
+
+/** The view that shows every channel on the side holding `hz`. */
+export function sideView(hz: number): [number, number] {
+  const [lo, hi] = SPAN[sideOf(hz)];
+  return [lo - VIEW_MARGIN_HZ, hi + VIEW_MARGIN_HZ];
+}
+
 /** The sides whose every channel lies between `lo` and `hi`. */
 export function sidesIn(lo: number, hi: number): Side[] {
   return ([462, 467] as Side[]).filter((s) => SPAN[s][0] - REACH_HZ >= lo && SPAN[s][1] + REACH_HZ <= hi);
