@@ -721,33 +721,33 @@
         <span class="title">{nowTitle}</span>
         <span class="sub">{nowSub}</span>
       </div>
-      <div class="transport">
-        <button class="sq" onclick={() => step(-1)} aria-label="Previous signal" title="Previous signal (←)">←</button>
-        <button class="play" class:on={playing} onclick={togglePlay} title="Listen or stop (space)">{playing ? 'Stop' : 'Listen'}</button>
-        <button class="sq" onclick={() => step(1)} aria-label="Next signal" title="Next signal (→)">→</button>
-      </div>
-      <label class="ctl">
-        <span>Volume</span>
-        <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
-      </label>
-      <div class="ctl meter">
-        <span>Signal · squelch {squelch > 0 ? `${squelch} dB` : 'off'}</span>
-        <div
-          class="track"
-          role="slider"
-          tabindex="0"
-          aria-label="Squelch"
-          aria-valuemin={0}
-          aria-valuemax={METER_DB}
-          aria-valuenow={squelch}
-          aria-valuetext={squelch > 0 ? `${squelch} dB` : 'Off'}
-          title="Squelch: drag the mark. Audio stays muted while the signal is left of it. Far left turns it off."
-          onpointerdown={dragSquelch}
-          onkeydown={squelchKey}
-        >
-          <div class="fillclip"><div class="fill" class:muted style:transform="translateX({meter - 100}%)"></div></div>
-          <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
+      <button class="play" class:on={playing} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title="{playing ? 'Pause' : 'Play'} (space)">
+        <Icon name={playing ? 'pause' : 'play'} size={20} />
+      </button>
+      <div class="levels">
+        <div class="ctl">
+          <span>Signal · squelch {squelch > 0 ? `${squelch} dB` : 'off'}</span>
+          <div
+            class="track"
+            role="slider"
+            tabindex="0"
+            aria-label="Squelch"
+            aria-valuemin={0}
+            aria-valuemax={METER_DB}
+            aria-valuenow={squelch}
+            aria-valuetext={squelch > 0 ? `${squelch} dB` : 'Off'}
+            title="Squelch: drag the mark. Audio stays muted while the signal is left of it. Far left turns it off."
+            onpointerdown={dragSquelch}
+            onkeydown={squelchKey}
+          >
+            <div class="fillclip"><div class="fill" class:muted style:transform="translateX({meter - 100}%)"></div></div>
+            <span class="sq-mark" class:off={squelch === 0} style:left="{(squelch / METER_DB) * 100}%"></span>
+          </div>
         </div>
+        <label class="ctl">
+          <span>Volume</span>
+          <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
+        </label>
       </div>
       <div class="clocks mono" title="Local time and UTC">
         <span>{localTime(nowS)}</span>
@@ -1094,7 +1094,7 @@
     gap: 6px;
   }
   .digits {
-    font-size: 34px;
+    font-size: 48px;
     font-weight: 600;
     letter-spacing: -1px;
     color: var(--fg-bright);
@@ -1127,26 +1127,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .transport {
-    display: flex;
-    gap: 6px;
-  }
-  .sq {
-    min-height: 36px;
-    min-width: 36px;
-    border-radius: 8px;
-    border: 1px solid var(--muted);
-    background: var(--bg-light);
-    font-size: 15px;
-  }
   .play {
-    min-height: 36px;
-    min-width: 84px;
-    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     border: 1px solid var(--hue);
     background: transparent;
     color: var(--hue);
     font-weight: 600;
+  }
+  .play :global(svg) {
+    fill: currentColor;
   }
   .play.on {
     background: var(--hue);
@@ -1165,7 +1158,12 @@
     margin: 0;
     accent-color: var(--hue);
   }
-  .meter {
+  .levels {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .levels .ctl {
     width: 170px;
   }
   .clocks {
