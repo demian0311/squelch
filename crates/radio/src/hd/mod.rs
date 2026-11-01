@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Instant;
 
 /// Digital audio replaces the analog once this much is queued, so bursts from the decoder play smoothly.
 const PRIME_SECS: f32 = 2.0;
@@ -24,6 +25,8 @@ const SIDEBAND_HZ: (f64, f64) = (129_000.0, 198_000.0);
 /// Each block must average this far above the floor (dB). Measured 2026-10-31 at eagle:
 /// HD stations 5.7–8.9 dB, analog-only at most 2.9 dB.
 const SIDEBAND_DB: f32 = 4.0;
+/// A picture that has had no fragment for this long has stopped arriving.
+const PENDING_SECS: f32 = 30.0;
 
 /// What the tuned station's HD signal has given so far.
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -47,6 +50,8 @@ pub struct HdInfo {
     pub ber: Option<f32>,
     /// Bumped whenever the image set may have changed.
     pub images_rev: u32,
+    /// How far along the furthest logo or album art still arriving is, 0–1.
+    pub incoming: Option<f32>,
 }
 
 /// A picture for the card. `kind`: logo, art, traffic (a tile of a 3×3 map) or weather.
@@ -77,6 +82,8 @@ struct Shared {
     here: BTreeMap<(bool, u32), Lot>,
     /// Whether digital audio replaces analog; off while decoding in the background.
     play: bool,
+    /// Pictures still arriving, by LOT: (size, bytes so far, last fragment).
+    pending: BTreeMap<u32, (u32, u32, Instant)>,
 }
 
 impl Shared {
@@ -352,7 +359,10 @@ impl Hd {
     }
 
     pub fn info(&self) -> HdInfo {
-        self.shared.lock().unwrap().info.clone()
+        let mut s = self.shared.lock().unwrap();
+        s.pending.retain(|_, p| p.2.elapsed().as_secs_f32() < PENDING_SECS);
+        let incoming = s.pending.values().filter(|p| p.0 > 0 && p.1 > 0).map(|p| (p.1 as f32 / p.0 as f32).min(1.0)).fold(None, |m: Option<f32>, f| Some(m.map_or(f, |m| m.max(f))));
+        HdInfo { incoming, ..s.info.clone() }
     }
 
     /// The images, when they changed since the last call.
@@ -383,14 +393,19 @@ fn handle(shared: &Mutex<Shared>, audio: &mut AudioRate, e: ffi::Event) {
     let i = &mut s.info;
     match e {
         Sync => i.synced = true,
+        // only a locked decoder measures or plays, so these also mean locked
+        Mer(lo, hi) => {
+            i.synced = true;
+            i.mer_db = Some(lo.min(hi));
+        }
         LostSync => {
             i.synced = false;
             i.mer_db = None;
         }
-        Mer(lo, hi) => i.mer_db = Some(lo.min(hi)),
         Ber(b) => i.ber = Some(b),
         Audio { program: p, pcm } if p == program => {
             if let Some(pcm) = pcm {
+                s.info.synced = true;
                 audio.process(pcm, &mut s.audio);
             }
         }
@@ -408,7 +423,16 @@ fn handle(shared: &Mutex<Shared>, audio: &mut AudioRate, e: ffi::Event) {
                 i.album = album.or(i.album.take());
             }
         }
+        LotHeader { lot, size } => {
+            s.pending.entry(lot).or_insert((0, 0, Instant::now())).0 = size;
+        }
+        LotFragment { lot, got } => {
+            let p = s.pending.entry(lot).or_insert((0, 0, Instant::now()));
+            p.1 = got;
+            p.2 = Instant::now();
+        }
         Lot { lot, name, logo, data } => {
+            s.pending.remove(&lot);
             if data_url(data).is_some() {
                 s.lots.retain(|l| l.lot != lot);
                 s.lots.push_front(self::Lot { lot, name, logo, data: data.to_vec() });

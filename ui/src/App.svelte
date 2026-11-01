@@ -527,7 +527,7 @@
   }
 
   // the panel's share of the width (or height when stacked), dragged at the divider
-  let panelShare = $state(readNumber('panel.share', 38));
+  let panelShare = $state(readNumber('panel.size', 30));
   let stacked = $state(false);
   let mainEl: HTMLElement;
   function startDivider(e: PointerEvent) {
@@ -543,7 +543,7 @@
     const stop = () => {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', stop);
-      remember('panel.share', String(panelShare));
+      remember('panel.size', String(panelShare));
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', stop);
@@ -879,10 +879,15 @@
               {/each}
             </div>
           {:else if panel === 'hd' && hd}
-            <div class="pbody wrap">
+            <div class="pbody hdbody">
               <div class="col">
                 <div class="item">
-                  {#if hdPicture}<img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />{/if}
+                  {#if hdPicture}
+                    <img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />
+                  {:else if hd.incoming !== null}
+                    <div class="hdwait" title="A picture is arriving"><Icon name="image" size={36} /></div>
+                  {/if}
+                  {#if hd.incoming !== null}<div class="hdload" title="Picture {Math.round(hd.incoming * 100)}% here"><span style:width="{hd.incoming * 100}%"></span></div>{/if}
                   {#if hd.name}<span class="name">{hd.name}</span>{/if}
                   {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
                   {#if hd.title}<span class="big">{hd.title}</span>{/if}
@@ -922,9 +927,6 @@
                   <h2>Weather radar</h2>
                   <img class="hdpic" src={hdWeather.data_url} alt="Weather radar" />
                 </div>
-              {/if}
-              {#if !hd.error && !hdTraffic && !hdPicture}
-                <p class="empty col">Pictures — station logo, album art, traffic and weather maps — arrive over the first minute or two.</p>
               {/if}
             </div>
           {:else if panel === 'p25' && p25}
@@ -1701,10 +1703,41 @@
       0 0 0 1px var(--orange),
       0 0 16px 3px color-mix(in srgb, var(--orange) 50%, transparent);
   }
+  /* one column: the station card, then traffic, then weather */
+  .hdbody {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .hdbody .col {
+    flex: none;
+    max-width: 420px;
+  }
   .hdpic {
     width: 100%;
     border-radius: 6px;
     margin-bottom: 4px;
+  }
+  .hdwait {
+    display: grid;
+    place-items: center;
+    height: 120px;
+    border-radius: 6px;
+    color: var(--fg-dim);
+    background: var(--bg-light);
+  }
+  /* a picture on its way; fills as its pieces arrive */
+  .hdload {
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--muted);
+  }
+  .hdload span {
+    display: block;
+    height: 100%;
+    background: var(--orange);
+    transition: width 0.4s;
   }
   .hdprogs {
     display: flex;

@@ -136,6 +136,8 @@ export interface Hd {
   mer_db: number | null;
   ber: number | null;
   images_rev: number;
+  /** How far along the furthest logo or album art still arriving is, 0–1. */
+  incoming: number | null;
 }
 /** `kind`: logo, art, traffic (one tile of a 3×3 map, `row`/`col` from 1) or weather. */
 export interface HdImage {

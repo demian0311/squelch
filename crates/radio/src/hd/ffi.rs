@@ -28,6 +28,8 @@ const EVENT_STATION_NAME: c_uint = 16;
 const EVENT_STATION_SLOGAN: c_uint = 17;
 const EVENT_STATION_MESSAGE: c_uint = 18;
 const EVENT_HERE_IMAGE: c_uint = 23;
+const EVENT_LOT_HEADER: c_uint = 24;
+const EVENT_LOT_FRAGMENT: c_uint = 25;
 
 /// The decoded events, borrowed from the library for the length of one callback.
 pub enum Event<'a> {
@@ -40,6 +42,10 @@ pub enum Event<'a> {
     Audio { program: u32, pcm: Option<&'a [i16]> },
     Id3 { program: u32, title: Option<String>, artist: Option<String>, album: Option<String>, art_lot: Option<u32> },
     Lot { lot: u32, name: String, logo: bool, data: &'a [u8] },
+    /// A logo or album-art file has started: its total `size` in bytes.
+    LotHeader { lot: u32, size: u32 },
+    /// More of a logo or album-art file: `got` bytes so far.
+    LotFragment { lot: u32, got: u32 },
     Program(u32),
     Name(String),
     Slogan(String),
@@ -87,6 +93,24 @@ struct Lot {
     expiry_utc: *const c_void,
     service: *const c_void,
     component: *const Component,
+}
+
+#[repr(C)]
+struct LotFragment {
+    lot: c_uint,
+    seq: c_uint,
+    repeat: c_uint,
+    size: c_uint,
+    bytes_so_far: c_uint,
+    is_duplicate: c_int,
+    data: *const u8,
+    service: *const c_void,
+    component: *const Component,
+}
+
+/// A logo or album art, the pictures the panel waits for.
+unsafe fn picture(c: *const Component) -> bool {
+    !c.is_null() && matches!((*c).mime, MIME_STATION_LOGO | MIME_PRIMARY_IMAGE)
 }
 
 /// `nrsc5_sig_component_t` with its data-service union member.
@@ -163,6 +187,20 @@ unsafe fn parse<'a>(evt: *const c_void) -> Option<Event<'a>> {
             let l: &Lot = body(evt);
             let logo = !l.component.is_null() && (*l.component).mime == MIME_STATION_LOGO;
             Event::Lot { lot: l.lot, name: text(l.name).unwrap_or_default(), logo, data: bytes(l.data, l.size) }
+        }
+        EVENT_LOT_HEADER => {
+            let l: &Lot = body(evt);
+            if !picture(l.component) {
+                return None;
+            }
+            Event::LotHeader { lot: l.lot, size: l.size }
+        }
+        EVENT_LOT_FRAGMENT => {
+            let f: &LotFragment = body(evt);
+            if !picture(f.component) {
+                return None;
+            }
+            Event::LotFragment { lot: f.lot, got: f.bytes_so_far }
         }
         EVENT_AUDIO_SERVICE => Event::Program(*body::<c_uint>(evt)),
         EVENT_STATION_NAME => Event::Name(text(*body::<*const c_char>(evt))?),
