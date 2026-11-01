@@ -120,19 +120,9 @@ bookmarks = [
 ]
 
 [[band]]
-id = "frs_only"
+id = "walkie"
 group = "listen"
-name = "FRS"
-icon = "walkie"
-mode = "nfm"
-low_mhz = 462.5
-high_mhz = 467.75
-start_mhz = 462.6
-
-[[band]]
-id = "gmrs"
-group = "listen"
-name = "GMRS"
+name = "Walkie-talkies"
 icon = "walkie"
 mode = "nfm"
 low_mhz = 462.5

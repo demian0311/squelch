@@ -24,6 +24,9 @@
   import Level from './components/Level.svelte';
   import { REACH_KM, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
+  import WalkiePanel from './components/WalkiePanel.svelte';
+  import WalkieActivity from './components/WalkieActivity.svelte';
+  import { SHOW_AFTER_MIN, WALKIE_BANDS, activity, listened, liveWalkies, parseHistory, record, sidesIn, spanText, walkieAt, type Minute } from './lib/walkie';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
   const CARD_W = 128;
@@ -537,7 +540,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'channels' | 'saved';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'walkie' | 'activity' | 'channels' | 'saved';
   let panelPick = $state<PanelId | null>(null);
   let savedOpen = $state(false);
   function toggleSaved() {
@@ -614,7 +617,11 @@
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
     // decoded in the background as soon as the station shows HD sidebands
     if (hd) own.push('hd');
-    if (chList.length) own.push('channels');
+    if (walkieBand) {
+      own.push('walkie');
+      // the history is worth a tab once there are a few minutes of it
+      if (walkieListened >= SHOW_AFTER_MIN) own.push('activity');
+    } else if (chList.length) own.push('channels');
     // names, favourites and times to tune in: a tab beside whatever else shows, the panel itself on `b`
     if (own.length || savedOpen) own.push('saved');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
@@ -622,14 +629,42 @@
     return own;
   });
   let chList = $derived(channelList(band?.id, status?.signals ?? []));
+
+  // Walkie-talkies: FRS and GMRS as one panel, and each minute's channels on air for the Activity tab
+  // (localStorage `walkie.history`, last KEEP_MIN minutes, recorded whenever a side is in the capture).
+  let walkieBand = $derived(WALKIE_BANDS.has(band?.id ?? ''));
+  let walkieSides = $derived(sidesIn(center - rate * 0.45, center + rate * 0.45));
+  let walkieLive = $derived(liveWalkies(status?.signals ?? []));
+  const walkieHist: Minute[] = parseHistory(readText('walkie.history'), Date.now());
+  // bumped when a minute ends, so the grid redraws once a minute and not per status
+  let walkieRev = $state(0);
+  let walkieListened = $derived.by(() => {
+    void walkieRev;
+    return listened(walkieHist);
+  });
+  let walkieAct = $derived.by(() => {
+    void walkieRev;
+    return activity(walkieHist, Date.now());
+  });
+  function recordWalkies(signals: { hz: number; snr_db?: number }[]) {
+    if (!walkieSides.length && !walkieHist.length) return;
+    if (record(walkieHist, Date.now(), walkieSides, liveWalkies(signals).keys())) {
+      remember('walkie.history', JSON.stringify(walkieHist));
+      walkieRev++;
+    }
+  }
+  let walkieSummary = $derived.by(() => {
+    const busiest = walkieAct.rows.map((r) => ({ key: r.channel.key, sum: r.cells.reduce<number>((a, v) => a + (v ?? 0), 0) })).sort((a, b) => b.sum - a.sum)[0];
+    return `Last ${spanText(walkieAct.spanMin)}${busiest?.sum ? ` · busiest: ${busiest.key}` : ' · nothing heard'}`;
+  });
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
+  const PANEL_TITLE: Record<PanelId, string> = { walkie: 'Walkie-talkies', activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels', saved: 'Saved' };
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' ? chSummary : panel === 'saved' ? savedSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'walkie' ? chSummary : panel === 'activity' ? walkieSummary : panel === 'saved' ? savedSummary : '',
   );
 
   let wfSummary = $derived(
@@ -790,6 +825,7 @@
           if (s.hd_images) hdImages = s.hd_images;
           if (!s.hd) hdImages = [];
           if (s.hd?.digital) hdAudioAt = Date.now();
+          recordWalkies(s.signals);
           status = s;
         },
       );
@@ -1187,6 +1223,10 @@
                 {/if}
               </div>
             </div>
+          {:else if panel === 'walkie'}
+            <WalkiePanel live={walkieLive} {tuned} sides={walkieSides} fullDb={METER_DB} onTune={(hz) => tuneTo(hz)} />
+          {:else if panel === 'activity'}
+            <WalkieActivity act={walkieAct} tunedKey={walkieAt(tuned)?.key} now={nowS * 1000} onTune={(hz) => tuneTo(hz)} />
           {:else if panel === 'channels'}
             <div class="list chlist">
               {#each chList as sec, i (i)}
