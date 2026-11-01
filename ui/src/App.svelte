@@ -20,6 +20,9 @@
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
   const CARD_W = 128;
+  // HD signal quality (nrsc5's MER) mapped onto the level bar, empty to full
+  const HD_MER_DB = [2, 14];
+  const HD_AUDIO_HOLD_MS = 3_000;
   const LANE_H = 78;
   const SPEC_H = 130;
   // the waterfall's spectrum line while the panel has the screen
@@ -435,7 +438,10 @@
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
   let p25 = $derived(status?.mode === 'p25' ? (status.p25 ?? null) : null);
-  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hdState(hd, hdProgram !== null)].filter(Boolean).join(' · ') : '');
+  // digital audio drops out for a moment on a weak signal; hold the speaker lit through that
+  let hdAudioAt = $state(0);
+  let hdAudio = $derived(!!hd && (hd.digital || nowS * 1000 - hdAudioAt < HD_AUDIO_HOLD_MS));
+  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hd.error].filter(Boolean).join(' · ') : '');
   function setHdProgram(p: number | null) {
     const key = String(fmChannel(tuned));
     const next = { ...hdPrefs };
@@ -646,6 +652,7 @@
           persist.update(s.signals.map((d) => d.hz), Date.now());
           if (s.hd_images) hdImages = s.hd_images;
           if (!s.hd) hdImages = [];
+          if (s.hd?.digital) hdAudioAt = Date.now();
           status = s;
         },
       );
@@ -880,13 +887,22 @@
                   {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
                   {#if hd.title}<span class="big">{hd.title}</span>{/if}
                   {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
-                  <span class="dim">{hdState(hd, hdProgram !== null)}{hd.mer_db !== null ? ` · signal quality ${hd.mer_db.toFixed(0)} dB` : ''}</span>
+                  {#if hd.error}
+                    <span class="dim">{hd.error}</span>
+                  {:else}
+                    <span class="hdstat" title={hdState({ ...hd, digital: hdAudio }, hdProgram !== null)}>
+                      <span class="step" class:on={hd.synced} class:seek={!hd.synced}><Icon name="tower" size={16} /></span>
+                      <span class="step" class:on={hdAudio} class:live={hdAudio && hdProgram !== null}><Icon name="speaker" size={16} /></span>
+                      <Level pct={hd.synced && hd.mer_db !== null ? ((hd.mer_db - HD_MER_DB[0]) / (HD_MER_DB[1] - HD_MER_DB[0])) * 100 : 0} width="64px" />
+                    </span>
+                  {/if}
                   {#if hd.message}<span class="dim">{hd.message}</span>{/if}
                 </div>
-                {#if hd.programs.length > 1}
+                {#if hd.synced}
                   <div class="hdprogs">
-                    {#each hd.programs as p}
-                      <button class:sel={p === hdProgram} onclick={() => setHdProgram(p)}>{hdLabel(p)}</button>
+                    <button class:sel={hdProgram === null} onclick={() => setHdProgram(null)} title="Analog FM">FM</button>
+                    {#each hd.programs.length ? hd.programs : [0] as p}
+                      <button class:sel={p === hdProgram} onclick={() => setHdProgram(p)} title="Digital program {p + 1}">{hdLabel(p)}</button>
                     {/each}
                   </div>
                 {/if}
@@ -1705,6 +1721,32 @@
   .hdprogs button.sel {
     border-color: var(--orange);
     color: var(--orange);
+  }
+  /* found → audio → quality, lit as each is reached; the words are in the tooltip */
+  .hdstat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .hdstat .step {
+    display: flex;
+    color: var(--fg-dim);
+    opacity: 0.35;
+  }
+  .hdstat .step.on {
+    opacity: 1;
+  }
+  .hdstat .step.live {
+    color: var(--orange);
+  }
+  .hdstat .step.seek {
+    animation: hdseek 1.6s ease-in-out infinite;
+  }
+  @keyframes hdseek {
+    50% {
+      opacity: 0.8;
+    }
   }
   .hdgrid {
     display: grid;
