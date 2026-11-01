@@ -495,8 +495,8 @@
     if (decoding) own.push('sondes');
     if (p25) own.push('p25');
     if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
-    // decoded in the background on any HD station; worth a panel once there is something to show
-    if (hd && (hdProgram !== null || hd.digital || hdImages.length)) own.push('hd');
+    // decoded in the background as soon as the station shows HD sidebands
+    if (hd) own.push('hd');
     if (chList.length) own.push('channels');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
@@ -795,13 +795,15 @@
                       <span class="more mono" title={c.hidden.map((h) => `${fmtMHz(h.hz)} ${h.title}`).join(', ') + ' — zoom in to separate'}>+{c.hidden.length}</span>
                     {/if}
                   </span>
-                  <span class="row2">{c.item.sub}</span>
+                  <span class="row2">
+                    <span class="sub">{c.item.sub}</span>
+                    {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
+                      <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
+                    {/if}
+                  </span>
                   <span class="row3 mono">
                     <span>{fmtMHz(c.at)}</span>
                     {#if c.item.tag !== 'HEARD'}<span class="tag" class:saved={c.item.saved}>{c.item.tag}</span>{/if}
-                    {#if c.selected && mode === 'wfm' && (status?.hd_sidebands || hdProgram !== null)}
-                      <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
-                    {/if}
                     <span class="bar"><Level pct={c.meter} width="100%" height="3px" /></span>
                   </span>
                 </button>
@@ -1662,9 +1664,16 @@
     font-size: 10px;
   }
   .row2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     width: 100%;
     font-size: 10.5px;
     color: var(--fg-dim);
+  }
+  .row2 .sub {
+    flex: 1;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1682,7 +1691,10 @@
   }
   /* HD Radio has its own colour, orange, so a digital station is easy to spot */
   .hdchip {
+    flex: none;
     padding: 0 6px;
+    font-family: var(--mono);
+    font-size: 10px;
     border-radius: 4px;
     border: 1px solid var(--orange);
     color: var(--orange);
