@@ -2,7 +2,6 @@
 
 Ideas to work later. One line each, newest at the bottom; an indented note under a line if it needs context. Delete a line when it ships.
 
-- Record received audio to compressed files (e.g. Opus/MP3), started and stopped from the app.
 - Label a frequency from inside the app, with a name and free-text notes (e.g. "county ambulance dispatch").
   Bookmarks exist today only as `bookmarks` in `~/.config/squelch/bands.toml`, edited by hand; the app reads them for names but cannot add or edit one.
 - Favourite frequencies as a quick-access list in the app, one click to tune.
@@ -13,5 +12,5 @@ Ideas to work later. One line each, newest at the bottom; an indented note under
   The band exists with `decoder = "acars"`, but no decoder. US ACARS channels span 129.125–131.55 MHz, a little over one 2.4 MHz capture, so one tuning gets most of them; VDL Mode 2 (digital successor, 136.x MHz) could follow.
 - Replace the off-screen channel overlays at the waterfall's left and right edges with a better-looking cue.
   Keep the idea of showing what lies beyond each edge of the view, but the current overlays look poor; needs a design pass first.
-- Research what other radios the computer itself has (Wi-Fi, Bluetooth, maybe others) and what the app could show from them beside the dongle.
-  Open question, not a design yet: list the radio hardware on eagle and what each can report without root (scans, signal strength, nearby devices).
+- Show Wi-Fi access points by channel and nearby Bluetooth LE devices with signal strength, beside the dongle.
+  Findings in `docs/radios.md`: both readable without root via NetworkManager / BlueZ D-Bus; no Wi-Fi monitor mode or per-channel noise on this card.
