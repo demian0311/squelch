@@ -1,6 +1,7 @@
 <script lang="ts">
   // FRS and GMRS as one panel: 22 tiles in three strips by what the channels are for, a bar on each while it is on air.
   // Repeater inputs are not tiles: the line under the strips tunes the tuned repeater's input and back.
+  // A short panel drops the legend, then the strip headings, then shrinks the tiles, then drops the detail line.
   import { STRIPS, WALKIE, isRepeater, sideOf, stripOf, walkieAt, walkieByKey, type Side } from '../lib/walkie';
   import { fmtMHz } from '../lib/radio';
 
@@ -30,48 +31,54 @@
 </script>
 
 <div class="walkie">
-  {#each STRIPS as s (s.name)}
-    <div class="strip">
-      <div class="lbl"><span><b>{s.name}</b> {s.from}–{s.to}</span><span>{s.power}</span></div>
-      <div class="tiles">
-        {#each tiles(s.from, s.to) as c (c.key)}
-          {@const on = live.has(c.key) && heard(c.hz)}
-          <button class="tile" class:rpt={isRepeater(c.n)} class:sel={here?.key === c.key} class:away={!heard(c.hz)} onclick={() => onTune(c.hz)} title="{fmtMHz(c.hz, 4)} MHz{isRepeater(c.n) ? ' · repeater channel' : ''}{heard(c.hz) ? '' : ' · not heard from the tuned side'}">
-            {c.n}
-            <span class="bar"><i style:transform="scaleX({on ? pct(c.key) / 100 : 0})"></i></span>
-          </button>
-        {/each}
+  <div class="inner">
+    {#each STRIPS as s (s.name)}
+      <div class="strip">
+        <div class="lbl"><span><b>{s.name}</b> {s.from}–{s.to}</span><span>{s.power}</span></div>
+        <div class="tiles">
+          {#each tiles(s.from, s.to) as c (c.key)}
+            {@const on = live.has(c.key) && heard(c.hz)}
+            <button class="tile" class:rpt={isRepeater(c.n)} class:sel={here?.key === c.key} class:away={!heard(c.hz)} onclick={() => onTune(c.hz)} title="{fmtMHz(c.hz, 4)} MHz{isRepeater(c.n) ? ' · repeater channel' : ''}{heard(c.hz) ? '' : ' · not heard from the tuned side'}">
+              {c.n}
+              <span class="bar"><i style:transform="scaleX({on ? pct(c.key) / 100 : 0})"></i></span>
+            </button>
+          {/each}
+        </div>
       </div>
+    {/each}
+    <div class="legend">
+      <span><i class="busy"></i>on air</span>
+      <span><i class="dotkey"></i>repeater channel</span>
+      {#if sides.length < 2}<span class="faded">faded: other side, not heard</span>{/if}
     </div>
-  {/each}
-  <div class="legend">
-    <span><i class="busy"></i>on air</span>
-    <span><i class="dotkey"></i>repeater channel</span>
-    {#if sides.length < 2}<span class="faded">faded: other side, not heard</span>{/if}
-  </div>
-  <p class="detail">
-    {#if here}
-      {@const input = walkieByKey.get(`${here.n}R`)}
-      {@const out = walkieByKey.get(String(here.n))!}
-      <b>{here.key} · {fmtMHz(here.hz, 4)}</b>
-      {use(here.n, here.input)} {here.input ? '' : stripOf(here.n).power + '.'}
-      {#if input && !here.input}
-        <button class="link" onclick={() => onTune(input.hz)}>Listen to its users on {fmtMHz(input.hz, 4)}</button>
-      {:else if here.input}
-        <button class="link" onclick={() => onTune(out.hz)}>Back to the repeater</button>
+    <p class="detail">
+      {#if here}
+        {@const input = walkieByKey.get(`${here.n}R`)}
+        {@const out = walkieByKey.get(String(here.n))!}
+        <b>{here.key} · {fmtMHz(here.hz, 4)}</b>
+        {use(here.n, here.input)} {here.input ? '' : stripOf(here.n).power + '.'}
+        {#if input && !here.input}
+          <button class="link" onclick={() => onTune(input.hz)}>Listen to its users on {fmtMHz(input.hz, 4)}</button>
+        {:else if here.input}
+          <button class="link" onclick={() => onTune(out.hz)}>Back to the repeater</button>
+        {/if}
+        {#if sideOf(here.hz) === 467}<span class="note">Channels 1–7 and 15–22 are not heard while tuned here.</span>{/if}
+      {:else}
+        Click a channel to tune it. FRS and GMRS radios use the same 22 channels.
       {/if}
-      {#if sideOf(here.hz) === 467}<span class="note">Channels 1–7 and 15–22 are not heard while tuned here.</span>{/if}
-    {:else}
-      Click a channel to tune it. FRS and GMRS radios use the same 22 channels.
-    {/if}
-  </p>
+    </p>
+  </div>
 </div>
 
 <style>
   .walkie {
     flex: 1 1 0;
     min-height: 0;
+    container-type: size;
     overflow-y: auto;
+  }
+  /* a container can't query its own size, so the spacing that changes lives one level down */
+  .inner {
     padding: 10px;
     display: flex;
     flex-direction: column;
@@ -202,5 +209,65 @@
   .note {
     display: block;
     margin-top: 4px;
+  }
+  @container (max-height: 300px) {
+    .legend {
+      display: none;
+    }
+  }
+  @container (max-height: 260px) {
+    .inner {
+      gap: 6px;
+    }
+    .lbl {
+      display: none;
+    }
+    .detail {
+      padding-top: 6px;
+    }
+  }
+  @container (max-height: 190px) {
+    .tile {
+      padding: 3px 0 7px;
+      font-size: 12px;
+    }
+    .detail {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .note {
+      display: none;
+    }
+  }
+  @container (max-height: 150px) {
+    .detail {
+      display: none;
+    }
+    .inner {
+      padding-block: 6px;
+    }
+  }
+  @container (max-height: 110px) {
+    .inner {
+      gap: 3px;
+    }
+    .tiles {
+      gap: 2px;
+    }
+    .tile {
+      padding: 1px 0 5px;
+      border-radius: 4px;
+    }
+    .bar {
+      bottom: 2px;
+      height: 2px;
+    }
+    .tile.rpt::after {
+      top: 2px;
+      right: 2px;
+      width: 4px;
+      height: 4px;
+    }
   }
 </style>

@@ -33,8 +33,15 @@
   // HD signal quality (nrsc5's MER) mapped onto the level bar, empty to full
   const HD_MER_DB = [2, 14];
   const HD_AUDIO_HOLD_MS = 3_000;
-  const LANE_H = 78;
+  // The signal cards give way before the waterfall does: as the box gets shorter they lose their second line, then
+  // their third, then only the dots stay; the spectrum line shrinks from SPEC_H to SPEC_MIN in between.
+  const LANES = [78, 64, 50, 14];
   const SPEC_H = 130;
+  const SPEC_MIN = 48;
+  // Waterfall.svelte's frequency axis and its smallest waterfall; BandStrip.svelte's height with its border
+  const WF_AXIS = 22;
+  const WF_MIN = 60;
+  const BAND_STRIP_H = 31;
   // the waterfall's spectrum line while the panel has the screen
   const STRIP_SPEC_H = 24;
   const MIN_SPAN = 25_000;
@@ -149,6 +156,14 @@
   let rate = $derived(setup.sample_rate);
   let maxSpan = $derived(rate * 0.8);
   let span = $derived(ve - vs);
+  let boxH = $state(0);
+  let fit = $derived.by(() => {
+    if (!boxH) return { level: 0, lane: LANES[0], spec: SPEC_H };
+    const room = boxH - (band?.id === 'fm' ? BAND_STRIP_H : 0) - WF_AXIS - WF_MIN;
+    const at = LANES.findIndex((h) => room - h >= SPEC_MIN);
+    const level = at < 0 ? LANES.length - 1 : at;
+    return { level, lane: LANES[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - LANES[level])) };
+  });
 
   // ── tuning ──────────────────────────────────────────
 
@@ -965,13 +980,13 @@
           <button onclick={() => zoom(1 / 1.5)} aria-label="Zoom in" title="Zoom in (+)">+</button>
           <button onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)} title="Show as much of the band as fits">Widest</button>
         {/snippet}
-        <div class="box" class:panning class:strip={maxPane === 'panel'} bind:clientWidth={boxW}>
+        <div class="box" class:panning class:strip={maxPane === 'panel'} bind:clientWidth={boxW} bind:clientHeight={boxH}>
           {#if maxPane !== 'panel'}
-            <div class="lane" style:height="{LANE_H}px">
+            <div class="lane l{fit.level}" style:height="{fit.lane}px">
               {#each dots as d}
                 <span class="dot {d.cls}" style:left="{d.x}px" title={d.title}></span>
               {/each}
-              {#each cards as c (c.at)}
+              {#each fit.level < LANES.length - 1 ? cards : [] as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
                 <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{c.left}px" style:width="{CARD_W}px" onclick={() => tuneCentered(snapTune(c.item.hz, status?.signals ?? [], saved, span / boxW, mode, band?.id))}>
                   <span class="row1">
@@ -1003,7 +1018,7 @@
               {stops}
               {tuned}
               bandwidth={BANDWIDTH[mode]}
-              specH={maxPane === 'panel' ? STRIP_SPEC_H : SPEC_H}
+              specH={maxPane === 'panel' ? STRIP_SPEC_H : fit.spec}
               colors={wfColors}
               onTune={(hz, pxHz) => tuneTo(snapTune(hz, status?.signals ?? [], saved, pxHz, mode, band?.id))}
               onView={(a, b) => {
@@ -1034,14 +1049,14 @@
           {#if maxPane !== 'panel'}
             {#if leftEdge}
               {@const e = leftEdge}
-              <button class="edge left" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the left">
+              <button class="edge left" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the left">
                 <span class="arrow">‹</span>
                 <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
               </button>
             {/if}
             {#if rightEdge}
               {@const e = rightEdge}
-              <button class="edge right" style:top="{LANE_H + SPEC_H + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the right">
+              <button class="edge right" style:top="{fit.lane + fit.spec + 40}px" onclick={() => tuneTo(e.nearest)} title="Jump to the nearest signal on the right">
                 <span class="txt"><b>{e.count}</b><span class="mono">nearest {fmtMHz(e.nearest)}</span></span>
                 <span class="arrow">›</span>
               </button>
@@ -1948,6 +1963,24 @@
   }
   .box.panning .card {
     transition: none;
+  }
+  /* shorter boxes: no second line, then title only (see LANES) */
+  .lane.l1 .row2,
+  .lane.l2 .row2,
+  .lane.l2 .row3 {
+    display: none;
+  }
+  .lane.l1 .card {
+    height: 42px;
+  }
+  .lane.l1 .stem {
+    top: 48px;
+  }
+  .lane.l2 .card {
+    height: 28px;
+  }
+  .lane.l2 .stem {
+    top: 34px;
   }
   .card.quiet:not(.sel) {
     opacity: 0.6;
