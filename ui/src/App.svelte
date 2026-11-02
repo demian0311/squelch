@@ -1080,6 +1080,23 @@
           <button onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)} title="Show as much of the band as fits">Widest</button>
         {/snippet}
         <div class="box" class:panning class:strip={maxPane === 'panel'} bind:clientWidth={boxW} bind:clientHeight={boxH}>
+          {#if band?.id === 'fm' && maxPane !== 'panel'}
+            <BandStrip
+              lo={band.low_mhz * 1e6}
+              hi={band.high_mhz * 1e6}
+              {vs}
+              {ve}
+              {tuned}
+              ticks={stripMarks}
+              {hue}
+              onTune={tuneCentered}
+              onView={(a, b) => {
+                cancelAnimationFrame(slideFrame);
+                setView(a, b);
+              }}
+              onGlide={slideView}
+            />
+          {/if}
           {#if maxPane !== 'panel'}
             <div class="lane l{fit.level}" style:height="{fit.lane}px">
               {#each dots as d}
@@ -1121,23 +1138,6 @@
               band={band ? { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, name: band.name } : undefined}
             />
           </div>
-          {#if band?.id === 'fm' && maxPane !== 'panel'}
-            <BandStrip
-              lo={band.low_mhz * 1e6}
-              hi={band.high_mhz * 1e6}
-              {vs}
-              {ve}
-              {tuned}
-              ticks={stripMarks}
-              {hue}
-              onTune={tuneCentered}
-              onView={(a, b) => {
-                cancelAnimationFrame(slideFrame);
-                setView(a, b);
-              }}
-              onGlide={slideView}
-            />
-          {/if}
           {#if maxPane !== 'panel'}
             {#if !hintSeen}
               <div class="hint">

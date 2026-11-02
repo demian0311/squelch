@@ -94,7 +94,7 @@
     position: relative;
     flex: 0 0 auto;
     height: 30px;
-    border-top: 1px solid var(--bg-light);
+    border-bottom: 1px solid var(--bg-light);
     background: var(--bg-dark);
     cursor: pointer;
     touch-action: none;
