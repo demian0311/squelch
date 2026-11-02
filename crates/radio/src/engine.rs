@@ -251,30 +251,34 @@ fn run(
             match rx.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return,
                 Ok(Command::Tune { center_hz, tuned_hz }) => {
-                    let moved = (center_hz - center).abs() > 1.0 || (tuned_hz - tuned).abs() > 1.0;
-                    if (center_hz - center).abs() > 1.0 {
+                    // the view moves the dongle but not what is playing: only a new frequency restarts the audio
+                    let center_moved = (center_hz - center).abs() > 1.0;
+                    let tuned_moved = (tuned_hz - tuned).abs() > 1.0;
+                    if center_moved {
                         center = center_hz;
                         if let Err(e) = src.set_center(center as u32) {
                             error = Some(e.to_string());
                         }
                         recent.clear();
                     }
-                    tuned = tuned_hz;
-                    mixer.set(tuned - center, rate as f64);
-                    if let Some(a) = &audio {
-                        a.clear();
+                    if center_moved || tuned_moved {
+                        tuned = tuned_hz;
+                        mixer.set(tuned - center, rate as f64);
+                        hd = hd_for(hd_program, mode, center, tuned);
+                        hd_sidebands = false;
                     }
-                    snr = 0.0;
-                    squelch.reset();
-                    if let Some(r) = &mut demod.rds {
-                        r.clear();
-                    }
-                    if moved {
+                    if tuned_moved {
+                        if let Some(a) = &audio {
+                            a.clear();
+                        }
+                        snr = 0.0;
+                        squelch.reset();
+                        if let Some(r) = &mut demod.rds {
+                            r.clear();
+                        }
                         demod.offset_sum = 0.0;
                         demod.offset_n = 0;
                         p25 = p25_for(mode, tuned);
-                        hd = hd_for(hd_program, mode, center, tuned);
-                        hd_sidebands = false;
                     }
                 }
                 Ok(Command::SetMode(m)) => {
@@ -472,6 +476,10 @@ fn run(
                 h.fill(&mut pcm);
             }
             squelch.apply(&mut pcm);
+            // the view took the dongle out of reach; what the mixer finds there is another frequency's alias
+            if (tuned - center).abs() > rate as f64 / 2.0 {
+                pcm.clear();
+            }
             prof.lap("hd fill");
         }
         if let (true, Some(a)) = (playing, &audio) {
@@ -635,4 +643,40 @@ pub fn demo_signals() -> Vec<SimSignal> {
         // a weather balloon, so the decoders have something to find
         SimSignal { hz: 403.3e6, amp: 0.3, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: crate::sonde::dfm::BAUD as f64, symbols: Some(crate::sonde::dfm::simulate(23_038_743, 39.7392, -104.9903, 10_000.0).into()) },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// Mean channel level over `secs` of status, while `drag` runs between statuses.
+    fn level(engine: &Engine, seen: &Arc<Mutex<Vec<f32>>>, secs: f64, drag: Option<Command>) -> f32 {
+        seen.lock().unwrap().clear();
+        let end = Instant::now() + Duration::from_secs_f64(secs);
+        while Instant::now() < end {
+            if let Some(Command::Tune { center_hz, tuned_hz }) = drag {
+                engine.send(Command::Tune { center_hz, tuned_hz });
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        let got = seen.lock().unwrap();
+        got.iter().sum::<f32>() / got.len().max(1) as f32
+    }
+
+    /// Dragging the waterfall sends the same tune every frame; that must not touch what is playing.
+    #[test]
+    fn repeating_a_tune_leaves_the_channel_alone() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let source = Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true));
+        let engine = Engine::start(source, None, |_| {}, move |s| log.lock().unwrap().push(s.channel_snr_db));
+        engine.send(Command::SetVolume(0.0));
+        engine.send(Command::SetPlaying(false));
+        std::thread::sleep(Duration::from_secs(1));
+        let still = level(&engine, &seen, 1.5, None);
+        assert!(still > 10.0, "the simulated station should be strong, got {still} dB");
+        let dragging = level(&engine, &seen, 1.5, Some(Command::Tune { center_hz: 101_400_000.0, tuned_hz: 101_100_000.0 }));
+        assert!(dragging > still * 0.8, "{dragging} dB while dragging, {still} dB still");
+    }
 }

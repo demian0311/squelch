@@ -285,6 +285,21 @@ export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], 
   return placed.sort((a, b) => a.item.hz - b.item.hz);
 }
 
+/**
+ * Where the dongle should sit for this view: `center` while the view and the tuned frequency are within `half`
+ * of it. Otherwise the middle of both, which leaves the most room before the next move; when both cannot fit,
+ * the view wins and the audio waits. The tuned frequency stays clear of the dongle's DC spike by `dcOffset`.
+ */
+export function captureCenter(center: number, vs: number, ve: number, tuned: number, half: number, dcOffset: number): number {
+  const lo = Math.min(vs, tuned);
+  const hi = Math.max(ve, tuned);
+  const fits = hi - lo <= 2 * half;
+  const inside = (f: number) => f >= center - half && f <= center + half;
+  if (inside(vs) && inside(ve) && (inside(tuned) || !fits)) return center;
+  const c = fits ? (lo + hi) / 2 : (vs + ve) / 2;
+  return Math.round(Math.abs(tuned - c) < dcOffset ? tuned + dcOffset : c);
+}
+
 /** Snap distance for clicks, in screen pixels. Further away, a click tunes exactly where it lands. */
 export const SNAP_PX = 8;
 

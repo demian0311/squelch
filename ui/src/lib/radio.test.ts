@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -45,6 +45,28 @@ describe('namedFrequencies', () => {
   it('does not make a name a bookmark', () => {
     const named: BandPlan = { ...plan, bands: [{ ...plan.bands[0], names: [{ mhz: 144.39, name: 'APRS' }], bookmarks: [] }] };
     expect(allBookmarks(named)).toEqual([]);
+  });
+});
+
+describe('captureCenter', () => {
+  const half = 1_080_000;
+  const dc = 60_000;
+  it('stays put while the view and the tuned frequency fit', () => {
+    expect(captureCenter(101.4e6, 101e6, 101.5e6, 101.1e6, half, dc)).toBe(101.4e6);
+  });
+  it('moves just enough room to keep the tuned frequency when the view leaves', () => {
+    const c = captureCenter(101.4e6, 102e6, 102.8e6, 101.1e6, half, dc);
+    expect(c).toBe(101.95e6);
+    expect(Math.abs(101.1e6 - c)).toBeLessThanOrEqual(half);
+    expect(102.8e6 - c).toBeLessThanOrEqual(half);
+  });
+  it('follows the view once the tuned frequency cannot fit, and stops moving when the view fits', () => {
+    const c = captureCenter(101.4e6, 104e6, 105e6, 101.1e6, half, dc);
+    expect(c).toBe(104.5e6);
+    expect(captureCenter(c, 104.1e6, 104.9e6, 101.1e6, half, dc)).toBe(c);
+  });
+  it('keeps the tuned frequency off the DC spike', () => {
+    expect(captureCenter(90e6, 101e6, 101.2e6, 101.1e6, half, dc)).toBe(101.16e6);
   });
 });
 

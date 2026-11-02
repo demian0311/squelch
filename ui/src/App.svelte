@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
-  import { MODE_NAMES, allBookmarks, bandAt, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
@@ -147,15 +147,9 @@
     });
   }
 
-  /** Move the hardware centre when the view or the tuned frequency leaves the usable capture. */
+  /** Move the dongle only when the view or the tuned frequency leaves the usable capture. */
   function recenter() {
-    const half = rate * 0.45;
-    const inside = (f: number) => f >= center - half && f <= center + half;
-    if (!inside(vs) || !inside(ve) || !inside(tuned)) {
-      let c = (vs + ve) / 2;
-      if (Math.abs(tuned - c) < DC_OFFSET) c = tuned + DC_OFFSET;
-      center = Math.round(c);
-    }
+    center = captureCenter(center, vs, ve, tuned, rate * 0.45, DC_OFFSET);
     send();
   }
 
