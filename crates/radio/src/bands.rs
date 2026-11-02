@@ -15,6 +15,16 @@ pub struct Group {
     pub name: String,
 }
 
+/// What a frequency is for, known to the app; nobody has to save it. Written `names` on a band.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Name {
+    pub mhz: f64,
+    pub name: String,
+    #[serde(default)]
+    pub mode: Option<Mode>,
+}
+
+/// A frequency the user chose to save.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bookmark {
     pub mhz: f64,
@@ -24,16 +34,6 @@ pub struct Bookmark {
     /// Free text about the frequency ("county ambulance dispatch").
     #[serde(default)]
     pub notes: Option<String>,
-    /// Starred: listed for one-click tuning.
-    #[serde(default)]
-    pub fav: bool,
-    /// Shown on the waterfall even when nothing is on the air; written only when off.
-    #[serde(default = "yes")]
-    pub pin: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +48,8 @@ pub struct Band {
     pub start_mhz: f64,
     #[serde(default)]
     pub decoder: Option<String>,
+    #[serde(default)]
+    pub names: Vec<Name>,
     #[serde(default)]
     pub bookmarks: Vec<Bookmark>,
 }
@@ -82,6 +84,17 @@ impl BandPlan {
             std::fs::write(&path, DEFAULT_BANDS)?;
         }
         let mut text = std::fs::read_to_string(&path)?;
+        // once only: afterwards a bookmark on a shipped frequency is one the user saved
+        if let Some(done) = Self::split_path().filter(|p| !p.exists()) {
+            if let Some(split) = split_names(&text, DEFAULT_BANDS)? {
+                std::fs::write(&path, &split)?;
+                text = split;
+            }
+            if let Some(dir) = done.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(done, "")?;
+        }
         let seen_path = Self::seen_path();
         let seen = seen_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.lines().map(str::to_string).collect::<HashSet<_>>());
         if let Some(merged) = add_new_defaults(&text, DEFAULT_BANDS, seen.as_ref()) {
@@ -95,8 +108,23 @@ impl BandPlan {
             }
             std::fs::write(p, ids.join("\n"))?;
         }
-        let plan = Self::parse(&text).with_context(|| format!("in {}", path.display()))?;
+        let mut plan = Self::parse(&text).with_context(|| format!("in {}", path.display()))?;
+        plan.add_default_names(&Self::parse(DEFAULT_BANDS)?);
         Ok((plan, Some(path)))
+    }
+
+    /// A file older than `names` has none: its bands take them from the defaults, by id.
+    fn add_default_names(&mut self, defaults: &BandPlan) {
+        for band in self.bands.iter_mut().filter(|b| b.names.is_empty()) {
+            if let Some(d) = defaults.bands.iter().find(|d| d.id == band.id) {
+                band.names = d.names.clone();
+            }
+        }
+    }
+
+    /// Exists once `split_names` has run on this install's bands file.
+    fn split_path() -> Option<PathBuf> {
+        dirs::state_dir().or_else(dirs::cache_dir).map(|d| d.join("squelch").join("names_split"))
     }
 
     /// Default groups and bands this install has already offered, so one the user deleted stays deleted.
@@ -156,16 +184,6 @@ pub fn upsert_bookmark(text: &str, band_id: &str, b: &Bookmark) -> Result<String
         Some(n) => t.insert("notes", Value::from(n)),
         None => t.remove("notes"),
     };
-    if b.fav {
-        t.insert("fav", Value::from(true));
-    } else {
-        t.remove("fav");
-    }
-    if b.pin {
-        t.remove("pin");
-    } else {
-        t.insert("pin", Value::from(false));
-    }
     match &b.mode {
         Some(m) => {
             let name = toml::Value::try_from(m)?;
@@ -193,6 +211,45 @@ pub fn remove_bookmark(text: &str, band_id: &str, mhz: f64) -> Result<String> {
         list.remove(i);
     }
     Ok(doc.to_string())
+}
+
+/// Files from before `names` listed every shipped frequency as a bookmark, and a star (`fav`) or a
+/// note was the only sign the user cared about one. Drops the bookmarks identical to a default name
+/// and the `fav` and `pin` keys, leaving what the user starred, noted or wrote. `None` when nothing changes.
+pub fn split_names(user: &str, defaults: &str) -> Result<Option<String>> {
+    let defs = BandPlan::parse(defaults)?;
+    let mut doc: DocumentMut = user.parse()?;
+    let Some(bands) = doc.get_mut("band").and_then(Item::as_array_of_tables_mut) else {
+        return Ok(None);
+    };
+    let mut changed = false;
+    for band in bands.iter_mut() {
+        let names = band.get("id").and_then(Item::as_str).and_then(|id| defs.bands.iter().find(|d| d.id == id)).map_or(&[][..], |d| &d.names);
+        let Some(list) = band.get_mut("bookmarks").and_then(Item::as_array_mut) else {
+            continue;
+        };
+        let shipped = |v: &Value| {
+            let Some(t) = v.as_inline_table() else {
+                return false;
+            };
+            !t.get("fav").and_then(Value::as_bool).unwrap_or(false)
+                && !t.contains_key("notes")
+                && names.iter().any(|n| mhz_of(v).is_some_and(|m| same_mhz(m, n.mhz)) && t.get("name").and_then(Value::as_str) == Some(n.name.as_str()))
+        };
+        for i in (0..list.len()).rev() {
+            if list.get(i).is_some_and(shipped) {
+                list.remove(i);
+                changed = true;
+            } else if let Some(t) = list.get_mut(i).and_then(Value::as_inline_table_mut) {
+                changed |= t.remove("fav").is_some();
+                changed |= t.remove("pin").is_some();
+            }
+        }
+        if list.is_empty() {
+            band.remove("bookmarks");
+        }
+    }
+    Ok(changed.then(|| doc.to_string()))
 }
 
 /// Apply `edit` to the bands file and write it back through a temp file, so a crash never leaves half a file.
@@ -309,7 +366,7 @@ mod tests {
             assert!(b.start_mhz >= b.low_mhz && b.start_mhz <= b.high_mhz, "{} start outside band", b.id);
             // the R820T tuner covers roughly 24–1766 MHz
             assert!(b.low_mhz >= 24.0 && b.high_mhz <= 1766.0, "{} outside tuner range", b.id);
-            for m in &b.bookmarks {
+            for m in &b.names {
                 assert!(m.mhz >= b.low_mhz && m.mhz <= b.high_mhz, "{} bookmark {} outside band", b.id, m.name);
             }
         }
@@ -325,7 +382,7 @@ mod tests {
         let toml = doc.split("```toml\n").nth(1).and_then(|s| s.split("```").next()).unwrap();
         let plan = BandPlan::parse(toml).unwrap();
         assert_eq!(plan.bands[0].group, plan.groups[0].id);
-        assert_eq!(plan.bands[0].bookmarks.len(), 2);
+        assert_eq!(plan.bands[0].names.len(), 2);
     }
 
     /// The defaults as an older install wrote them: no Public safety group.
@@ -371,7 +428,7 @@ mod tests {
     }
 
     fn mark(mhz: f64, name: &str) -> Bookmark {
-        Bookmark { mhz, name: name.into(), mode: None, notes: None, fav: false, pin: true }
+        Bookmark { mhz, name: name.into(), mode: None, notes: None }
     }
 
     fn bookmarks(text: &str, band: &str) -> Vec<Bookmark> {
@@ -379,19 +436,47 @@ mod tests {
     }
 
     #[test]
+    fn splitting_names_keeps_only_what_the_user_chose() {
+        let defaults = "[[group]]\nid = \"g\"\nname = \"G\"\n\n[[band]]\nid = \"wx\"\ngroup = \"g\"\nname = \"W\"\nicon = \"cloud\"\nmode = \"nfm\"\nlow_mhz = 162.0\nhigh_mhz = 163.0\nstart_mhz = 162.4\nnames = [\n  { mhz = 162.4, name = \"WX1\" },\n  { mhz = 162.425, name = \"WX2\" },\n  { mhz = 162.45, name = \"WX3\" },\n  { mhz = 162.475, name = \"WX4\" },\n]\n";
+        let user = defaults.replace("names = [", "# keep me\nbookmarks = [").replace(
+            "{ mhz = 162.425, name = \"WX2\" }",
+            "{ mhz = 162.425, name = \"WX2\", fav = true }",
+        ).replace(
+            "{ mhz = 162.45, name = \"WX3\" }",
+            "{ mhz = 162.45, name = \"WX3\", notes = \"mine\", pin = false }",
+        ).replace("{ mhz = 162.475, name = \"WX4\" }", "{ mhz = 162.475, name = \"Renamed\" }");
+        let new = split_names(&user, defaults).unwrap().unwrap();
+        assert!(new.contains("# keep me") && !new.contains("fav") && !new.contains("pin"));
+        let got: Vec<String> = bookmarks(&new, "wx").into_iter().map(|b| b.name).collect();
+        assert_eq!(got, ["WX2", "WX3", "Renamed"]);
+        // a band left with no bookmarks loses the key
+        assert!(!split_names(defaults.replace("names = [", "bookmarks = [").as_str(), defaults).unwrap().unwrap().contains("bookmarks"));
+    }
+
+    #[test]
+    fn old_files_take_names_from_the_defaults() {
+        let defaults = BandPlan::parse(DEFAULT_BANDS).unwrap();
+        let mut plan = BandPlan::parse(&DEFAULT_BANDS.replace("names = [", "bookmarks = [")).unwrap();
+        assert!(plan.bands.iter().all(|b| b.names.is_empty()));
+        plan.add_default_names(&defaults);
+        let marine = plan.bands.iter().find(|b| b.id == "marine").unwrap();
+        assert!(marine.names.iter().any(|n| n.name == "Ch 16 distress"));
+    }
+
+    #[test]
     fn bookmark_edits_keep_comments_and_layout() {
         let text = DEFAULT_BANDS.replacen("[[band]]", "# my own comment\n[[band]]", 1);
+        let text = upsert_bookmark(&text, "wx", &mark(162.4, "First")).unwrap();
         let before = bookmarks(&text, "wx").len();
         let mut b = mark(162.6, "Spotter net");
         b.notes = Some("storm \"spotter\" net".into());
-        b.fav = true;
         b.mode = Some(Mode::Nfm);
         let new = upsert_bookmark(&text, "wx", &b).unwrap();
         assert!(new.contains("# my own comment"));
         let got = bookmarks(&new, "wx");
         assert_eq!(got.len(), before + 1);
         let added = got.iter().find(|m| m.name == "Spotter net").unwrap();
-        assert!(added.fav && added.mode == Some(Mode::Nfm) && added.notes.as_deref() == Some("storm \"spotter\" net"));
+        assert!(added.mode == Some(Mode::Nfm) && added.notes.as_deref() == Some("storm \"spotter\" net"));
         // the only new line is the bookmark
         assert_eq!(new.lines().count(), text.lines().count() + 1, "{new}");
         // editing in place keeps the count, and clearing fields drops their keys
@@ -399,11 +484,7 @@ mod tests {
         let got = bookmarks(&again, "wx");
         assert_eq!(got.len(), before + 1);
         let e = got.iter().find(|m| m.name == "Spotter net 2").unwrap();
-        assert!(!e.fav && e.mode.is_none() && e.notes.is_none() && e.pin);
-        // hidden from the waterfall is the only state that writes `pin`
-        let hidden = upsert_bookmark(&again, "wx", &Bookmark { pin: false, ..mark(162.6, "Spotter net 2") }).unwrap();
-        assert!(hidden.contains("pin = false") && !bookmarks(&hidden, "wx").iter().find(|m| m.name == "Spotter net 2").unwrap().pin);
-        assert!(!upsert_bookmark(&hidden, "wx", &mark(162.6, "Spotter net 2")).unwrap().contains("pin ="));
+        assert!(e.mode.is_none() && e.notes.is_none());
         // delete puts the file back
         assert_eq!(remove_bookmark(&again, "wx", 162.6).unwrap().lines().count(), text.lines().count());
         assert_eq!(bookmarks(&remove_bookmark(&again, "wx", 162.6).unwrap(), "wx").len(), before);

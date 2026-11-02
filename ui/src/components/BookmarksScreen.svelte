@@ -1,9 +1,9 @@
 <script lang="ts">
   // Every saved frequency, grouped the way the rail groups bands and in the rail's colours, over the waterfall and its
   // panel. Typing saves, and a frequency tunes and goes back to the waterfall. A lit icon says a row has that thing: the
-  // eye keeps a card on the waterfall, the note and the clock open under the row. A time belongs to a bookmark by frequency.
+  // note and the clock open under the row. A time belongs to a bookmark by frequency.
   import type { Band, BandPlan, Bookmark } from '../lib/api';
-  import { MODE_NAMES, bandShort, bookmarksByBand, favourites, fmtMHz, type Saved } from '../lib/radio';
+  import { MODE_NAMES, bandShort, bookmarksByBand, fmtMHz, type Saved } from '../lib/radio';
   import { GRACE_MS, byNext, loneSlots, newSlot, nextStart, slotsAt, type Slot } from '../lib/schedule';
   import Icon from './Icon.svelte';
   import SlotForm from './SlotForm.svelte';
@@ -35,7 +35,6 @@
     return q ? inRail.filter((s) => `${s.name} ${s.notes ?? ''} ${fmtMHz(s.mhz * 1e6)} ${s.band.name}`.toLowerCase().includes(q)) : inRail;
   });
   let groups = $derived(bookmarksByBand(plan, shown));
-  let favs = $derived(favourites(inRail));
   let nowDate = $derived(new Date(now * 1000));
   let lone = $derived(byNext(loneSlots(slots, saved), nowDate));
   const coming = (s: Slot) => !!nextStart(s, new Date(nowDate.getTime() - GRACE_MS));
@@ -63,7 +62,7 @@
   }
 
   function save(m: Saved, change: Partial<Bookmark>) {
-    const b: Bookmark = { mhz: m.mhz, name: m.name, mode: m.mode, notes: m.notes, fav: m.fav, pin: m.pin, ...change };
+    const b: Bookmark = { mhz: m.mhz, name: m.name, mode: m.mode, notes: m.notes, ...change };
     if (!b.name.trim()) b.name = fmtMHz(b.mhz * 1e6);
     onSave(m.band.id, b);
     // a time still called after the bookmark stays called after it
@@ -80,13 +79,6 @@
     <button class="close" onclick={onClose} aria-label="Back to the waterfall" title="Back to the waterfall (Esc)">×</button>
   </div>
 
-  {#if favs.length}
-    <div class="favs">
-      {#each favs as f (f.band.id + f.mhz)}
-        <button class="fav" class:sel={Math.abs(f.mhz * 1e6 - tuned) < 1_000} style:--c={hues[f.band.group]} onclick={() => onTune(f)} title="Tune here and go back to the waterfall"><Icon name="star" size={13} filled /> {f.name} <span class="mono">{fmtMHz(f.mhz * 1e6)}</span></button>
-      {/each}
-    </div>
-  {/if}
 
   {#each groups as g (g.group.id)}
     <div class="group" style:--c={hues[g.group.id]}>
@@ -99,8 +91,6 @@
         {#each b.marks as m (m.mhz)}
           {@const times = slotsAt(slots, m.mhz)}
           <div class="row" class:sel={Math.abs(m.mhz * 1e6 - tuned) < 1_000}>
-            <button class="ico" class:on={m.fav} aria-pressed={!!m.fav} aria-label="Favourite" onclick={() => save(m, { fav: !m.fav })} title={m.fav ? 'Take off the favourites' : 'Add to the favourites'}><Icon name="star" size={15} filled={!!m.fav} /></button>
-            <button class="ico" class:on={m.pin !== false} role="switch" aria-checked={m.pin !== false} aria-label="Keep on the waterfall" onclick={() => save(m, { pin: m.pin === false })} title={m.pin === false ? 'Hidden from the waterfall unless on the air. Click to always show it.' : 'Always on the waterfall. Click to hide it unless on the air.'}><Icon name={m.pin === false ? 'eyeOff' : 'eye'} size={16} /></button>
             <button class="fq mono" onclick={() => onTune(m)} title="Tune here and go back to the waterfall">{fmtMHz(m.mhz * 1e6)}</button>
             <span class="md mono">{MODE_NAMES[m.mode ?? m.band.mode]}</span>
             <input class="in name" value={m.name} aria-label="Name" onchange={(e) => save(m, { name: text(e) })} />
@@ -124,7 +114,7 @@
       {/each}
     </div>
   {:else}
-    <p class="empty">{query ? 'No bookmark matches.' : 'Nothing saved yet. Click the bookmark on any card on the waterfall to save it.'}</p>
+    <p class="empty">{query ? 'No bookmark matches.' : 'Nothing saved yet. Tune a frequency and click the bookmark beside its name in the top bar.'}</p>
   {/each}
 
   {#if lone.length}
@@ -187,34 +177,6 @@
     background: transparent;
     color: var(--fg-dim);
     cursor: pointer;
-  }
-  .favs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .fav {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid color-mix(in srgb, var(--c) 45%, var(--muted));
-    background: color-mix(in srgb, var(--c) 10%, var(--bg-light));
-    color: var(--fg-bright);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .fav :global(svg) {
-    color: var(--c);
-  }
-  .fav.sel {
-    border-color: var(--c);
-  }
-  .fav .mono {
-    font-size: 11px;
-    color: var(--fg-dim);
   }
   .group {
     display: flex;

@@ -12,10 +12,6 @@ export interface Bookmark {
   mode?: Mode | null;
   /** Free text about the frequency. */
   notes?: string | null;
-  /** Starred for one-click tuning. */
-  fav?: boolean;
-  /** Off: no card on the waterfall unless something is on the air. Absent means on. */
-  pin?: boolean;
 }
 
 export interface Band {
@@ -28,6 +24,8 @@ export interface Band {
   high_mhz: number;
   start_mhz: number;
   decoder?: string | null;
+  /** What frequencies are for, known to the app; nobody saved them. */
+  names?: { mhz: number; name: string; mode?: Mode | null }[];
   bookmarks: Bookmark[];
 }
 

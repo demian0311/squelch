@@ -2,8 +2,9 @@
 #
 # Copied to ~/.config/squelch/bands.toml on first start; edit that copy.
 # Full format: docs/bands.md in https://github.com/demian0311/squelch
-# Each band picks the mode used when you tune inside it. Bookmarks label
-# known frequencies; a bookmark can override the band's mode.
+# Each band picks the mode used when you tune inside it. `names` say what a
+# frequency is for and can override the band's mode. `bookmarks` are the ones
+# you saved; the app writes those.
 #
 # icon: radio plane cloud anchor walkie truck train wave tower pin msg balloon key mesh dish star therm siren
 # mode: wfm nfm am usb lsb none p25
@@ -49,7 +50,7 @@ mode = "am"
 low_mhz = 118.0
 high_mhz = 137.0
 start_mhz = 119.0
-bookmarks = [
+names = [
   { mhz = 121.5, name = "Emergency guard" },
 ]
 
@@ -62,7 +63,7 @@ mode = "am"
 low_mhz = 225.0
 high_mhz = 400.0
 start_mhz = 243.0
-bookmarks = [
+names = [
   { mhz = 243.0, name = "UHF emergency guard" },
 ]
 
@@ -75,7 +76,7 @@ mode = "nfm"
 low_mhz = 162.3
 high_mhz = 162.65
 start_mhz = 162.475
-bookmarks = [
+names = [
   { mhz = 162.400, name = "WX1" },
   { mhz = 162.425, name = "WX2" },
   { mhz = 162.450, name = "WX3" },
@@ -94,7 +95,7 @@ mode = "nfm"
 low_mhz = 156.0
 high_mhz = 162.1
 start_mhz = 156.8
-bookmarks = [
+names = [
   { mhz = 156.300, name = "Ch 6 safety" },
   { mhz = 156.450, name = "Ch 9 calling" },
   { mhz = 156.650, name = "Ch 13 bridge to bridge" },
@@ -113,7 +114,7 @@ mode = "am"
 low_mhz = 26.95
 high_mhz = 27.42
 start_mhz = 27.185
-bookmarks = [
+names = [
   { mhz = 27.065, name = "Ch 9 emergency" },
   { mhz = 27.185, name = "Ch 19 highway" },
   { mhz = 27.385, name = "Ch 38 sideband", mode = "lsb" },
@@ -161,7 +162,7 @@ mode = "p25"
 low_mhz = 769.0
 high_mhz = 775.0
 start_mhz = 773.79375
-bookmarks = [
+names = [
   { mhz = 773.79375, name = "Colorado statewide, site 3-55 control" },
 ]
 
@@ -186,7 +187,7 @@ mode = "usb"
 low_mhz = 28.0
 high_mhz = 29.7
 start_mhz = 28.4
-bookmarks = [
+names = [
   { mhz = 28.074, name = "FT8" },
   { mhz = 28.400, name = "Voice calling" },
   { mhz = 29.600, name = "FM calling", mode = "nfm" },
@@ -201,7 +202,7 @@ mode = "usb"
 low_mhz = 50.0
 high_mhz = 54.0
 start_mhz = 50.2
-bookmarks = [
+names = [
   { mhz = 50.125, name = "Voice calling" },
   { mhz = 50.313, name = "FT8" },
   { mhz = 52.525, name = "FM simplex", mode = "nfm" },
@@ -216,7 +217,7 @@ mode = "nfm"
 low_mhz = 144.0
 high_mhz = 148.0
 start_mhz = 146.52
-bookmarks = [
+names = [
   { mhz = 144.390, name = "APRS" },
   { mhz = 145.800, name = "Space station" },
   { mhz = 146.520, name = "Simplex calling" },
@@ -231,7 +232,7 @@ mode = "nfm"
 low_mhz = 222.0
 high_mhz = 225.0
 start_mhz = 223.5
-bookmarks = [
+names = [
   { mhz = 223.500, name = "Simplex calling" },
 ]
 
@@ -244,7 +245,7 @@ mode = "nfm"
 low_mhz = 420.0
 high_mhz = 450.0
 start_mhz = 446.0
-bookmarks = [
+names = [
   { mhz = 446.000, name = "Simplex calling" },
 ]
 
@@ -267,7 +268,7 @@ mode = "nfm"
 low_mhz = 1240.0
 high_mhz = 1300.0
 start_mhz = 1294.5
-bookmarks = [
+names = [
   { mhz = 1294.500, name = "FM simplex" },
   { mhz = 1296.100, name = "SSB calling", mode = "usb" },
 ]
@@ -284,7 +285,7 @@ low_mhz = 1088.8
 high_mhz = 1091.2
 start_mhz = 1090.0
 decoder = "adsb"
-bookmarks = [
+names = [
   { mhz = 1090.0, name = "ADS-B" },
 ]
 
@@ -298,7 +299,7 @@ low_mhz = 129.0
 high_mhz = 131.7
 start_mhz = 130.4
 decoder = "acars"
-bookmarks = [
+names = [
   { mhz = 129.125, name = "ACARS" },
   { mhz = 130.025, name = "ACARS" },
   { mhz = 130.450, name = "ACARS" },
@@ -347,7 +348,7 @@ mode = "none"
 low_mhz = 902.0
 high_mhz = 928.0
 start_mhz = 907.0
-bookmarks = [
+names = [
   { mhz = 906.875, name = "Meshtastic" },
 ]
 
@@ -362,7 +363,7 @@ mode = "nfm"
 low_mhz = 145.6
 high_mhz = 146.0
 start_mhz = 145.8
-bookmarks = [
+names = [
   { mhz = 145.800, name = "Voice and SSTV pictures" },
   { mhz = 145.825, name = "APRS" },
 ]

@@ -22,7 +22,7 @@ mode = "nfm"
 low_mhz = 145.1
 high_mhz = 147.4
 start_mhz = 146.94
-bookmarks = [
+names = [
   { mhz = 146.940, name = "W0ABC Denver" },
   { mhz = 147.225, name = "K0XYZ Boulder" },
 ]
@@ -53,7 +53,8 @@ Bands show under their group, in file order. The first nine in the rail get the 
 | `high_mhz` | yes | Top edge, in MHz. |
 | `start_mhz` | yes | Where to tune the first time the band opens. Keep it between `low_mhz` and `high_mhz`. |
 | `decoder` | no | Only `radiosonde` (the weather-balloon decoder) works. Any other value shows a "decoder is not built yet" note. Leave it out for voice bands. |
-| `bookmarks` | no | A list of named frequencies; see below. |
+| `names` | no | What frequencies in this band are for; see below. A band with none takes the shipped ones for its `id`. |
+| `bookmarks` | no | Frequencies you saved; see below. |
 
 Rules:
 
@@ -61,9 +62,9 @@ Rules:
 - One screen shows at most about 1.9 MHz. A wider band works, but you scroll to see all of it.
 - Bands can overlap. At a given frequency, the narrowest band wins: its `mode` is used and its name is shown. A small band of local repeaters inside a wider ham band therefore takes over for its range.
 
-## Bookmarks
+## Names and bookmarks
 
-A bookmark names one frequency. It goes in the `bookmarks` list of any band.
+A name says what a frequency is for. It goes in the `names` list of any band, and it needs no action from you in the app. A bookmark is a frequency you saved. The app writes `bookmarks` when you click the bookmark icon beside the name in the top bar, and hand edits stay as written.
 
 | Field | Required | Meaning |
 |---|---|---|
@@ -71,9 +72,9 @@ A bookmark names one frequency. It goes in the `bookmarks` list of any band.
 | `name` | yes | Shown on the signal's card. |
 | `mode` | no | Overrides the band's `mode` for this frequency. |
 
-A bookmark can also carry `notes = "free text"` and `fav = true` (listed under Favourites in the app). The app writes these itself when you name a frequency; hand edits stay as written.
+A bookmark can also carry `notes = "free text"`.
 
-A signal takes a bookmark's name when it is within half its own width, or within 5 kHz, of that bookmark. Bookmarks from every band apply everywhere, not only inside their own band.
+A signal takes a name when it is within half its own width, or within 5 kHz, of that frequency. A bookmark replaces a name on the same frequency. Names and bookmarks from every band apply everywhere, not only inside their own band.
 
 There is no field for a repeater's input offset or its CTCSS tone (the sub-audible tone that opens the repeater). A receiver does not need either one to listen. Put them in the `name` if you want to see them, for example `"W0ABC +0.6 100.0"`.
 

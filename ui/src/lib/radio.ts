@@ -69,16 +69,22 @@ export function allBookmarks(plan: BandPlan): Saved[] {
   return out.sort((a, b) => a.mhz - b.mhz);
 }
 
-/** The starred bookmarks, in frequency order. */
-export function favourites(saved: Saved[]): Saved[] {
-  return saved.filter((s) => s.fav);
+/** Every frequency with a name: the bookmarks, then the built-in names no bookmark replaces. */
+export function namedFrequencies(plan: BandPlan, saved: Saved[]): Saved[] {
+  const out = [...saved];
+  for (const band of plan.bands) {
+    for (const n of band.names ?? []) {
+      if (!bookmarkNear(saved, n.mhz * 1e6, 1_000)) out.push({ ...n, band });
+    }
+  }
+  return out.sort((a, b) => a.mhz - b.mhz);
 }
 
-/** Pinned bookmarks in [lo, hi] with no heard signal on them: each gets a quiet card. */
-export function quietBookmarks(saved: Saved[], lo: number, hi: number, heard: { hz: number; widthHz: number }[]): Saved[] {
-  return saved.filter((s) => {
+/** Those in [lo, hi] with no heard signal on them. */
+export function notOnAir(list: Saved[], lo: number, hi: number, heard: { hz: number; widthHz: number }[]): Saved[] {
+  return list.filter((s) => {
     const hz = s.mhz * 1e6;
-    return s.pin !== false && hz >= lo && hz <= hi && !heard.some((h) => Math.abs(h.hz - hz) <= Math.max(h.widthHz / 2, 5_000));
+    return hz >= lo && hz <= hi && !heard.some((h) => Math.abs(h.hz - hz) <= Math.max(h.widthHz / 2, 5_000));
   });
 }
 
@@ -106,9 +112,9 @@ export function bookmarkNear(saved: Saved[], hz: number, tolHz: number): Saved |
   return best;
 }
 
-/** The mode to use at `hz`: a bookmark's own mode, else the band's, else `fallback`. */
-export function modeAt(plan: BandPlan, saved: Saved[], hz: number, fallback: Mode): Mode {
-  const mark = bookmarkNear(saved, hz, 3_000);
+/** The mode to use at `hz`: a named frequency's own mode, else the band's, else `fallback`. */
+export function modeAt(plan: BandPlan, named: Saved[], hz: number, fallback: Mode): Mode {
+  const mark = bookmarkNear(named, hz, 3_000);
   if (mark?.mode) return mark.mode;
   const band = bandAt(plan, hz);
   return channelAt(band?.id, hz)?.mode ?? band?.mode ?? fallback;
@@ -130,10 +136,10 @@ export interface Signal {
   byFreq?: boolean;
 }
 
-/** Name each detected signal from the bookmarks, or describe it. */
-export function label(plan: BandPlan, saved: Saved[], d: Detected): Signal {
+/** Name each detected signal from the named frequencies, or describe it. */
+export function label(plan: BandPlan, named: Saved[], d: Detected): Signal {
   const tol = Math.max(d.width_hz / 2, 5_000);
-  const mark = bookmarkNear(saved, d.hz, tol);
+  const mark = bookmarkNear(named, d.hz, tol);
   const band = bandAt(plan, d.hz);
   const mode = mark?.mode ?? band?.mode;
   const width = d.width_hz >= 100_000 ? `${Math.round(d.width_hz / 1000)} kHz wide` : `${(d.width_hz / 1000).toFixed(1)} kHz wide`;
@@ -261,9 +267,10 @@ export interface Placed<T> {
 /**
  * Give each signal a card at its frequency. Where cards would overlap, the
  * strongest signal keeps the card and the weaker ones are folded into it.
- * `first` (the one being listened to) always wins.
+ * `first` (the one being listened to) always wins. `minSepHz` is how far apart two cards' centres must be.
  */
-export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], minSepHz: number, first?: (t: T) => boolean): Placed<T>[] {
+export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], minSepHz: number | ((a: T, b: T) => number), first?: (t: T) => boolean): Placed<T>[] {
+  const sep = typeof minSepHz === 'number' ? () => minSepHz : minSepHz;
   const order = [...items].sort((a, b) => {
     const fa = first?.(a) ? 1 : 0;
     const fb = first?.(b) ? 1 : 0;
@@ -271,7 +278,7 @@ export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], 
   });
   const placed: Placed<T>[] = [];
   for (const it of order) {
-    const hit = placed.find((p) => Math.abs(p.item.hz - it.hz) < minSepHz);
+    const hit = placed.find((p) => Math.abs(p.item.hz - it.hz) < sep(p.item, it));
     if (hit) hit.hidden.push(it);
     else placed.push({ item: it, hidden: [] });
   }
@@ -281,10 +288,10 @@ export function placeCards<T extends { hz: number; snrDb: number }>(items: T[], 
 /** Snap distance for clicks, in screen pixels. Further away, a click tunes exactly where it lands. */
 export const SNAP_PX = 8;
 
-/** Pick the frequency a click lands on: a bookmark or signal centre within SNAP_PX, else the click itself. */
-export function snapTune(hz: number, signals: Detected[], saved: Saved[], pxHz: number, mode: Mode, bandId?: string): number {
+/** Pick the frequency a click lands on: a named frequency or signal centre within SNAP_PX, else the click itself. */
+export function snapTune(hz: number, signals: Detected[], named: Saved[], pxHz: number, mode: Mode, bandId?: string): number {
   const reach = SNAP_PX * pxHz;
-  const mark = bookmarkNear(saved, hz, reach);
+  const mark = bookmarkNear(named, hz, reach);
   if (mark) return mark.mhz * 1e6;
   // on a channel plan, a click near a channel or a signal on one tunes the channel
   const ch = channelAt(bandId, hz);

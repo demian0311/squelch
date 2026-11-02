@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { allBookmarks, bandAt, bookmarksByBand, favourites, quietBookmarks, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { allBookmarks, bandAt, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -14,14 +14,14 @@ const plan: BandPlan = {
 };
 const saved = allBookmarks(plan);
 
-describe('quietBookmarks', () => {
-  const marks = allBookmarks({ ...plan, bands: [{ ...plan.bands[0], bookmarks: [{ mhz: 146.52, name: 'Calling' }, { mhz: 144.39, name: 'APRS', pin: false }, { mhz: 146.94, name: 'Club' }] }] });
-  it('keeps pinned bookmarks in view that nothing is on', () => {
-    expect(quietBookmarks(marks, 144e6, 148e6, []).map((s) => s.name)).toEqual(['Calling', 'Club']);
+describe('notOnAir', () => {
+  const marks = allBookmarks({ ...plan, bands: [{ ...plan.bands[0], bookmarks: [{ mhz: 146.52, name: 'Calling' }, { mhz: 144.39, name: 'APRS' }, { mhz: 146.94, name: 'Club' }] }] });
+  it('keeps those in view that nothing is on', () => {
+    expect(notOnAir(marks, 144e6, 148e6, []).map((s) => s.name)).toEqual(['APRS', 'Calling', 'Club']);
   });
   it('drops one with a signal on it, and one out of view', () => {
-    expect(quietBookmarks(marks, 146e6, 148e6, [{ hz: 146.5215e6, widthHz: 0 }]).map((s) => s.name)).toEqual(['Club']);
-    expect(quietBookmarks(marks, 146e6, 146.6e6, []).map((s) => s.name)).toEqual(['Calling']);
+    expect(notOnAir(marks, 146e6, 148e6, [{ hz: 146.5215e6, widthHz: 0 }]).map((s) => s.name)).toEqual(['Club']);
+    expect(notOnAir(marks, 146e6, 146.6e6, []).map((s) => s.name)).toEqual(['Calling']);
   });
 });
 
@@ -34,11 +34,17 @@ describe('bookmarksByBand', () => {
   });
 });
 
-describe('favourites', () => {
-  it('lists only starred bookmarks, in frequency order', () => {
-    const starred: BandPlan = { ...plan, bands: [{ ...plan.bands[0], bookmarks: [{ mhz: 146.52, name: 'Calling', fav: true }, { mhz: 144.39, name: 'APRS' }, { mhz: 145.5, name: 'Net', fav: true }] }] };
-    expect(favourites(allBookmarks(starred)).map((s) => s.name)).toEqual(['Net', 'Calling']);
-    expect(favourites(saved)).toEqual([]);
+describe('namedFrequencies', () => {
+  it('lists built-in names and bookmarks, and a bookmark replaces the name it sits on', () => {
+    const named: BandPlan = {
+      ...plan,
+      bands: [{ ...plan.bands[0], names: [{ mhz: 146.52, name: 'Simplex calling' }, { mhz: 144.39, name: 'APRS' }], bookmarks: [{ mhz: 146.52, name: 'My calling' }, { mhz: 145.5, name: 'Net' }] }],
+    };
+    expect(namedFrequencies(named, allBookmarks(named)).map((s) => s.name)).toEqual(['APRS', 'Net', 'My calling']);
+  });
+  it('does not make a name a bookmark', () => {
+    const named: BandPlan = { ...plan, bands: [{ ...plan.bands[0], names: [{ mhz: 144.39, name: 'APRS' }], bookmarks: [] }] };
+    expect(allBookmarks(named)).toEqual([]);
   });
 });
 
@@ -102,6 +108,8 @@ describe('card placement', () => {
     expect(p[0].hidden.map((h) => h.hz)).toEqual([100]);
   });
   it('always shows the one being listened to', () => {
+    const wide = placeCards([sig(100, 5), sig(110, 20)], (a, b) => (a.hz + b.hz > 1000 ? 5 : 50));
+    expect(wide.length).toBe(1);
     const p = placeCards([sig(100, 5), sig(110, 20)], 50, (s) => s.hz === 100);
     expect(p.map((c) => c.item.hz)).toEqual([100]);
   });
