@@ -264,10 +264,12 @@ fn run(
                     if center_moved || tuned_moved {
                         tuned = tuned_hz;
                         mixer.set(tuned - center, rate as f64);
-                        hd = hd_for(hd_program, mode, center, tuned);
-                        hd_sidebands = false;
                     }
-                    if tuned_moved {
+                    if !tuned_moved {
+                        if let (true, Some(h)) = (center_moved, &mut hd) {
+                            h.set_offset(tuned - center);
+                        }
+                    } else {
                         if let Some(a) = &audio {
                             a.clear();
                         }
@@ -279,6 +281,8 @@ fn run(
                         demod.offset_sum = 0.0;
                         demod.offset_n = 0;
                         p25 = p25_for(mode, tuned);
+                        hd = hd_for(hd_program, mode, center, tuned);
+                        hd_sidebands = false;
                     }
                 }
                 Ok(Command::SetMode(m)) => {

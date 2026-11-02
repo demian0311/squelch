@@ -248,6 +248,11 @@ impl FrontEnd {
         }
     }
 
+    /// The capture centre moved; the station stays the same, so what is decoded does not restart.
+    pub fn set_offset(&mut self, offset_hz: f64, in_rate: u32) {
+        self.mixer.set(offset_hz, in_rate as f64);
+    }
+
     /// `flat` receives interleaved I/Q at `ffi::SAMPLE_RATE`; `block` is mixed in place.
     pub fn process(&mut self, block: &mut [C32], flat: &mut Vec<f32>) {
         self.mixer.process(block);
@@ -283,7 +288,9 @@ impl AudioRate {
 
 /// Decodes one station. Dropping it stops the decoder thread.
 pub struct Hd {
-    tx: Option<SyncSender<Vec<C32>>>,
+    /// Each block travels with the station's offset when it was taken, since the queue can outlast a retune.
+    tx: Option<SyncSender<(f64, Vec<C32>)>>,
+    offset_hz: f64,
     shared: Arc<Mutex<Shared>>,
     thread: Option<JoinHandle<()>>,
     /// Revision of the images last handed out.
@@ -297,7 +304,7 @@ impl Hd {
         let shared = Arc::new(Mutex::new(Shared { play, ..Shared::default() }));
         shared.lock().unwrap().info.program = program;
         let s = shared.clone();
-        let (tx, rx) = sync_channel::<Vec<C32>>(BACKLOG);
+        let (tx, rx) = sync_channel::<(f64, Vec<C32>)>(BACKLOG);
         let thread = std::thread::Builder::new()
             .name("hd".into())
             .spawn(move || {
@@ -312,19 +319,29 @@ impl Hd {
                 };
                 let mut front = FrontEnd::new(offset_hz, in_rate);
                 let mut flat = Vec::new();
-                for mut block in rx {
+                let mut at = offset_hz;
+                for (offset, mut block) in rx {
+                    if offset != at {
+                        at = offset;
+                        front.set_offset(at, in_rate);
+                    }
                     front.process(&mut block, &mut flat);
                     session.push(&flat);
                 }
             })
             .expect("spawn hd thread");
-        Hd { tx: Some(tx), shared, thread: Some(thread), images_rev: None }
+        Hd { tx: Some(tx), offset_hz, shared, thread: Some(thread), images_rev: None }
+    }
+
+    /// The capture centre moved while the station stayed tuned.
+    pub fn set_offset(&mut self, offset_hz: f64) {
+        self.offset_hz = offset_hz;
     }
 
     /// Hand a block of the capture to the decoder.
     pub fn feed(&self, iq: &[C32]) {
         if let Some(tx) = &self.tx {
-            match tx.try_send(iq.to_vec()) {
+            match tx.try_send((self.offset_hz, iq.to_vec())) {
                 Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
             }
         }
@@ -501,6 +518,32 @@ mod tests {
     fn traffic_tile_names() {
         assert_eq!(traffic_tile("TMT_02q4cp_3_2_20261031_1304_010d.png"), Some((3, 2)));
         assert_eq!(traffic_tile("DWRO_02q4cp_20261031.png"), None);
+    }
+
+    /// Mean frequency of interleaved I/Q, skipping the filter's settling at the start.
+    fn mean_hz(flat: &[f32]) -> f64 {
+        let iq: Vec<C32> = flat.chunks_exact(2).map(|c| C32::new(c[0], c[1])).collect();
+        let late = &iq[iq.len() / 2..];
+        let turn: C32 = late.windows(2).map(|w| w[1] * w[0].conj()).sum();
+        (turn.im as f64).atan2(turn.re as f64) * ffi::SAMPLE_RATE / std::f64::consts::TAU
+    }
+
+    #[test]
+    fn a_moved_capture_keeps_the_station_where_it_was() {
+        let rate = 2_400_000u32;
+        let tone = |hz: f64, start: usize, n: usize| -> Vec<C32> {
+            (start..start + n).map(|i| C32::from_polar(1.0, (std::f64::consts::TAU * hz * i as f64 / rate as f64) as f32)).collect()
+        };
+        // a tone 50 kHz above the station, with the station 300 kHz off the centre, then 100 kHz off it
+        let mut front = FrontEnd::new(300_000.0, rate);
+        let mut flat = Vec::new();
+        front.process(&mut tone(350_000.0, 0, 240_000), &mut flat);
+        let before = mean_hz(&flat);
+        front.set_offset(100_000.0, rate);
+        front.process(&mut tone(150_000.0, 240_000, 240_000), &mut flat);
+        let after = mean_hz(&flat);
+        assert!((before - 50_000.0).abs() < 500.0, "{before} Hz before the move");
+        assert!((after - 50_000.0).abs() < 500.0, "{after} Hz after the move");
     }
 
     #[test]
