@@ -42,6 +42,8 @@ export interface Bands {
 
 /** One line of the user's repeaters file, from RepeaterBook's KML export. */
 export interface Repeater {
+  /** RepeaterBook's own, unique even when two share a frequency */
+  id: string;
   call: string;
   city: string;
   mhz: number;
@@ -318,6 +320,7 @@ export const readState = () => invoke<string>('read_state');
 export const saveState = (json: string) => invoke<void>('save_state', { json });
 export const bands = () => invoke<Bands>('bands');
 export const repeaters = (location: string) => invoke<Repeater[]>('repeaters', { location });
+export const repeatersMap = (location: string) => invoke<Repeater[]>('repeaters_map', { location });
 export const theme = () => invoke<Theme>('theme');
 export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { centerHz, tunedHz });
 export const setMode = (mode: Mode) => invoke('set_mode', { mode });

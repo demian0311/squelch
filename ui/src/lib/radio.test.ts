@@ -205,8 +205,8 @@ describe('channel plans', () => {
 });
 
 describe('repeaters', () => {
-  const k0ml = { call: 'K0ML', city: 'Northglenn', mhz: 147.045, lat: 39.886, lon: -104.987, shift: '+', tone: '123.0', modes: [] };
-  const digi = { call: 'W0DMR', city: 'Boulder', mhz: 447.0, lat: 40.015, lon: -105.27, shift: '-', tone: 'D023', modes: ['DMR'] };
+  const k0ml = { id: 'k0ml', call: 'K0ML', city: 'Northglenn', mhz: 147.045, lat: 39.886, lon: -104.987, shift: '+', tone: '123.0', modes: [] };
+  const digi = { id: 'digi', call: 'W0DMR', city: 'Boulder', mhz: 447.0, lat: 40.015, lon: -105.27, shift: '-', tone: 'D023', modes: ['DMR'] };
   const ham: BandPlan = {
     groups: [],
     bands: [...plan.bands, { id: '70cm', group: 'ham', name: '70 cm', icon: 'tower', mode: 'nfm', low_mhz: 420, high_mhz: 450, start_mhz: 446, bookmarks: [] }],

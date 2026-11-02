@@ -1,32 +1,44 @@
 <script lang="ts">
   // Repeaters around the listener: a ring of likely reach on each, the tuned one in orange.
+  import { untrack } from 'svelte';
   import type { RepeaterPoint } from '../lib/repeaters';
-  import { townLabels } from '../lib/repeaters';
+  import { RANGES_KM, townLabels } from '../lib/repeaters';
   import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
     points: RepeaterPoint[];
     reachKm: number;
-    tunedHz: number | null;
-    /** output frequencies with a signal on them now */
-    live: Set<number>;
+    tunedId: string | null;
+    /** output frequencies with a signal on them now, and how strong */
+    live: Map<number, number>;
     onTune: (hz: number) => void;
+    /** km shown from the listener to the top and bottom of the widest panel */
+    range: number;
+    onRange: (km: number) => void;
     site: Site;
     palette: Palette;
   }
-  let { points, reachKm, tunedHz, live, onTune, site, palette }: Props = $props();
+  let { points, reachKm, tunedId, live, onTune, range, onRange, site, palette }: Props = $props();
 
-  // The viewBox is in km around the listener; `slice` fills the panel and crops east and west.
-  const HALF_H_KM = 75;
-  const HALF_W_KM = 200;
-  const DISTANCES_KM = [100];
-  // dots keep their size on screen whatever the panel's
+  // The viewBox is in km around the listener; `slice` fills the panel and crops what does not fit.
+  const WIDTH_RATIO = 8 / 3;
+  // the largest ring that fits the range
+  const DISTANCES_KM = [25, 50, 100, 200, 300];
+  // dots and words keep their size on screen whatever the panel's
   const DOT_PX = 3;
   const TUNED_PX = 4;
   const HIT_PX = 9;
+  const TOWN_PX = 12;
+  const YOU_PX = 13;
+  const DIST_PX = 10;
+  let halfH = $derived(range);
+  let halfW = $derived(range * WIDTH_RATIO);
   let box = $state<DOMRectReadOnly | undefined>();
-  let kmPerPx = $derived(box?.width ? 1 / Math.max(box.width / (2 * HALF_W_KM), box.height / (2 * HALF_H_KM)) : 1);
-  let frame = $derived<Frame>({ site: { lat: site.lat, lon: site.lon }, halfWKm: HALF_W_KM, halfHKm: HALF_H_KM });
+  let kmPerPx = $derived(box?.width ? 1 / Math.max(box.width / (2 * halfW), box.height / (2 * halfH)) : 1);
+  let distanceKm = $derived(DISTANCES_KM.filter((d) => d <= range).at(-1) ?? range);
+  // the coarsest ground that covers the range changes only at its stops, so most slider moves redraw nothing
+  let level = $derived(GROUNDS.find((g) => g.halfHKm >= range) ?? GROUNDS[GROUNDS.length - 1]);
+  let frame = $derived<Frame>({ site: { lat: site.lat, lon: site.lon }, halfWKm: level.halfHKm * WIDTH_RATIO, halfHKm: level.halfHKm });
 
   // state lines and highways ship with the app; loaded on first use, then kept
   let lines = $state<Lines | null>(cachedLines);
@@ -36,30 +48,45 @@
   });
 
   // shaded terrain: best effort. Memory, then the disk cache, then drawn from tiles and saved; without tiles the lines draw alone
-  let ground = $state<string | null>(null);
+  let ground = $state<{ url: string; frame: Frame } | null>(null);
   $effect(() => {
     const f = frame;
+    const l = level;
     const p = { ...palette };
     const key = groundKey(f, p);
     let stale = false;
-    ground = groundCache.get(key) ?? null;
-    if (!ground)
+    const cached = groundCache.get(key);
+    // moving the slider keeps the old ground until the new one is ready; another place must not
+    const old = untrack(() => ground);
+    if (cached) ground = { url: cached, frame: f };
+    else if (old && (old.frame.site.lat !== f.site.lat || old.frame.site.lon !== f.site.lon)) ground = null;
+    if (!cached)
       (async () => {
         let url = await api.ground(key).catch(() => null);
         if (!url) {
-          url = await drawGround(f, p);
+          url = await drawGround(f, p, l);
           if (url) api.saveGround(key, url).catch(() => {});
         }
         if (url) groundCache.set(key, url);
-        if (!stale) ground = url;
+        if (!stale && url) ground = { url, frame: f };
       })();
     return () => (stale = true);
   });
 
-  let towns = $derived(townLabels(points, 8));
-  let tuned = $derived(points.find((p) => p.hz === tunedHz));
+  // what the panel's shape leaves on screen
+  let inView = $derived(box?.width ? points.filter((p) => Math.abs(p.x) <= (box!.width / 2) * kmPerPx && Math.abs(p.y) <= (box!.height / 2) * kmPerPx) : points);
+  let towns = $derived(townLabels(inView, 8));
+  let tuned = $derived(points.find((p) => p.id === tunedId));
   // the tuned repeater draws last, on top
-  let ordered = $derived([...points].sort((a, b) => Number(a.hz === tunedHz) - Number(b.hz === tunedHz)));
+  let ordered = $derived([...inView].sort((a, b) => Number(a.id === tunedId) - Number(b.id === tunedId)));
+  // a shared frequency: what is on the air is taken to be the nearest one, and `points` is nearest first
+  let onAir = $derived.by(() => {
+    const seen = new Set<number>();
+    return points.filter((p) => live.has(p.hz) && !seen.has(p.hz) && seen.add(p.hz));
+  });
+  let rangeAt = $derived(Math.max(0, RANGES_KM.indexOf(range)));
+  const place = (p: RepeaterPoint) => `${p.call} · ${p.city} · ${(p.hz / 1e6).toFixed(4)} MHz · ${Math.round(p.km)} km`;
+  const onAirNote = (p: RepeaterPoint) => (onAir.includes(p) ? ` · on air, ${live.get(p.hz)!.toFixed(0)} dB above the noise` : '');
 
   function onKey(e: KeyboardEvent, hz: number) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -73,9 +100,12 @@
   import * as api from '../lib/api';
   import { fromKm, mercator, shade, terrarium, tilesFor, TILE, type Lines as L, type Frame as F, type Palette as P } from '../lib/terrain';
 
-  // elevation tiles at zoom 8 are about 470 m a pixel at 40° N; the ground image is drawn at 2 px a km
-  const ZOOM = 8;
-  const PX_PER_KM = 2;
+  // elevation tiles at zoom 8 are about 470 m a pixel at 40° N, so each wider ground takes tiles one zoom out and half the pixels a km
+  const GROUNDS = [
+    { halfHKm: 75, zoom: 8, pxPerKm: 2 },
+    { halfHKm: 150, zoom: 7, pxPerKm: 1 },
+    { halfHKm: 300, zoom: 6, pxPerKm: 0.5 },
+  ];
 
   let cachedLines: L | null = null;
   async function loadLines(): Promise<L> {
@@ -93,7 +123,7 @@
     });
 
   /** The frame's shaded terrain as a PNG data URL, or null with no tiles at all. */
-  async function drawGround(f: F, palette: P): Promise<string | null> {
+  async function drawGround(f: F, palette: P, { zoom: ZOOM, pxPerKm: PX_PER_KM }: (typeof GROUNDS)[number]): Promise<string | null> {
     const tiles = tilesFor(f, ZOOM);
     const urls = await Promise.all(tiles.map((t) => api.terrainTile(ZOOM, t.x, t.y).catch(() => null)));
     if (urls.every((u) => !u)) return null;
@@ -130,55 +160,57 @@
   }
 </script>
 
-<svg bind:contentRect={box} viewBox="{-HALF_W_KM} {-HALF_H_KM} {2 * HALF_W_KM} {2 * HALF_H_KM}" preserveAspectRatio="xMidYMid slice" role="group" aria-label="Repeaters around you">
-  <rect x={-HALF_W_KM} y={-HALF_H_KM} width={2 * HALF_W_KM} height={2 * HALF_H_KM} class="ground" />
+<svg bind:contentRect={box} viewBox="{-halfW} {-halfH} {2 * halfW} {2 * halfH}" preserveAspectRatio="xMidYMid slice" role="group" aria-label="Repeaters around you. Each one tunes when pressed.">
+  <rect x={-frame.halfWKm} y={-frame.halfHKm} width={2 * frame.halfWKm} height={2 * frame.halfHKm} class="ground" />
   {#if ground}
-    <image href={ground} x={-HALF_W_KM} y={-HALF_H_KM} width={2 * HALF_W_KM} height={2 * HALF_H_KM} preserveAspectRatio="none" />
+    <image href={ground.url} x={-ground.frame.halfWKm} y={-ground.frame.halfHKm} width={2 * ground.frame.halfWKm} height={2 * ground.frame.halfHKm} preserveAspectRatio="none" />
   {/if}
   {#if paths}
     <path d={paths.minor} class="road minor" />
     <path d={paths.major} class="road major" />
     <path d={paths.states} class="state" />
   {/if}
-  {#each DISTANCES_KM as d}
-    <circle r={d} class="distance" />
-    <text x={d * 0.71 + 1.5} y={-d * 0.71 - 1.5} class="distlabel">{d} km</text>
-  {/each}
+  <circle r={distanceKm} class="distance" />
+  <text x={distanceKm * 0.71 + 2 * kmPerPx} y={-distanceKm * 0.71 - 2 * kmPerPx} class="distlabel" font-size={DIST_PX * kmPerPx}>{distanceKm} km</text>
   <!-- one ring, on the tuned repeater: a ring on every one hides the map -->
   {#if tuned}
     <circle cx={tuned.x} cy={tuned.y} r={reachKm} class="cover" />
   {/if}
   {#each towns as t (t.name)}
-    <text x={t.x + 4} y={t.y - 3} class="town">{t.name}</text>
+    <text x={t.x + 6 * kmPerPx} y={t.y - 4 * kmPerPx} class="town" font-size={TOWN_PX * kmPerPx}>{t.name}</text>
   {/each}
-  {#each ordered as p (p.hz)}
+  {#each ordered as p (p.id)}
     <g
       role="button"
       tabindex="0"
-      aria-label="{p.call}, {p.city}, {(p.hz / 1e6).toFixed(4)} MHz, {Math.round(p.km)} km{p.digital ? `, may be ${p.digital} only` : ''}"
+      aria-label="{place(p)}{onAirNote(p)}{p.digital ? `, may be ${p.digital} only` : ''}"
       onclick={() => onTune(p.hz)}
       onkeydown={(e) => onKey(e, p.hz)}
       class="rep"
       class:reach={p.reach}
       class:digital={p.digital}
-      class:tuned={p.hz === tunedHz}
+      class:tuned={p.id === tunedId}
     >
-      <title>{p.call} · {p.city} · {(p.hz / 1e6).toFixed(4)} MHz · {Math.round(p.km)} km{p.digital ? ` · may be ${p.digital} only` : ''}</title>
+      <title>{place(p)}{onAirNote(p)}{p.digital ? ` · may be ${p.digital} only` : ''}</title>
       <circle cx={p.x} cy={p.y} r={HIT_PX * kmPerPx} class="hit" />
-      <circle cx={p.x} cy={p.y} r={(p.hz === tunedHz ? TUNED_PX : DOT_PX) * kmPerPx} class="dot" />
+      <circle cx={p.x} cy={p.y} r={(p.id === tunedId ? TUNED_PX : DOT_PX) * kmPerPx} class="dot" />
     </g>
   {/each}
   <circle r={TUNED_PX * kmPerPx} class="site" />
-  <text x={TUNED_PX * kmPerPx + 2} y="1.8" class="you">You</text>
+  <text x={(TUNED_PX + 4) * kmPerPx} y={4 * kmPerPx} class="you" font-size={YOU_PX * kmPerPx}>You</text>
 </svg>
 <!-- on-air rings sit above the drawing as HTML: WebKit runs their transform and opacity on the compositor, while a ring inside the SVG repaints the whole map every frame -->
 {#if box}
   <div class="blips" aria-hidden="true">
-    {#each ordered.filter((p) => live.has(p.hz)) as p (p.hz)}
-      <span class="blip" class:tuned={p.hz === tunedHz} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"></span>
+    {#each onAir as p (p.id)}
+      <span class="blip" class:tuned={p.id === tunedId} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"><b>{p.call}</b></span>
     {/each}
   </div>
 {/if}
+<label class="range" title="How far the map shows around you">
+  <input type="range" min="0" max={RANGES_KM.length - 1} step="1" value={rangeAt} aria-label="Map range" aria-valuetext="{range} km" oninput={(e) => onRange(RANGES_KM[+e.currentTarget.value])} />
+  <span>{range} km</span>
+</label>
 <!-- outside the drawing, which `slice` crops at the sides -->
 <span class="attrib">{ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census</span>
 
@@ -234,7 +266,6 @@
     opacity: 0.6;
   }
   .distlabel {
-    font-size: 5px;
     fill: var(--fg-dim);
   }
   .cover {
@@ -247,7 +278,6 @@
     pointer-events: none;
   }
   .town {
-    font-size: 6px;
     fill: var(--fg-dim);
     pointer-events: none;
   }
@@ -301,6 +331,34 @@
   .blip.tuned {
     border-color: var(--orange);
   }
+  .blip b {
+    position: absolute;
+    left: 13px;
+    top: -4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-bright);
+    white-space: nowrap;
+  }
+  .range {
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    background: color-mix(in srgb, var(--bg-darker) 80%, transparent);
+  }
+  .range input {
+    width: 80px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
   .site {
     fill: var(--yellow);
     stroke: var(--bg-darker);
@@ -308,7 +366,6 @@
     vector-effect: non-scaling-stroke;
   }
   .you {
-    font-size: 6px;
     font-weight: 600;
     fill: var(--fg-bright);
   }

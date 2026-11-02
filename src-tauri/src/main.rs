@@ -9,7 +9,7 @@ use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
 use radio::prefs::{self, Slot};
-use radio::repeaters::{nearby, Repeater, Repeaters, NEARBY_KM};
+use radio::repeaters::{nearby, within, Repeater, Repeaters, MAP_KM, NEARBY_KM};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -191,6 +191,15 @@ fn repeaters(location: String) -> Vec<Repeater> {
     let near = radio::iss::parse_site(&location).map(|s| (s.lat, s.lon));
     let km = if radio::iss::place::state(&location).is_some() { f64::INFINITY } else { NEARBY_KM };
     nearby(list, near, km)
+}
+
+/// What the repeater map draws: further out than the channel plan, and every repeater on a shared frequency.
+#[tauri::command]
+fn repeaters_map(location: String) -> Vec<Repeater> {
+    let Some(s) = radio::iss::parse_site(&location) else { return vec![] };
+    let list = Repeaters::load().unwrap_or_default();
+    let km = if radio::iss::place::state(&location).is_some() { f64::INFINITY } else { MAP_KM };
+    within(list, (s.lat, s.lon), km)
 }
 
 #[tauri::command]
@@ -451,7 +460,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

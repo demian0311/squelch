@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
@@ -23,7 +23,7 @@
   import AircraftMap from './components/AircraftMap.svelte';
   import { adsbSummary, aircraftLine, aircraftRows, mapFrame } from './lib/adsb';
   import Level from './components/Level.svelte';
-  import { REACH_KM, repeaterPoints } from './lib/repeaters';
+  import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, liveOutputs, repeaterPoints } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
   import WalkiePanel from './components/WalkiePanel.svelte';
   import WalkieActivity from './components/WalkieActivity.svelte';
@@ -363,8 +363,10 @@
   }
 
   let repeaters = $state<api.Repeater[]>([]);
+  let mapRepeaters = $state<api.Repeater[]>([]);
   async function loadRepeaters() {
     repeaters = await api.repeaters(location);
+    mapRepeaters = await api.repeatersMap(location);
     setRepeaters(repeaters, plan.bands);
     // channel lookups aren't reactive; a new plan object recomputes everything that uses them
     plan = { ...plan };
@@ -400,28 +402,32 @@
   }
   // the repeater panel: only on bands with a reach estimate, centred on the location
   let repReachKm = $derived(band ? REACH_KM[band.id] : undefined);
-  let repInBand = $derived(band && repReachKm !== undefined ? repeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
+  let repInBand = $derived(band && repReachKm !== undefined ? mapRepeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
   let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
   let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
-  let repNear = $derived(repPoints.filter((p) => p.reach));
-  // strongest signal on each repeater's output right now
-  let repLive = $derived.by(() => {
-    const m = new Map<number, number>();
-    for (const s of status?.signals ?? []) {
-      const hz = channelAt(band?.id, s.hz)?.hz;
-      if (hz !== undefined) m.set(hz, Math.max(m.get(hz) ?? -Infinity, s.snr_db));
-    }
-    return m;
-  });
-  // on-air repeaters first, so they show in the short list under the map; both groups stay nearest first, so a row moves
-  // only when its repeater comes on or off the air. Sorting by signal strength reordered the rows on every status, and the
-  // rows' flip animation measured each one, a full page layout per row
-  let repRows = $derived(repNear.filter((p) => p !== repTuned).sort((a, b) => Number(repLive.has(b.hz)) - Number(repLive.has(a.hz))));
+  let repLive = $derived(liveOutputs(repPoints, status?.signals ?? []));
+  // the map's range, kept between runs; a stop that no longer exists falls back
+  const savedRange = store.getState('repeaters.range', DEFAULT_RANGE_KM);
+  let repRange = $state(RANGES_KM.includes(savedRange) ? savedRange : DEFAULT_RANGE_KM);
+  function setRepRange(km: number) {
+    repRange = km;
+    store.setState('repeaters.range', km);
+  }
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
-    const maybe = repPoints.filter((p) => p.digital).length;
-    return `${repNear.length} of ${repPoints.length} within ${repReachKm} km` + (maybe ? ` · dashed: ${maybe} may be digital only` : '');
+    const shown = repPoints.filter((p) => p.km <= repRange);
+    const near = shown.filter((p) => p.reach).length;
+    const maybe = shown.filter((p) => p.digital).length;
+    return `${shown.length} within ${repRange} km · filled: ${near} in reach · ${repLive.size} on air` + (maybe ? ` · dashed: ${maybe} may be digital only` : '');
   });
+  let locationInput = $state<HTMLInputElement | undefined>();
+  /** The map title's pin: Settings, with the location ready to type over. */
+  async function changeLocation() {
+    settingsOpen = true;
+    await tick();
+    locationInput?.focus({ preventScroll: true });
+    locationInput?.select();
+  }
 
   // ── weather balloons ────────────────────────────
 
@@ -892,6 +898,7 @@
       setTheme(await api.theme());
       const b = await api.bands();
       repeaters = await api.repeaters(location);
+      mapRepeaters = await api.repeatersMap(location);
       setRepeaters(repeaters, b.plan.bands);
       plan = b.plan;
       bandsPath = b.path;
@@ -1158,6 +1165,11 @@
                 {PANEL_TITLE[p]}{#if p === 'iss' && issUp}<b> • now</b>{/if}
               </button>
             {/each}
+            {#if panel === 'repeaters'}
+              <button class="maploc" onclick={changeLocation} title="Change your location in Settings">
+                <Icon name="pin" size={12} /><span>{location || 'Set location'}</span>
+              </button>
+            {/if}
           {/snippet}
           {#if panel === 'sondes'}
             <div class="pbody wrap">
@@ -1337,31 +1349,10 @@
             {#if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
-                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedHz={repTuned?.hz ?? null} live={new Set(repLive.keys())} onTune={tuneClick} site={iss.site} palette={mapPalette} />
-                  <span class="maplabel">{repTuned ? `Ring: ${repTuned.call}'s reach, about ${repReachKm} km; a guess, a mountaintop repeater reaches further` : `Filled: probably in reach, within about ${repReachKm} km`}</span>
-                </div>
-                <div class="list">
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, 'nfm')} range={repRange} onRange={setRepRange} site={iss.site} palette={mapPalette} />
                   {#if repTuned}
-                    <div class="item sel">
-                      <span class="name">{repTuned.call}</span>
-                      <span class="dim">{channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km</span>
-                      {#if repTuned.digital}<span class="warn">Listed as {repTuned.digital} too. If it is digital only, it will sound like buzzing.</span>{/if}
-                    </div>
+                    <span class="maplabel">{repTuned.call} · {channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km{repTuned.digital ? ` · may be ${repTuned.digital} only` : ''}</span>
                   {/if}
-                  {#each repRows as p (p.hz)}
-                    {@const snr = repLive.get(p.hz)}
-                    <button class="reprow chrow" class:live={snr !== undefined} onclick={() => tuneClick(p.hz)} title={snr !== undefined ? `On air, ${snr.toFixed(0)} dB above the noise` : undefined}>
-                      <span class="dot"></span>
-                      <span class="name">{p.call}</span>
-                      <span class="dim town">{p.city}</span>
-                      {#if p.digital}<span class="warn mono">{p.digital}?</span>{/if}
-                      {#if snr !== undefined}<Level pct={(snr / METER_DB) * 100} />{/if}
-                      <span class="mono">{(p.hz / 1e6).toFixed(4)}</span>
-                      <span class="mono dim">{Math.round(p.km)} km</span>
-                    </button>
-                  {:else}
-                    <p class="empty">None within {repReachKm} km of your location.</p>
-                  {/each}
                 </div>
               </div>
             {:else}
@@ -1380,7 +1371,7 @@
 {#snippet settings()}
   <label class="field">
     <span class="lbl">Location</span>
-    <input class="loc" value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
+    <input class="loc" bind:this={locationInput} value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
     <small class:err={iss?.bad_location}>{iss?.bad_location ? 'Not a US ZIP code, state or “lat, lon”.' : 'ZIP code, state, or lat, lon. Times space station passes and picks nearby repeaters.'}</small>
   </label>
   <label class="field">
@@ -1844,6 +1835,30 @@
   }
   .ptab b {
     color: var(--c);
+  }
+  .maploc {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 130px;
+    padding: 1px 4px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .maploc span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .maploc:hover,
+  .maploc:focus-visible {
+    color: var(--fg-bright);
+    background: var(--bg-light);
   }
   /* panel bodies: one card style for balloons, HD, calls and passes */
   .pbody {

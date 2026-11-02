@@ -10,7 +10,15 @@ export const REACH_KM: Record<string, number> = { '6m': 60, '2m': 50, '125': 40,
 // squelch plays analog FM only; a repeater also listed in one of these may be digital only
 const DIGITAL = ['DMR', 'P25', 'NXDN', 'D-STAR', 'M17'];
 
+/** How far the map can show around the listener, in km: the slider's stops. */
+export const RANGES_KM = [25, 50, 75, 100, 150, 200, 300];
+export const DEFAULT_RANGE_KM = 75;
+
+// a signal this close to a repeater's output is taken to be that repeater
+const ON_AIR_HZ = 5_000;
+
 export interface RepeaterPoint {
+  id: string;
   hz: number;
   call: string;
   city: string;
@@ -42,6 +50,7 @@ export function repeaterPoints(list: Repeater[], band: Band, site: { lat: number
     .map((r) => {
       const km = kmBetween(site, r);
       return {
+        id: r.id,
         hz: Math.round(r.mhz * 1e6),
         call: r.call,
         city: r.city,
@@ -53,6 +62,17 @@ export function repeaterPoints(list: Repeater[], band: Band, site: { lat: number
       };
     })
     .sort((a, b) => a.km - b.km);
+}
+
+/** Output frequencies with a signal on them now, with the strongest signal's dB above the noise. */
+export function liveOutputs(points: RepeaterPoint[], signals: { hz: number; snr_db: number }[]): Map<number, number> {
+  const live = new Map<number, number>();
+  for (const s of signals) {
+    let best: number | null = null;
+    for (const p of points) if (Math.abs(p.hz - s.hz) <= ON_AIR_HZ && (best === null || Math.abs(p.hz - s.hz) < Math.abs(best - s.hz))) best = p.hz;
+    if (best !== null) live.set(best, Math.max(live.get(best) ?? -Infinity, s.snr_db));
+  }
+  return live;
 }
 
 /** Town names to print on the map: those with the most repeaters, at the middle of their repeaters. */

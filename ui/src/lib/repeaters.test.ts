@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Band, Repeater } from './api';
-import { kmBetween, repeaterPoints, townLabels } from './repeaters';
+import { kmBetween, liveOutputs, repeaterPoints, townLabels } from './repeaters';
 
 const twoM: Band = { id: '2m', group: 'ham', name: '2 m', icon: 'tower', mode: 'nfm', low_mhz: 144, high_mhz: 148, start_mhz: 146.52, bookmarks: [] };
-const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
+const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ id: `${call}-${mhz}`, call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
 const home = { lat: 40.0, lon: -105.0 };
 
 describe('repeater map', () => {
@@ -37,5 +37,16 @@ describe('repeater map', () => {
   });
   it('measures distance on the sphere', () => {
     expect(kmBetween({ lat: 39.74, lon: -104.99 }, { lat: 40.015, lon: -105.27 })).toBeCloseTo(38.6, 0);
+  });
+});
+
+describe('liveOutputs', () => {
+  const points = repeaterPoints([rep('A', 'Boulder', 146.76, 40.0, -105.2), rep('B', 'Greeley', 146.76, 40.4, -104.7), rep('C', 'Denver', 146.7675, 39.7, -105.0)], twoM, home);
+  it('gives a signal to the closest output, keeping the strongest', () => {
+    const live = liveOutputs(points, [{ hz: 146_761_000, snr_db: 10 }, { hz: 146_759_500, snr_db: 22 }, { hz: 146_767_000, snr_db: 9 }]);
+    expect([...live]).toEqual([[146_760_000, 22], [146_767_500, 9]]);
+  });
+  it('ignores a signal away from any output', () => {
+    expect(liveOutputs(points, [{ hz: 146_900_000, snr_db: 30 }]).size).toBe(0);
   });
 });

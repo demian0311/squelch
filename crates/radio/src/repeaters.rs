@@ -89,6 +89,9 @@ pub fn km_between((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
 /// Repeaters kept around a location given as a ZIP code or "lat, lon"; a state keeps the whole file.
 pub const NEARBY_KM: f64 = 100.0;
 
+/// Repeaters the map can reach: the corner of its widest view at its longest range.
+pub const MAP_KM: f64 = 900.0;
+
 /// Merge parsed files (each with the mode its file name gives) and drop off-air entries.
 pub fn merge(files: Vec<(Option<&str>, Vec<Repeater>)>) -> Vec<Repeater> {
     let mut by_id: BTreeMap<String, Repeater> = BTreeMap::new();
@@ -121,6 +124,11 @@ pub fn nearby(list: Vec<Repeater>, near: Option<(f64, f64)>, km: f64) -> Vec<Rep
         }
     }
     by_hz.into_values().collect()
+}
+
+/// Everything within `km` of `near`, for the map: several repeaters may share an output frequency.
+pub fn within(list: Vec<Repeater>, near: (f64, f64), km: f64) -> Vec<Repeater> {
+    list.into_iter().filter(|r| km_between(near, (r.lat, r.lon)) <= km).collect()
 }
 
 impl Repeaters {
@@ -197,7 +205,13 @@ mod tests {
         let calls = |l: Vec<Repeater>| l.iter().map(|r| r.call.clone()).collect::<Vec<_>>();
         assert_eq!(calls(nearby(r.clone(), Some(denver), 400.0)), ["DIGI", "SKI", "NEAR"]);
         assert_eq!(calls(nearby(r.clone(), Some(denver), 50.0)), ["DIGI", "NEAR"]);
-        assert_eq!(calls(nearby(r, None, f64::INFINITY)), ["DIGI", "SKI", "NEAR"]);
+        assert_eq!(calls(nearby(r.clone(), None, f64::INFINITY)), ["DIGI", "SKI", "NEAR"]);
+        let mut twin = r[0].clone();
+        twin.call = "TWIN".into();
+        let both: Vec<_> = r.into_iter().chain([twin]).collect();
+        assert_eq!(calls(nearby(both.clone(), Some(denver), 400.0)).len(), 3, "one per output frequency");
+        assert_eq!(calls(within(both.clone(), denver, 400.0)).len(), both.len(), "the map keeps every one");
+        assert!(calls(within(both.clone(), denver, 50.0)).len() < both.len());
     }
 
     #[test]
