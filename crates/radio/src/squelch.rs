@@ -1,8 +1,6 @@
 //! Squelch: silences the audio while the tuned channel is weak.
 
-/// Closes this far below the opening level, so a signal sitting at the threshold doesn't chatter.
-pub const HYSTERESIS_DB: f32 = 3.0;
-/// Stays open this long after the signal drops, so pauses between words aren't cut.
+/// Stays open this long after the signal drops, so pauses between words aren't cut and a signal at the mark doesn't chatter.
 pub const HANG_SECS: f32 = 0.6;
 
 pub struct Squelch {
@@ -47,13 +45,11 @@ impl Squelch {
         if level_db >= t {
             self.open = true;
             self.below_for = 0.0;
-        } else if self.open && level_db < t - HYSTERESIS_DB {
+        } else if self.open {
             self.below_for += dt;
             if self.below_for >= HANG_SECS {
                 self.open = false;
             }
-        } else if self.open {
-            self.below_for = 0.0;
         }
     }
 
@@ -112,12 +108,22 @@ mod tests {
     }
 
     #[test]
-    fn hovering_near_the_threshold_does_not_chatter() {
+    fn just_below_the_mark_closes_after_the_hang() {
+        let mut q = Squelch::new();
+        q.set(Some(20.0));
+        run(&mut q, 18.0, HANG_SECS + 0.1);
+        assert!(!q.is_open(), "the meter reads below the mark, so it must be muted");
+    }
+
+    #[test]
+    fn dips_shorter_than_the_hang_do_not_chatter() {
         let mut q = Squelch::new();
         q.set(Some(10.0));
-        run(&mut q, 12.0, 0.1);
-        run(&mut q, 10.0 - HYSTERESIS_DB / 2.0, 3.0);
-        assert!(q.is_open());
+        for _ in 0..10 {
+            run(&mut q, 12.0, 0.1);
+            run(&mut q, 8.0, HANG_SECS / 2.0);
+            assert!(q.is_open());
+        }
     }
 
     #[test]
