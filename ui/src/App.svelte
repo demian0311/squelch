@@ -23,7 +23,7 @@
   import AircraftMap from './components/AircraftMap.svelte';
   import { adsbSummary, aircraftLine, aircraftRows, mapFrame } from './lib/adsb';
   import Level from './components/Level.svelte';
-  import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, liveOutputs, repeaterPoints } from './lib/repeaters';
+  import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
   import WalkiePanel from './components/WalkiePanel.svelte';
   import WalkieActivity from './components/WalkieActivity.svelte';
@@ -405,7 +405,12 @@
   let repInBand = $derived(band && repReachKm !== undefined ? mapRepeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
   let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
   let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
-  let repLive = $derived(liveOutputs(repPoints, status?.signals ?? []));
+  let repHeard = $state(new Map<number, HeardOutput>());
+  $effect(() => {
+    const live = liveOutputs(repPoints, status?.signals ?? []);
+    repHeard = heldOutputs(untrack(() => repHeard), live, Date.now());
+  });
+  let repLive = $derived(new Map([...repHeard].map(([hz, h]) => [hz, h.snr])));
   // the map's range, kept between runs; a stop that no longer exists falls back
   const savedRange = store.getState('repeaters.range', DEFAULT_RANGE_KM);
   let repRange = $state(RANGES_KM.includes(savedRange) ? savedRange : DEFAULT_RANGE_KM);

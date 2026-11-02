@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Band, Repeater } from './api';
-import { kmBetween, liveOutputs, repeaterPoints, townLabels } from './repeaters';
+import { heldOutputs, kmBetween, liveOutputs, repeaterPoints, townLabels } from './repeaters';
 
 const twoM: Band = { id: '2m', group: 'ham', name: '2 m', icon: 'tower', mode: 'nfm', low_mhz: 144, high_mhz: 148, start_mhz: 146.52, bookmarks: [] };
 const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ id: `${call}-${mhz}`, call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
@@ -48,5 +48,18 @@ describe('liveOutputs', () => {
   });
   it('ignores a signal away from any output', () => {
     expect(liveOutputs(points, [{ hz: 146_900_000, snr_db: 30 }]).size).toBe(0);
+  });
+});
+
+describe('heldOutputs', () => {
+  it('keeps a repeater on air through a pause, then lets it go', () => {
+    let held = heldOutputs(new Map(), new Map([[146_760_000, 20]]), 1_000);
+    held = heldOutputs(held, new Map(), 3_900);
+    expect(held.get(146_760_000)).toEqual({ snr: 20, at: 1_000 });
+    expect(heldOutputs(held, new Map(), 4_000).size).toBe(0);
+  });
+  it('a new signal restarts the hold with its level', () => {
+    const held = heldOutputs(new Map([[146_760_000, { snr: 20, at: 1_000 }]]), new Map([[146_760_000, 9]]), 2_000);
+    expect(held.get(146_760_000)).toEqual({ snr: 9, at: 2_000 });
   });
 });

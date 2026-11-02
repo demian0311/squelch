@@ -17,6 +17,14 @@ export const DEFAULT_RANGE_KM = 75;
 // a signal this close to a repeater's output is taken to be that repeater
 const ON_AIR_HZ = 5_000;
 
+// how long a repeater still counts as on air after its signal stops
+const HOLD_MS = 3_000;
+
+export interface HeardOutput {
+  snr: number;
+  at: number;
+}
+
 export interface RepeaterPoint {
   id: string;
   hz: number;
@@ -73,6 +81,13 @@ export function liveOutputs(points: RepeaterPoint[], signals: { hz: number; snr_
     if (best !== null) live.set(best, Math.max(live.get(best) ?? -Infinity, s.snr_db));
   }
   return live;
+}
+
+/** Output frequencies heard lately: a pause between words or a dropped detection must not end the rings. */
+export function heldOutputs(prev: Map<number, HeardOutput>, live: Map<number, number>, now: number): Map<number, HeardOutput> {
+  const held = new Map([...prev].filter(([, h]) => now - h.at < HOLD_MS));
+  for (const [hz, snr] of live) held.set(hz, { snr, at: now });
+  return held;
 }
 
 /** Town names to print on the map: those with the most repeaters, at the middle of their repeaters. */

@@ -84,6 +84,8 @@
     const seen = new Set<number>();
     return points.filter((p) => live.has(p.hz) && !seen.has(p.hz) && seen.add(p.hz));
   });
+  // rings run only on what can be seen
+  let ringing = $derived(onAir.filter((p) => inView.includes(p)));
   let rangeAt = $derived(Math.max(0, RANGES_KM.indexOf(range)));
   const place = (p: RepeaterPoint) => `${p.call} · ${p.city} · ${(p.hz / 1e6).toFixed(4)} MHz · ${Math.round(p.km)} km`;
   const onAirNote = (p: RepeaterPoint) => (onAir.includes(p) ? ` · on air, ${live.get(p.hz)!.toFixed(0)} dB above the noise` : '');
@@ -202,8 +204,8 @@
 <!-- on-air rings sit above the drawing as HTML: WebKit runs their transform and opacity on the compositor, while a ring inside the SVG repaints the whole map every frame -->
 {#if box}
   <div class="blips" aria-hidden="true">
-    {#each onAir as p (p.id)}
-      <span class="blip" class:tuned={p.id === tunedId} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"><b>{p.call}</b></span>
+    {#each ringing as p (p.id)}
+      <span class="blip" class:tuned={p.id === tunedId} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"><i></i><i></i><b>{p.call}</b></span>
     {/each}
   </div>
 {/if}
@@ -268,12 +270,13 @@
   .distlabel {
     fill: var(--fg-dim);
   }
+  /* a guess, and terrain decides more than distance here: barely there */
   .cover {
-    fill: var(--orange);
-    fill-opacity: 0.1;
+    fill: none;
     stroke: var(--orange);
-    stroke-opacity: 0.9;
-    stroke-width: 1.5;
+    stroke-opacity: 0.3;
+    stroke-width: 1;
+    stroke-dasharray: 2 5;
     vector-effect: non-scaling-stroke;
     pointer-events: none;
   }
@@ -312,7 +315,7 @@
   .rep:hover .dot {
     stroke: var(--fg-bright);
   }
-  /* a signal on the repeater's output: a ring around the dot. Steady, not pulsing: a running animation redraws the whole window 60 times a second here */
+  /* a signal on the repeater's output: a steady ring around the dot, for the moments between the circles */
   .blips {
     position: absolute;
     inset: 0;
@@ -324,12 +327,44 @@
     height: 12px;
     margin: -6px 0 0 -6px;
     box-sizing: border-box;
-    border: 1.5px solid var(--green);
+    color: var(--green);
+    border: 2px solid currentColor;
     border-radius: 50%;
-    opacity: 0.8;
   }
   .blip.tuned {
-    border-color: var(--orange);
+    color: var(--orange);
+  }
+  /* circles leaving the repeater; they run only while it is on air, the one endless animation in the app (cost: CLAUDE.md) */
+  .blip i {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    box-sizing: border-box;
+    width: 88px;
+    height: 88px;
+    margin: -44px 0 0 -44px;
+    border: 3px solid currentColor;
+    border-radius: 50%;
+    opacity: 0;
+    animation: ping 2.4s ease-out infinite;
+  }
+  .blip i:nth-child(2) {
+    animation-delay: 1.2s;
+  }
+  @keyframes ping {
+    from {
+      transform: scale(0.14);
+      opacity: 1;
+    }
+    to {
+      transform: scale(1);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blip i {
+      animation: none;
+    }
   }
   .blip b {
     position: absolute;
