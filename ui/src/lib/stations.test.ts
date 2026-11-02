@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { MAX_AGE_MS, TOUCH_MS, noteHeard, pickTick, stripLabels, stripTicks, type Heard } from './stations';
+import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, type Heard } from './stations';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
 const sig = (mhz: number, snr_db = 20) => ({ hz: mhz * 1e6, snr_db });
@@ -21,6 +21,14 @@ describe('noteHeard', () => {
     const list: Heard[] = [{ hz: 101.1e6, at: 1000, snrDb: 20, name: 'KOSI' }];
     expect(noteHeard(list, [sig(101.1)], new Map(), 1000 + TOUCH_MS)[0].name).toBe('KOSI');
     expect(noteHeard(list, [sig(101.1)], new Map([[101.1e6, rds('KOSI 101')]]), 1001)[0].name).toBe('KOSI 101');
+  });
+
+  it('remembers what a station plays, through a gap in RDS and across a change', () => {
+    const list = noteHeard([], [sig(101.1)], new Map([[101.1e6, { ...rds('KOSI'), pty: 'News' }]]), 1000);
+    expect(heardType(list, 101.102e6)).toBe('News');
+    expect(heardType(noteHeard(list, [sig(101.1)], new Map(), 1000 + TOUCH_MS), 101.1e6)).toBe('News');
+    expect(heardType(noteHeard(list, [sig(101.1)], new Map([[101.1e6, { ...rds('KOSI'), pty: 'Talk' }]]), 1001), 101.1e6)).toBe('Talk');
+    expect(heardType(list, 99.5e6)).toBeUndefined();
   });
 
   it('forgets stations not heard for MAX_AGE_MS', () => {

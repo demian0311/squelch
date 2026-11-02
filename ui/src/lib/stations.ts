@@ -8,6 +8,8 @@ export interface Heard {
   at: number;
   snrDb: number;
   name?: string;
+  /** What the station says it plays (RDS programme type): News, Classical. */
+  type?: string;
 }
 
 /** A station not heard for this long drops off the strip. */
@@ -32,13 +34,19 @@ export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number }
     if (Math.abs(s.hz - ch) > GRID_SLACK_HZ || s.snr_db < MIN_SNR_DB) continue;
     const r = names.get(ch);
     const name = (r && rdsName(r)) ?? undefined;
+    const type = r?.pty ?? undefined;
     const i = next.findIndex((h) => h.hz === ch);
     const old = i >= 0 ? next[i] : undefined;
-    if (old && now - old.at < TOUCH_MS && (!name || name === old.name)) continue;
-    next[i >= 0 ? i : next.length] = { hz: ch, at: now, snrDb: Math.round(s.snr_db), name: name ?? old?.name };
+    if (old && now - old.at < TOUCH_MS && (!name || name === old.name) && (!type || type === old.type)) continue;
+    next[i >= 0 ? i : next.length] = { hz: ch, at: now, snrDb: Math.round(s.snr_db), name: name ?? old?.name, type: type ?? old?.type };
     changed = true;
   }
   return changed ? next.sort((a, b) => a.hz - b.hz) : list;
+}
+
+/** What a remembered station plays, for the channel `hz` is on. */
+export function heardType(list: Heard[], hz: number): string | undefined {
+  return list.find((h) => h.hz === fmChannel(hz))?.type;
 }
 
 export interface Tick {

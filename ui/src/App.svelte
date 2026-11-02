@@ -13,7 +13,7 @@
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
-  import { noteHeard, stripTicks, type Heard } from './lib/stations';
+  import { heardType, noteHeard, stripTicks, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
@@ -272,13 +272,19 @@
     return w;
   }
 
+  // the tuned FM card's second line: what the station says it plays, from memory until RDS comes in
+  let tunedType = $derived(mode === 'wfm' ? (rdsHeard.get(fmChannel(tuned))?.pty ?? heardType(heard.fm ?? [], tuned) ?? null) : null);
+
   // last frame's card frequencies, so cards don't follow every wobble of a measured centre
   let anchors: number[] = [];
   let cards = $derived.by(() => {
     const heard = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
     const isTuned = (s: Signal) => s === listening || (!!s.quiet && Math.abs(s.hz - tuned) < 1_000);
     // a card means on air, bookmarked or special, in that order; an ordinary channel gets one only once zooming leaves room for all of them
-    const cardW = (s: Signal) => Math.min(CARD_MAX_PX, titleWidth(s.title) + CARD_PAD_PX + (s.quiet ? 0 : CARD_BAR_PX) + (bookmarkNear(saved, s.hz, Math.max(s.widthHz / 2, 5_000)) ? CARD_KEPT_PX : 0) + (isTuned(s) && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null) ? CARD_HD_PX : 0));
+    const cardW = (s: Signal) => {
+      const first = titleWidth(s.title) + CARD_PAD_PX + (s.quiet ? 0 : CARD_BAR_PX) + (bookmarkNear(saved, s.hz, Math.max(s.widthHz / 2, 5_000)) ? CARD_KEPT_PX : 0) + (isTuned(s) && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null) ? CARD_HD_PX : 0);
+      return Math.min(CARD_MAX_PX, isTuned(s) && tunedType ? Math.max(first, titleWidth(tunedType) + CARD_PAD_PX) : first);
+    };
     const quietCard = (hz: number, title: string, snrDb: number, isSaved: boolean) => ({ hz, widthHz: 0, snrDb, title, sub: 'Nothing on it now', tag: 'QUIET', saved: isSaved, channelHz: hz, quiet: true, steady: false });
     const yours = notOnAir(saved, vs, ve, heard).map((m) => quietCard(m.mhz * 1e6, m.name, -1, true));
     const special = notOnAir(named, vs, ve, heard)
@@ -1072,13 +1078,16 @@
               {/each}
               {#each fit.level < LANES.length - 1 ? cards : [] as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} style:left="{cardLeft(c.x, c.w)}px" style:width="{c.w}px" title="{fmtMHz(c.at)} MHz · {c.item.title} · {c.item.sub}" onclick={() => tuneSnapped(c.item.hz)}>
-                  {#if c.mark}<span class="kept"><Icon name="bookmark" size={10} filled /></span>{/if}
-                  <span class="ttl">{c.item.title}</span>
-                  {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
-                      <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
-                    {/if}
-                  {#if !c.item.quiet}<span class="bar"><Level pct={c.meter} width="14px" height="3px" /></span>{/if}
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} class:typed={c.selected && tunedType} style:left="{cardLeft(c.x, c.w)}px" style:width="{c.w}px" title="{fmtMHz(c.at)} MHz · {c.item.title} · {c.item.sub}" onclick={() => tuneSnapped(c.item.hz)}>
+                  <span class="line">
+                    {#if c.mark}<span class="kept"><Icon name="bookmark" size={10} filled /></span>{/if}
+                    <span class="ttl">{c.item.title}</span>
+                    {#if c.selected && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null)}
+                        <span class="hdchip" class:on={hdProgram !== null} role="switch" aria-checked={hdProgram !== null} tabindex="0" title="This station also broadcasts digitally (HD Radio). Click to cycle through its programs and back to analog." onclick={toggleHd} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggleHd(e)}>{hdProgram === null ? 'HD' : hdLabel(hdProgram)}</span>
+                      {/if}
+                    {#if !c.item.quiet}<span class="bar"><Level pct={c.meter} width="14px" height="3px" /></span>{/if}
+                  </span>
+                  {#if c.selected && tunedType}<span class="kind">{tunedType}</span>{/if}
                 </button>
               {/each}
             </div>
@@ -2103,6 +2112,28 @@
     text-align: left;
     overflow: hidden;
     transition: left 150ms;
+  }
+  .line {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  /* grows out of the lane over the spectrum, so the waterfall does not move on every tune */
+  .card.typed {
+    height: 37px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding-bottom: 3px;
+  }
+  .kind {
+    font-size: 11px;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .kept {
     flex: none;
