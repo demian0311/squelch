@@ -13,7 +13,7 @@
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
-  import { heardType, noteHeard, stripTicks, type Heard } from './lib/stations';
+  import { heardName, heardType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
@@ -42,6 +42,8 @@
   // The signal cards give way before the waterfall does: as the box gets shorter they lose their second line, then
   // their third, then only the dots stay; the spectrum line shrinks from SPEC_H to SPEC_MIN in between.
   const LANES = [34, 14];
+  // FM cards have a second line, the station's type
+  const FM_LANES = [48, 14];
   const SPEC_H = 130;
   const SPEC_MIN = 48;
   // Waterfall.svelte's frequency axis and its smallest waterfall; BandStrip.svelte's height with its border
@@ -129,11 +131,12 @@
   let span = $derived(ve - vs);
   let boxH = $state(0);
   let fit = $derived.by(() => {
-    if (!boxH) return { level: 0, lane: LANES[0], spec: SPEC_H };
+    const lanes = band?.id === 'fm' ? FM_LANES : LANES;
+    if (!boxH) return { level: 0, lane: lanes[0], spec: SPEC_H };
     const room = boxH - (band?.id === 'fm' ? BAND_STRIP_H : 0) - WF_AXIS - WF_MIN;
-    const at = LANES.findIndex((h) => room - h >= SPEC_MIN);
-    const level = at < 0 ? LANES.length - 1 : at;
-    return { level, lane: LANES[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - LANES[level])) };
+    const at = lanes.findIndex((h) => room - h >= SPEC_MIN);
+    const level = at < 0 ? lanes.length - 1 : at;
+    return { level, lane: lanes[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - lanes[level])) };
   });
 
   // ── tuning ──────────────────────────────────────────
@@ -247,9 +250,12 @@
 
   let signals = $derived<(Signal & { steady: boolean })[]>(
     withSondes(
-      withRds(
-        (status?.signals ?? []).map((d) => label(plan, named, d)),
-        rdsHeard,
+      withHeard(
+        withRds(
+          (status?.signals ?? []).map((d) => label(plan, named, d)),
+          rdsHeard,
+        ),
+        heard.fm ?? [],
       ),
       status?.sondes ?? [],
     ).map((s) => ({ ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) })),
@@ -272,8 +278,8 @@
     return w;
   }
 
-  // the tuned FM card's second line: what the station says it plays, from memory until RDS comes in
-  let tunedType = $derived(mode === 'wfm' ? (rdsHeard.get(fmChannel(tuned))?.pty ?? heardType(heard.fm ?? [], tuned) ?? null) : null);
+  // an FM card's second line: what the station says it plays, from memory until RDS comes in
+  const stationType = (hz: number) => (mode === 'wfm' ? (rdsHeard.get(fmChannel(hz))?.pty ?? heardType(heard.fm ?? [], hz) ?? null) : null);
 
   // last frame's card frequencies, so cards don't follow every wobble of a measured centre
   let anchors: number[] = [];
@@ -281,9 +287,11 @@
     const heard = signals.filter((s) => s.hz >= vs && s.hz <= ve && (showSteady || !s.steady));
     const isTuned = (s: Signal) => s === listening || (!!s.quiet && Math.abs(s.hz - tuned) < 1_000);
     // a card means on air, bookmarked or special, in that order; an ordinary channel gets one only once zooming leaves room for all of them
+    const cardType = (s: Signal) => (s.quiet && !isTuned(s) ? null : stationType(s.hz));
     const cardW = (s: Signal) => {
       const first = titleWidth(s.title) + CARD_PAD_PX + (s.quiet ? 0 : CARD_BAR_PX) + (bookmarkNear(saved, s.hz, Math.max(s.widthHz / 2, 5_000)) ? CARD_KEPT_PX : 0) + (isTuned(s) && mode === 'wfm' && (hd || status?.hd_sidebands || hdProgram !== null) ? CARD_HD_PX : 0);
-      return Math.min(CARD_MAX_PX, isTuned(s) && tunedType ? Math.max(first, titleWidth(tunedType) + CARD_PAD_PX) : first);
+      const type = cardType(s);
+      return Math.min(CARD_MAX_PX, type ? Math.max(first, titleWidth(type) + CARD_PAD_PX) : first);
     };
     const quietCard = (hz: number, title: string, snrDb: number, isSaved: boolean) => ({ hz, widthHz: 0, snrDb, title, sub: 'Nothing on it now', tag: 'QUIET', saved: isSaved, channelHz: hz, quiet: true, steady: false });
     const yours = notOnAir(saved, vs, ve, heard).map((m) => quietCard(m.mhz * 1e6, m.name, -1, true));
@@ -306,6 +314,7 @@
         at,
         x,
         w: cardW(p.item),
+        type: cardType(p.item),
         meter: Math.max(0, Math.min(100, Math.round((p.item.snrDb / 40) * 100))),
         selected: isTuned(p.item),
         mark: bookmarkNear(saved, at, Math.max(p.item.widthHz / 2, 5_000)),
@@ -496,7 +505,7 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? heardName(heard.fm ?? [], tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
@@ -1078,7 +1087,7 @@
               {/each}
               {#each fit.level < LANES.length - 1 ? cards : [] as c (c.at)}
                 <span class="stem" class:sel={c.selected} style:left="{c.x}px"></span>
-                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} class:typed={c.selected && tunedType} style:left="{cardLeft(c.x, c.w)}px" style:width="{c.w}px" title="{fmtMHz(c.at)} MHz · {c.item.title} · {c.item.sub}" onclick={() => tuneSnapped(c.item.hz)}>
+                <button class="card" class:sel={c.selected} class:hdon={c.selected && hdProgram !== null} class:quiet={c.item.quiet} class:typed={c.type} style:left="{cardLeft(c.x, c.w)}px" style:width="{c.w}px" title="{fmtMHz(c.at)} MHz · {c.item.title} · {c.item.sub}" onclick={() => tuneSnapped(c.item.hz)}>
                   <span class="line">
                     {#if c.mark}<span class="kept"><Icon name="bookmark" size={10} filled /></span>{/if}
                     <span class="ttl">{c.item.title}</span>
@@ -1087,7 +1096,7 @@
                       {/if}
                     {#if !c.item.quiet}<span class="bar"><Level pct={c.meter} width="14px" height="3px" /></span>{/if}
                   </span>
-                  {#if c.selected && tunedType}<span class="kind">{tunedType}</span>{/if}
+                  {#if c.type}<span class="kind">{c.type}</span>{/if}
                 </button>
               {/each}
             </div>
@@ -2120,7 +2129,6 @@
     align-items: center;
     gap: 4px;
   }
-  /* grows out of the lane over the spectrum, so the waterfall does not move on every tune */
   .card.typed {
     height: 37px;
     flex-direction: column;

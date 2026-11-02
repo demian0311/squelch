@@ -1,5 +1,5 @@
 import type { Rds } from './api';
-import { fmChannel, rdsName } from './radio';
+import { fmChannel, rdsName, type Signal } from './radio';
 
 /** A station heard on a band, remembered across runs so the band strip can show the whole band. */
 export interface Heard {
@@ -47,6 +47,20 @@ export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number }
 /** What a remembered station plays, for the channel `hz` is on. */
 export function heardType(list: Heard[], hz: number): string | undefined {
   return list.find((h) => h.hz === fmChannel(hz))?.type;
+}
+
+/** A remembered station's name, for the channel `hz` is on. */
+export function heardName(list: Heard[], hz: number): string | undefined {
+  return list.find((h) => h.hz === fmChannel(hz))?.name;
+}
+
+/** Names FM signals still known only by frequency from earlier runs, until RDS comes in this run. */
+export function withHeard<T extends Signal>(signals: T[], list: Heard[]): T[] {
+  return signals.map((sig) => {
+    const name = heardName(list, sig.hz);
+    if (!name || sig.saved || !sig.byFreq) return sig;
+    return { ...sig, title: `${name} ${(fmChannel(sig.hz) / 1e6).toFixed(1)}`, byFreq: false };
+  });
 }
 
 export interface Tick {

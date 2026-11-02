@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, type Heard } from './stations';
+import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, type Heard } from './stations';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
 const sig = (mhz: number, snr_db = 20) => ({ hz: mhz * 1e6, snr_db });
@@ -29,6 +29,15 @@ describe('noteHeard', () => {
     expect(heardType(noteHeard(list, [sig(101.1)], new Map(), 1000 + TOUCH_MS), 101.1e6)).toBe('News');
     expect(heardType(noteHeard(list, [sig(101.1)], new Map([[101.1e6, { ...rds('KOSI'), pty: 'Talk' }]]), 1001), 101.1e6)).toBe('Talk');
     expect(heardType(list, 99.5e6)).toBeUndefined();
+  });
+
+  it('names cards from earlier runs, but never over RDS or a bookmark', () => {
+    const list: Heard[] = [{ hz: 101.1e6, at: 1000, snrDb: 20, name: 'KOSI' }];
+    const card = { hz: 101.102e6, widthHz: 0, snrDb: 20, title: 'FM 101.1', sub: 'Wide FM', tag: 'HEARD', saved: false, byFreq: true };
+    expect(withHeard([card], list)[0].title).toBe('KOSI 101.1');
+    expect(withHeard([{ ...card, byFreq: false, title: 'KBPI 101.1' }], list)[0].title).toBe('KBPI 101.1');
+    expect(withHeard([{ ...card, saved: true, title: 'Mine' }], list)[0].title).toBe('Mine');
+    expect(withHeard([{ ...card, hz: 99.5e6 }], list)[0].title).toBe('FM 101.1');
   });
 
   it('forgets stations not heard for MAX_AGE_MS', () => {
