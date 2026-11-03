@@ -2,7 +2,7 @@
   // Repeaters around the listener: a ring of likely reach on each, the tuned one in orange.
   import { untrack } from 'svelte';
   import type { RepeaterPoint } from '../lib/repeaters';
-  import { RANGES_KM, townLabels } from '../lib/repeaters';
+  import { RANGES_KM, ringReach, townLabels } from '../lib/repeaters';
   import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -205,7 +205,7 @@
 {#if box}
   <div class="blips" aria-hidden="true">
     {#each ringing as p (p.id)}
-      <span class="blip" class:tuned={p.id === tunedId} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"><i></i><i></i><b>{p.call}</b></span>
+      <span class="blip" class:tuned={p.id === tunedId} style:left="{box.width / 2 + p.x / kmPerPx}px" style:top="{box.height / 2 + p.y / kmPerPx}px"><span class="rings" style:transform="scale({ringReach(live.get(p.hz) ?? 0)})"><i></i><i></i></span><b>{p.call}</b></span>
     {/each}
   </div>
 {/if}
@@ -335,6 +335,10 @@
     color: var(--orange);
   }
   /* circles leaving the repeater; they run only while it is on air, the one endless animation in the app (cost: CLAUDE.md) */
+  .rings {
+    position: absolute;
+    inset: 0;
+  }
   .blip i {
     position: absolute;
     left: 50%;
@@ -346,10 +350,10 @@
     border: 3px solid currentColor;
     border-radius: 50%;
     opacity: 0;
-    animation: ping 2.4s ease-out infinite;
+    animation: ping 1.8s ease-out infinite;
   }
   .blip i:nth-child(2) {
-    animation-delay: 1.2s;
+    animation-delay: 0.9s;
   }
   @keyframes ping {
     from {

@@ -19,6 +19,11 @@ const ON_AIR_HZ = 5_000;
 
 // how long a repeater still counts as on air after its signal stops
 const HOLD_MS = 3_000;
+// a reading rises at once and falls this fast, so the circles don't jump while someone talks
+const FALL_DB_PER_SEC = 3;
+// how far the on-air circles travel, by dB above the noise: [below this dB, share of their full size]
+const REACH_STEPS = [[15, 0.5], [25, 0.75], [35, 1]];
+const STRONGEST_REACH = 1.3;
 
 export interface HeardOutput {
   snr: number;
@@ -86,8 +91,16 @@ export function liveOutputs(points: RepeaterPoint[], signals: { hz: number; snr_
 /** Output frequencies heard lately: a pause between words or a dropped detection must not end the rings. */
 export function heldOutputs(prev: Map<number, HeardOutput>, live: Map<number, number>, now: number): Map<number, HeardOutput> {
   const held = new Map([...prev].filter(([, h]) => now - h.at < HOLD_MS));
-  for (const [hz, snr] of live) held.set(hz, { snr, at: now });
+  for (const [hz, snr] of live) {
+    const was = prev.get(hz);
+    held.set(hz, { snr: was ? Math.max(snr, was.snr - (FALL_DB_PER_SEC * (now - was.at)) / 1000) : snr, at: now });
+  }
   return held;
+}
+
+/** How far a repeater's on-air circles travel for a signal this many dB above the noise. */
+export function ringReach(snr: number): number {
+  return REACH_STEPS.find(([db]) => snr < db)?.[1] ?? STRONGEST_REACH;
 }
 
 /** Town names to print on the map: those with the most repeaters, at the middle of their repeaters. */
