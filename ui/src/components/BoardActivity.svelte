@@ -1,19 +1,20 @@
 <script lang="ts">
-  // When each walkie-talkie channel was on air, from the first minute listened (at most KEEP_MIN ago) to now.
+  // When each of a band's channels was on air, from the first minute listened (at most KEEP_MIN ago) to now.
   // Blank cells: that channel's side was not in the capture. Click a row to tune.
-  import { STRIPS, ago, spanText, type Activity, type ActivityRow } from '../lib/walkie';
+  import { ago, spanText, type Activity, type ActivityRow, type Board } from '../lib/board';
 
   interface Props {
+    board: Board;
     act: Activity;
     tunedKey: string | undefined;
     now: number;
     onTune: (hz: number) => void;
   }
-  let { act, tunedKey, now, onTune }: Props = $props();
+  let { board, act, tunedKey, now, onTune }: Props = $props();
 
   let groups = $derived<[string, ActivityRow[]][]>([
-    ...STRIPS.map((s): [string, ActivityRow[]] => [s.name, act.rows.filter((r) => !r.channel.input && r.channel.n >= s.from && r.channel.n <= s.to)]),
-    ['Repeater users, 5 MHz up', act.rows.filter((r) => r.channel.input)],
+    ...board.strips.map((s): [string, ActivityRow[]] => [s.name, s.keys.flatMap((k) => act.rows.filter((r) => r.channel.key === k))]),
+    ...(board.secondName ? [[board.secondName, act.rows.filter((r) => r.channel.second)] as [string, ActivityRow[]]] : []),
   ]);
   const fill = (v: number | null) => (v === null ? 'transparent' : v ? `color-mix(in srgb, var(--green) ${Math.round(30 + v * 70)}%, var(--bg-light))` : 'var(--bg-light)');
 </script>
@@ -23,7 +24,7 @@
     <h3>{name}</h3>
     {#each rows as r (r.channel.key)}
       <button class="row" class:sel={r.channel.key === tunedKey} onclick={() => onTune(r.channel.hz)}>
-        <span class="num" class:rpt={r.channel.n >= 15}>{r.channel.key}</span>
+        <span class="num" class:rpt={r.channel.dot}>{r.channel.key}</span>
         <span class="cells" style:grid-template-columns="repeat({r.cells.length}, 1fr)">
           {#each r.cells as v, i (i)}<i style:background={fill(v)}></i>{/each}
         </span>

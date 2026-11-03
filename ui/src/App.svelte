@@ -25,9 +25,9 @@
   import Level from './components/Level.svelte';
   import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
-  import WalkiePanel from './components/WalkiePanel.svelte';
-  import WalkieActivity from './components/WalkieActivity.svelte';
-  import { SHOW_AFTER_MIN, WALKIE_BANDS, activity, listened, liveWalkies, parseHistory, record, sideView, sidesIn, spanText, walkieAt, type Minute } from './lib/walkie';
+  import ChannelBoard from './components/ChannelBoard.svelte';
+  import BoardActivity from './components/BoardActivity.svelte';
+  import { BOARDS, SHOW_AFTER_MIN, activity, boardFor, channelOn, listened, liveOn, parseHistory, record, sideView, sidesIn, spanText, type Minute } from './lib/board';
 
   const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
   // a card's border and padding, its signal bar and its bookmark, each with its gap
@@ -194,11 +194,11 @@
 
   const tuneSnapped = (hz: number) => tuneCentered(snapTune(hz, status?.signals ?? [], named, span / boxW, mode, band?.id));
 
-  /** A click on a frequency: tune it and bring it to the middle; a walkie-talkie channel shows its whole side. */
+  /** A click on a frequency: tune it and bring it to the middle; a channel on a board shows its whole side. */
   function tuneClick(hz: number) {
-    if (!walkieBand || !walkieAt(hz)) return tuneCentered(hz);
+    if (!board || !channelOn(board, hz)) return tuneCentered(hz);
     tuneTo(hz);
-    const [a, b] = sideView(hz);
+    const [a, b] = sideView(board, hz);
     slideView(a, b);
   }
 
@@ -232,14 +232,15 @@
     bandId = b.id;
     panelPick = null;
     const s = Math.min(maxSpan, (b.high_mhz - b.low_mhz) * 1e6);
-    const start = bandEntryHz(b, lastHz);
+    const entering = boardFor(b.id);
+    const start = lastHz[b.id] === undefined && entering?.home ? entering.home : bandEntryHz(b, lastHz);
     let nvs = start - s / 2;
     nvs = Math.max(b.low_mhz * 1e6, Math.min(nvs, b.high_mhz * 1e6 - s));
     if (s >= (b.high_mhz - b.low_mhz) * 1e6) nvs = (b.low_mhz * 1e6 + b.high_mhz * 1e6) / 2 - s / 2;
     vs = nvs;
     ve = nvs + s;
-    // walkie-talkies: just the channels, not the empty 5 MHz around them
-    if (WALKIE_BANDS.has(b.id)) [vs, ve] = sideView(start);
+    // a band of channels: just the channels, not the empty air around them
+    if (entering) [vs, ve] = sideView(entering, start);
     tuned = Math.round(start);
     mode = modeAt(plan, named, tuned, b.mode);
     api.setMode(mode);
@@ -561,7 +562,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'walkie' | 'activity' | 'channels';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
   let panelPick = $state<PanelId | null>(null);
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
@@ -732,10 +733,10 @@
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     // decoded in the background as soon as the station shows HD sidebands
     if (hd) own.push('hd');
-    if (walkieBand) {
-      own.push('walkie');
+    if (board) {
+      own.push('board');
       // the history is worth a tab once there are a few minutes of it
-      if (walkieListened >= SHOW_AFTER_MIN) own.push('activity');
+      if (boardListened >= SHOW_AFTER_MIN) own.push('activity');
     } else if (chList.length) own.push('channels');
     // a pass overhead is worth a tab on any band, but never opens a panel by itself
     if (own.length && issUp && !own.includes('iss')) own.push('iss');
@@ -743,41 +744,46 @@
   });
   let chList = $derived(channelList(band?.id, status?.signals ?? []));
 
-  // Walkie-talkies: FRS and GMRS as one panel, and each minute's channels on air for the Activity tab
-  // (`walkie.history` in the state file, last KEEP_MIN minutes, recorded whenever a side is in the capture).
-  let walkieBand = $derived(WALKIE_BANDS.has(band?.id ?? ''));
-  let walkieSides = $derived(sidesIn(center - rate * 0.45, center + rate * 0.45));
-  let walkieLive = $derived(liveWalkies(status?.signals ?? []));
-  const walkieHist: Minute[] = parseHistory(store.getState('walkie.history', []), Date.now());
+  // Bands of channels: tiles, and each minute's channels on air for the Activity tab (`<board id>.history` in the
+  // state file, last KEEP_MIN minutes, recorded whenever a side of that band is in the capture, whichever band is open).
+  let board = $derived(boardFor(band?.id));
+  let boardSides = $derived(board ? sidesIn(board, center - rate * 0.45, center + rate * 0.45) : []);
+  let boardLive = $derived(board ? liveOn(board, status?.signals ?? []) : new Map<string, number>());
+  const boardHist = new Map<string, Minute[]>(BOARDS.map((b) => [b.id, parseHistory(store.getState(`${b.id}.history`, []), Date.now())]));
   // bumped when a minute ends, so the grid redraws once a minute and not per status
-  let walkieRev = $state(0);
-  let walkieListened = $derived.by(() => {
-    void walkieRev;
-    return listened(walkieHist);
+  let boardRev = $state(0);
+  let boardListened = $derived.by(() => {
+    void boardRev;
+    return board ? listened(boardHist.get(board.id)!, Date.now()) : 0;
   });
-  let walkieAct = $derived.by(() => {
-    void walkieRev;
-    return activity(walkieHist, Date.now());
+  let boardAct = $derived.by(() => {
+    void boardRev;
+    return board ? activity(board, boardHist.get(board.id)!, Date.now()) : { spanMin: 0, rows: [] };
   });
-  function recordWalkies(signals: { hz: number; snr_db?: number }[]) {
-    if (!walkieSides.length && !walkieHist.length) return;
-    if (record(walkieHist, Date.now(), walkieSides, liveWalkies(signals).keys())) {
-      store.setState('walkie.history', walkieHist);
-      walkieRev++;
+  function recordBoards(signals: { hz: number; snr_db?: number }[]) {
+    for (const b of BOARDS) {
+      const sides = sidesIn(b, center - rate * 0.45, center + rate * 0.45);
+      if (!sides.length) continue;
+      const hist = boardHist.get(b.id)!;
+      if (record(b, hist, Date.now(), sides, liveOn(b, signals).keys())) {
+        store.setState(`${b.id}.history`, hist);
+        boardRev++;
+      }
     }
   }
-  let walkieSummary = $derived.by(() => {
-    const busiest = walkieAct.rows.map((r) => ({ key: r.channel.key, sum: r.cells.reduce<number>((a, v) => a + (v ?? 0), 0) })).sort((a, b) => b.sum - a.sum)[0];
-    return `Last ${spanText(walkieAct.spanMin)}${busiest?.sum ? ` · busiest: ${busiest.key}` : ' · nothing heard'}`;
+  let boardSummary = $derived.by(() => {
+    const busiest = boardAct.rows.map((r) => ({ key: r.channel.name ?? r.channel.key, sum: r.cells.reduce<number>((a, v) => a + (v ?? 0), 0) })).sort((a, b) => b.sum - a.sum)[0];
+    return `Last ${spanText(boardAct.spanMin)}${busiest?.sum ? ` · busiest: ${busiest.key}` : ' · nothing heard'}`;
   });
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<PanelId, string> = { walkie: 'Walkie-talkies', activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const panelTitle = (id: PanelId) => (id === 'board' ? (board?.title ?? 'Channels') : PANEL_TITLE[id]);
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'walkie' ? chSummary : panel === 'activity' ? walkieSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
   );
 
   let wfSummary = $derived(
@@ -941,7 +947,7 @@
           if (s.hd_images) hdImages = s.hd_images;
           if (!s.hd) hdImages = [];
           if (s.hd?.digital) hdAudioAt = Date.now();
-          recordWalkies(s.signals);
+          recordBoards(s.signals);
           status = s;
         },
       );
@@ -1176,11 +1182,11 @@
 
       {#if panel}
         <button class="divider" aria-label="Resize the panel" title="Drag to give the panel or the waterfall more room" onpointerdown={startDivider}></button>
-        <Pane title={PANEL_TITLE[panel]} summary={panelSummary} accent={panelHue(panel)} maxed={maxPane === 'panel'} mini={maxPane === 'wf'} onMax={() => toggleMax(maxPane === 'wf' ? 'wf' : 'panel')}>
+        <Pane title={panelTitle(panel)} summary={panelSummary} accent={panelHue(panel)} maxed={maxPane === 'panel'} mini={maxPane === 'wf'} onMax={() => toggleMax(maxPane === 'wf' ? 'wf' : 'panel')}>
           {#snippet tabs()}
             {#each panels.filter((p) => p !== panel) as p (p)}
-              <button class="ptab" style:--c={panelHue(p)} onclick={() => (panelPick = p)} title="Also relevant now: show {PANEL_TITLE[p]}">
-                {PANEL_TITLE[p]}{#if p === 'iss' && issUp}<b> • now</b>{/if}
+              <button class="ptab" style:--c={panelHue(p)} onclick={() => (panelPick = p)} title="Also relevant now: show {panelTitle(p)}">
+                {panelTitle(p)}{#if p === 'iss' && issUp}<b> • now</b>{/if}
               </button>
             {/each}
             {#if panel === 'repeaters'}
@@ -1344,10 +1350,10 @@
                 {/if}
               </div>
             </div>
-          {:else if panel === 'walkie'}
-            <WalkiePanel live={walkieLive} {tuned} sides={walkieSides} fullDb={METER_DB} onTune={tuneClick} />
-          {:else if panel === 'activity'}
-            <WalkieActivity act={walkieAct} tunedKey={walkieAt(tuned)?.key} now={nowS * 1000} onTune={tuneClick} />
+          {:else if panel === 'board' && board}
+            <ChannelBoard {board} live={boardLive} {tuned} sides={boardSides} fullDb={METER_DB} onTune={tuneClick} />
+          {:else if panel === 'activity' && board}
+            <BoardActivity {board} act={boardAct} tunedKey={channelOn(board, tuned)?.key} now={nowS * 1000} onTune={tuneClick} />
           {:else if panel === 'channels'}
             <div class="list chlist">
               {#each chList as sec, i (i)}

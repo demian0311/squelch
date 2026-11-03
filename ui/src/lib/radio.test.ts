@@ -95,6 +95,9 @@ describe('band lookup', () => {
     expect(modeAt(plan, saved, 144.39e6, 'am')).toBe('none');
     expect(modeAt(plan, saved, 146.6e6, 'am')).toBe('nfm');
     expect(modeAt(plan, saved, 50e6, 'am')).toBe('am');
+    const cb = { ...plan, bands: [...plan.bands, { ...plan.bands[0], id: 'cb', low_mhz: 26.95, high_mhz: 27.42, mode: 'am' as const }] };
+    expect(modeAt(cb, [], 27_385_000, 'nfm')).toBe('lsb');
+    expect(modeAt(cb, [], 27_185_000, 'nfm')).toBe('am');
   });
 });
 
@@ -245,13 +248,12 @@ describe('channel list', () => {
     expect(channelList('frs_only', [])).toEqual(channelList('gmrs', []));
   });
   it('puts a plan without groups in one section', () => {
-    const [cb, ...rest] = channelList('cb', []);
-    expect(rest).toEqual([]);
-    expect(cb.group).toBeNull();
-    expect(cb.channels.length).toBe(40);
+    const sections = channelList('cb', []);
+    expect(sections.flatMap((s) => s.channels).length).toBe(40);
+    expect(sections.flatMap((s) => s.channels).find((c) => c.channel.name === 'CB 9')?.channel.group).toBe('Emergency');
   });
   it('has the five MURS channels', () => {
-    expect(channelList('murs', [])[0].channels.map((c) => c.channel.hz)).toEqual([151_820_000, 151_880_000, 151_940_000, 154_570_000, 154_600_000]);
+    expect(channelList('murs', []).flatMap((s) => s.channels).map((c) => c.channel.hz)).toEqual([151_820_000, 151_880_000, 151_940_000, 154_570_000, 154_600_000]);
   });
   it('lists nothing for bands without a fixed plan', () => {
     expect(channelList('2m', [])).toEqual([]);
@@ -279,6 +281,7 @@ describe('channel scale', () => {
     expect(t.length).toBe(40);
     const shown = t.filter((x) => x.text).map((x) => x.text);
     expect(shown.length).toBeLessThan(16);
+    expect(channelTicks('marine', 157.15e6, 157.45e6, 800).map((t) => t.text).filter(Boolean)).toContain('24');
     expect(channelTicks('fm', 88e6, 108e6, 800)).toEqual([]);
   });
 });
