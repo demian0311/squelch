@@ -22,7 +22,7 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
-  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, trackPath, type Trails } from './lib/adsb';
+  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
@@ -527,6 +527,10 @@
   // messages from the same airframe, matched on the registration both carry
   let pickedMessages = $derived(pickedPlane?.registration ? acarsList.filter((m) => m.registration === pickedPlane?.registration).slice(0, 5) : []);
   const pickPlane = (icao: string) => (planePick = planePick === icao ? null : icao);
+  let planeList = $state<HTMLElement>();
+  $effect(() => {
+    if (planePick) planeList?.scrollTo(0, 0);
+  });
 
   // the log: every flight heard, across runs
   const FLIGHT_LOG_DAYS = 60;
@@ -1314,8 +1318,8 @@
                   <span class="maplabel">{iss?.site ? 'Arrows point along the track; faded: no position for 30 s' : 'Centred on the aircraft; set your location to see distances'}</span>
                 </div>
               {/if}
-              <div class="list">
-                {#each planeRows as r (r.a.icao)}
+              <div class="list" bind:this={planeList}>
+                {#each pickedFirst(planeRows, planePick) as r (r.a.icao)}
                   <button class="reprow" class:sel={planePick === r.a.icao} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                     <span class="name">{r.name}</span>
                     <span class="dim town">{r.a.emergency ?? aircraftLine(r.a)}</span>

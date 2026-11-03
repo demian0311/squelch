@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Aircraft, Flight } from './api';
-import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, trackPath } from './adsb';
+import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath } from './adsb';
 
 const plane = (icao: string, o: Partial<Aircraft> = {}): Aircraft => ({
   icao,
@@ -53,6 +53,14 @@ describe('aircraft list', () => {
   });
   it('without a location, only by address', () => {
     expect(aircraftRows(list, null).map((r) => r.a.icao)).toEqual(['A00001', 'A00002', 'B00003', 'C00001']);
+  });
+
+  it('moves the picked plane to the top of the list', () => {
+    const rows = aircraftRows([plane('A00001'), plane('A00002'), plane('A00003')], null);
+    expect(pickedFirst(rows, 'A00003').map((r) => r.a.icao)).toEqual(['A00003', 'A00001', 'A00002']);
+    expect(pickedFirst(rows, 'A00001')).toBe(rows);
+    expect(pickedFirst(rows, null)).toBe(rows);
+    expect(pickedFirst(rows, 'FFFFFF')).toBe(rows);
   });
   it('says altitude, speed and climb', () => {
     expect(aircraftLine(plane('X', { alt_ft: 38000, speed_kt: 451.6, vrate_fpm: -1216 }))).toBe('38,000 ft · 452 kt · ↓ 1,216 ft/min');

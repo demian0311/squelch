@@ -22,6 +22,12 @@ export function aircraftRows(list: Aircraft[], site: Site | null): AircraftRow[]
     .sort((x, y) => (x.km ?? Infinity) - (y.km ?? Infinity) || x.a.icao.localeCompare(y.a.icao));
 }
 
+/** The picked row on top, so its details stay in view however the distances change. */
+export function pickedFirst(rows: AircraftRow[], icao: string | null): AircraftRow[] {
+  const i = rows.findIndex((r) => r.a.icao === icao);
+  return i < 1 ? rows : [rows[i], ...rows.slice(0, i), ...rows.slice(i + 1)];
+}
+
 export const aircraftName = (a: Aircraft) => a.callsign ?? a.registration ?? a.icao;
 
 export function fmtAlt(ft: number | null): string {
