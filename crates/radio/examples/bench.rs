@@ -39,7 +39,7 @@ fn main() {
         println!("demod {:<6}  {:>6.0} ms", format!("{mode:?}"), t.elapsed().as_secs_f64() * 1e3);
     }
     let mut sc = Scanner::new(SAMPLE_RATE, all_decoders);
-    let fake: Vec<Detected> = (0..MAX_CHANNELS).map(|i| Detected { hz: 101_000_000.0 + i as f64 * 100_000.0, width_hz: 10_000.0, snr_db: 20.0 }).collect();
+    let fake: Vec<Detected> = (0..MAX_CHANNELS).map(|i| Detected { hz: 101_000_000.0 + i as f64 * 100_000.0, width_hz: 10_000.0, snr_db: 20.0, hd: None }).collect();
     sc.retarget(101_400_000.0, &fake);
     let t = Instant::now();
     sc.process(&iq);

@@ -271,7 +271,7 @@ mod tests {
             })
             .collect();
         let mut sc = Scanner::new(rate, all_decoders);
-        sc.retarget(403_000_000.0, &[Detected { hz: 403_300_000.0, width_hz: 12_000.0, snr_db: 25.0 }]);
+        sc.retarget(403_000_000.0, &[Detected { hz: 403_300_000.0, width_hz: 12_000.0, snr_db: 25.0, hd: None }]);
         for chunk in iq.chunks(65_536) {
             sc.process(chunk);
         }

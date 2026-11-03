@@ -10,6 +10,8 @@ pub struct Detected {
     pub width_hz: f64,
     /// Peak height above the noise floor, dB.
     pub snr_db: f32,
+    /// FM only: shows HD Radio sidebands. `None`: not looked at, or too near the capture's edge to see both.
+    pub hd: Option<bool>,
 }
 
 /// Groups bins more than `threshold_db` above `floor` into signals. Gaps of up
@@ -50,7 +52,7 @@ pub fn detect(row: &[f32], floor: f32, threshold_db: f32, center_hz: f64, rate: 
             wsum += w;
             isum += w * (start + k) as f64;
         }
-        out.push(Detected { hz: hz_of(isum / wsum), width_hz: (end - start + 1) as f64 * bin_hz, snr_db: peak - floor });
+        out.push(Detected { hz: hz_of(isum / wsum), width_hz: (end - start + 1) as f64 * bin_hz, snr_db: peak - floor, hd: None });
         i = end + 1;
     }
     // the DC bin of the tuner is not a signal

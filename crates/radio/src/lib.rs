@@ -7,6 +7,7 @@ pub mod detect;
 pub mod device;
 pub mod dsp;
 pub mod engine;
+pub mod fm_list;
 pub mod hd;
 pub mod iss;
 pub mod p25;

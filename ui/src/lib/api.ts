@@ -60,6 +60,19 @@ export interface Detected {
   hz: number;
   width_hz: number;
   snr_db: number;
+  /** FM: shows HD Radio sidebands; null when not looked at or too near the capture's edge. */
+  hd?: boolean | null;
+}
+
+/** A station on the FCC's list near the location. */
+export interface FmStation {
+  hz: number;
+  call: string;
+  city: string;
+  state: string;
+  km: number;
+  /** A guess from its power and antenna height. */
+  in_reach: boolean;
 }
 
 export interface Status {
@@ -320,6 +333,7 @@ export const readState = () => invoke<string>('read_state');
 export const saveState = (json: string) => invoke<void>('save_state', { json });
 export const bands = () => invoke<Bands>('bands');
 export const repeaters = (location: string) => invoke<Repeater[]>('repeaters', { location });
+export const fmStations = (location: string) => invoke<FmStation[]>('fm_stations', { location });
 export const repeatersMap = (location: string) => invoke<Repeater[]>('repeaters_map', { location });
 export const theme = () => invoke<Theme>('theme');
 export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { centerHz, tunedHz });

@@ -26,6 +26,11 @@ pub fn state_id(name: &str) -> Option<&'static str> {
     state_line(name)?.split(' ').nth(3)
 }
 
+/// A state's two-letter code, from its code or full name.
+pub fn state_code(name: &str) -> Option<&'static str> {
+    state_line(name)?.split(' ').next()
+}
+
 fn state_line(name: &str) -> Option<&'static str> {
     let name = name.trim();
     STATES.lines().filter(|l| !l.starts_with('#')).find(|l| {
@@ -57,6 +62,7 @@ mod tests {
         assert_eq!(state_id("fl"), Some("12"));
         assert_eq!(state_id("New Mexico"), Some("35"));
         assert_eq!(state_id("33131"), None);
+        assert_eq!(state_code("new mexico"), Some("NM"));
     }
 
     #[test]

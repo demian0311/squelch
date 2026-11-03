@@ -1,4 +1,4 @@
-import type { Rds } from './api';
+import type { FmStation, Rds } from './api';
 import { fmChannel, rdsName, type Signal } from './radio';
 
 /** A station heard on a band, remembered across runs so the band strip can show the whole band. */
@@ -10,6 +10,8 @@ export interface Heard {
   name?: string;
   /** What the station says it plays (RDS programme type): News, Classical. */
   type?: string;
+  /** Last seen with HD Radio sidebands, or not. */
+  hd?: boolean;
 }
 
 /** A station not heard for this long drops off the strip. */
@@ -25,7 +27,7 @@ export const MIN_SNR_DB = 6;
  * Records FM stations among `signals` in `list`. Returns `list` itself when nothing is worth storing,
  * so the caller writes only on change.
  */
-export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number }[], names: Map<number, Rds>, now: number): Heard[] {
+export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number; hd?: boolean | null }[], names: Map<number, Rds>, now: number): Heard[] {
   let changed = false;
   const next = list.filter((h) => now - h.at <= MAX_AGE_MS);
   if (next.length !== list.length) changed = true;
@@ -37,8 +39,8 @@ export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number }
     const type = r?.pty ?? undefined;
     const i = next.findIndex((h) => h.hz === ch);
     const old = i >= 0 ? next[i] : undefined;
-    if (old && now - old.at < TOUCH_MS && (!name || name === old.name) && (!type || type === old.type)) continue;
-    next[i >= 0 ? i : next.length] = { hz: ch, at: now, snrDb: Math.round(s.snr_db), name: name ?? old?.name, type: type ?? old?.type };
+    if (old && now - old.at < TOUCH_MS && (!name || name === old.name) && (!type || type === old.type) && (s.hd == null || old.hd !== undefined)) continue;
+    next[i >= 0 ? i : next.length] = { hz: ch, at: now, snrDb: Math.round(s.snr_db), name: name ?? old?.name, type: type ?? old?.type, hd: s.hd ?? old?.hd };
     changed = true;
   }
   return changed ? next.sort((a, b) => a.hz - b.hz) : list;
@@ -55,12 +57,84 @@ export function heardName(list: Heard[], hz: number): string | undefined {
 }
 
 /** Names FM signals still known only by frequency from earlier runs, until RDS comes in this run. */
-export function withHeard<T extends Signal>(signals: T[], list: Heard[]): T[] {
+export function withHeard<T extends Signal>(signals: T[], nameAt: (hz: number) => string | undefined): T[] {
   return signals.map((sig) => {
-    const name = heardName(list, sig.hz);
+    const name = nameAt(sig.hz);
     if (!name || sig.saved || !sig.byFreq) return sig;
     return { ...sig, title: `${name} ${(fmChannel(sig.hz) / 1e6).toFixed(1)}`, byFreq: false };
   });
+}
+
+/** Stronger than this, a signal on an FM channel with no station on the list is still worth a row. */
+export const LISTED_SNR_DB = 15;
+const isChannel = (hz: number) => Math.round(hz / 100_000) % 2 === 1;
+
+/**
+ * The station on each channel near here. One the radio has named wins (a station past its guessed reach needs that
+ * to list at all), else the nearest in reach. `stations` comes nearest first. Memory is keyed by channel and knows
+ * nothing of where it was heard, so a name the list does not hold on that channel is ignored.
+ */
+export function localStations(stations: FmStation[], heard: Heard[], names: Map<number, Rds>): Map<number, FmStation> {
+  const out = new Map<number, FmStation>();
+  for (const s of stations) if (s.in_reach && !out.has(s.hz)) out.set(s.hz, s);
+  for (const s of stations) {
+    const r = names.get(s.hz);
+    if ((r && rdsName(r) === s.call) || heardName(heard, s.hz) === s.call) out.set(s.hz, s);
+  }
+  return out;
+}
+
+/** A channel's name: the list's when there is a list, else what memory holds. */
+export function localName(hasList: boolean, local: Map<number, FmStation>, heard: Heard[], hz: number): string | undefined {
+  return hasList ? local.get(fmChannel(hz))?.call : heardName(heard, hz);
+}
+
+/** What a channel plays, from memory, when memory is of this station. */
+export function localType(hasList: boolean, local: Map<number, FmStation>, heard: Heard[], hz: number): string | undefined {
+  const h = heard.find((x) => x.hz === fmChannel(hz));
+  if (!hasList) return h?.type;
+  return h?.name && h.name === local.get(fmChannel(hz))?.call ? h.type : undefined;
+}
+
+export interface DialRow {
+  hz: number;
+  title: string;
+  city?: string;
+  type?: string;
+  hd: boolean;
+  /** Live inside the capture, else the last reading; null when nothing was heard of it here. */
+  snrDb: number | null;
+  onAir: boolean;
+}
+
+/** One row per station on the dial. `since`: when this run started; older readings without a matching name may be from elsewhere. */
+export function dialRows(hasList: boolean, local: Map<number, FmStation>, heard: Heard[], signals: { hz: number; snr_db: number; hd?: boolean | null }[], names: Map<number, Rds>, since: number): DialRow[] {
+  const live = new Map<number, { snr_db: number; hd?: boolean | null }>();
+  for (const s of signals) {
+    const ch = fmChannel(s.hz);
+    if (Math.abs(s.hz - ch) <= GRID_SLACK_HZ && s.snr_db >= MIN_SNR_DB) live.set(ch, s);
+  }
+  const channels = new Set<number>(local.keys());
+  for (const [ch, s] of live) if (isChannel(ch) && (s.snr_db >= LISTED_SNR_DB || names.has(ch))) channels.add(ch);
+  if (!hasList) for (const h of heard) if (isChannel(h.hz) && (h.name || h.snrDb >= LISTED_SNR_DB)) channels.add(h.hz);
+  const rows = [...channels].map((hz): DialRow => {
+    const st = local.get(hz);
+    const r = names.get(hz);
+    const h = heard.find((x) => x.hz === hz);
+    const s = live.get(hz);
+    const mine = !!h && (!hasList || h.at >= since || (!!st && h.name === st.call));
+    const name = (r && rdsName(r)) ?? localName(hasList, local, heard, hz);
+    return {
+      hz,
+      title: name ?? `FM ${(hz / 1e6).toFixed(1)}`,
+      city: st?.city,
+      type: r?.pty ?? localType(hasList, local, heard, hz),
+      hd: s?.hd ?? (mine ? h!.hd : undefined) ?? false,
+      snrDb: s ? Math.round(s.snr_db) : mine ? h!.snrDb : null,
+      onAir: !!s,
+    };
+  });
+  return rows.sort((a, b) => a.hz - b.hz);
 }
 
 export interface Tick {

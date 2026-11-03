@@ -13,7 +13,8 @@
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
-  import { heardName, heardType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
+  import StationList from './components/StationList.svelte';
+  import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
@@ -249,6 +250,17 @@
 
   // ── signals ─────────────────────────────────────────
 
+  // the FCC's stations near the location; with them, memory counts only where it agrees
+  let fmNearby = $state<api.FmStation[]>([]);
+  $effect(() => {
+    const at = location;
+    api.fmStations(at).then((list) => {
+      if (at === location) fmNearby = list;
+    });
+  });
+  let fmLocal = $derived(localStations(fmNearby, heard.fm ?? [], rdsHeard));
+  const stationName = (hz: number) => localName(fmNearby.length > 0, fmLocal, heard.fm ?? [], hz);
+
   let signals = $derived<(Signal & { steady: boolean })[]>(
     withSondes(
       withHeard(
@@ -256,7 +268,7 @@
           (status?.signals ?? []).map((d) => label(plan, named, d)),
           rdsHeard,
         ),
-        heard.fm ?? [],
+        (hz) => stationName(hz),
       ),
       status?.sondes ?? [],
     ).map((s) => ({ ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) })),
@@ -280,7 +292,7 @@
   }
 
   // an FM card's second line: what the station says it plays, from memory until RDS comes in
-  const stationType = (hz: number) => (mode === 'wfm' ? (rdsHeard.get(fmChannel(hz))?.pty ?? heardType(heard.fm ?? [], hz) ?? null) : null);
+  const stationType = (hz: number) => (mode === 'wfm' ? (rdsHeard.get(fmChannel(hz))?.pty ?? localType(fmNearby.length > 0, fmLocal, heard.fm ?? [], hz) ?? null) : null);
 
   // last frame's card frequencies, so cards don't follow every wobble of a measured centre
   let anchors: number[] = [];
@@ -518,7 +530,6 @@
   // digital audio drops out for a moment on a weak signal; hold the speaker lit through that
   let hdAudioAt = $state(0);
   let hdAudio = $derived(!!hd && (hd.digital || nowS * 1000 - hdAudioAt < HD_AUDIO_HOLD_MS));
-  let hdSummary = $derived(hd ? [hd.name, hd.title && [hd.title, hd.artist].filter(Boolean).join(' — '), hd.error].filter(Boolean).join(' · ') : '');
   function setHdProgram(p: number | null) {
     const key = String(fmChannel(tuned));
     const next = { ...hdPrefs };
@@ -532,7 +543,7 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? heardName(heard.fm ?? [], tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     muted ? 'Muted — signal is below the squelch level' :
@@ -562,7 +573,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'stations' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
   let panelPick = $state<PanelId | null>(null);
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
@@ -723,6 +734,8 @@
     bandsPath = nb.path;
     bandsError = nb.error;
   }
+  let dial = $derived(band?.mode === 'wfm' ? dialRows(fmNearby.length > 0, fmLocal, heard.fm ?? [], status?.signals ?? [], rdsHeard, startedAt) : []);
+  let dialSummary = $derived(`${dial.filter((r) => r.hz >= vs && r.hz <= ve).length} in view · ${dial.length} in all`);
   let panels = $derived.by(() => {
     const own: PanelId[] = [];
     if (band?.id === 'iss') own.push('iss');
@@ -731,8 +744,9 @@
     if (adsbOn) own.push('aircraft');
     if (p25) own.push('p25');
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
-    // decoded in the background as soon as the station shows HD sidebands
-    if (hd) own.push('hd');
+    if (band?.mode === 'wfm') own.push('stations');
+    // what HD stations send besides audio, once there is some
+    if (hdTraffic || hdWeather) own.push('hd');
     if (board) {
       own.push('board');
       // the history is worth a tab once there are a few minutes of it
@@ -778,12 +792,12 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', hd: 'HD Radio', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', stations: 'Stations', hd: 'Traffic and weather', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
   const panelTitle = (id: PanelId) => (id === 'board' ? (board?.title ?? 'Channels') : PANEL_TITLE[id]);
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'hd' ? hdSummary : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'stations' ? dialSummary : panel === 'hd' ? (hd?.name ?? '') : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
   );
 
   let wfSummary = $derived(
@@ -1249,40 +1263,48 @@
                 {/each}
               </div>
             </div>
-          {:else if panel === 'hd' && hd}
-            <div class="pbody hdbody">
-              <div class="col">
-                <div class="item">
+          {:else if panel === 'stations'}
+            <div class="stationsbody">
+              {#if hd}
+                <div class="hdnow">
                   {#if hdPicture}
-                    <img class="hdpic" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />
+                    <img class="hdart" src={hdPicture.data_url} alt={hdPicture.kind === 'art' ? 'Album art' : 'Station logo'} />
                   {:else if hd.incoming !== null}
-                    <div class="hdwait" title="A picture is arriving"><Icon name="image" size={36} /></div>
+                    <div class="hdart hdwait" title="A picture is arriving"><Icon name="image" size={20} /></div>
                   {/if}
-                  {#if hd.incoming !== null}<div class="hdload" title="Picture {Math.round(hd.incoming * 100)}% here"><span style:width="{hd.incoming * 100}%"></span></div>{/if}
-                  {#if hd.name}<span class="name">{hd.name}</span>{/if}
-                  {#if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
-                  {#if hd.title}<span class="big">{hd.title}</span>{/if}
-                  {#if hd.artist || hd.album}<span>{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{/if}
-                  {#if hd.error}
-                    <span class="dim">{hd.error}</span>
-                  {:else}
-                    <span class="hdstat" title={hdState({ ...hd, digital: hdAudio }, hdProgram !== null)}>
-                      <span class="step" class:on={hd.synced} class:seek={!hd.synced}><Icon name="tower" size={20} /></span>
-                      <span class="step" class:on={hdAudio} class:live={hdAudio && hdProgram !== null}><Icon name="speaker" size={20} /></span>
-                      <Level pct={hd.synced && hd.mer_db !== null ? ((hd.mer_db - HD_MER_DB[0]) / (HD_MER_DB[1] - HD_MER_DB[0])) * 100 : 0} width="110px" height="10px" />
-                    </span>
-                  {/if}
-                  {#if hd.message}<span class="dim">{hd.message}</span>{/if}
-                </div>
-                {#if hd.synced}
-                  <div class="hdprogs">
-                    <button class:sel={hdProgram === null} onclick={() => setHdProgram(null)} title="Analog FM">FM</button>
-                    {#each hd.programs.length ? hd.programs : [0] as p}
-                      <button class:sel={p === hdProgram} onclick={() => setHdProgram(p)} title="Digital program {p + 1}">{hdLabel(p)}</button>
-                    {/each}
+                  <div class="hdtext">
+                    {#if hd.title}<span class="big">{hd.title}</span>{:else if hd.name}<span class="name">{hd.name}</span>{/if}
+                    {#if hd.artist || hd.album}<span class="dim">{[hd.artist, hd.album].filter(Boolean).join(' · ')}</span>{:else if hd.slogan}<span class="dim">{hd.slogan}</span>{/if}
+                    {#if hd.error}<span class="dim">{hd.error}</span>{/if}
+                    {#if hd.message}<span class="dim">{hd.message}</span>{/if}
+                    {#if hd.incoming !== null}<div class="hdload" title="Picture {Math.round(hd.incoming * 100)}% here"><span style:width="{hd.incoming * 100}%"></span></div>{/if}
                   </div>
-                {/if}
-              </div>
+                  <div class="hdside">
+                    {#if !hd.error}
+                      <span class="hdstat" title={hdState({ ...hd, digital: hdAudio }, hdProgram !== null)}>
+                        <span class="step" class:on={hd.synced} class:seek={!hd.synced}><Icon name="tower" size={16} /></span>
+                        <span class="step" class:on={hdAudio} class:live={hdAudio && hdProgram !== null}><Icon name="speaker" size={16} /></span>
+                        <Level pct={hd.synced && hd.mer_db !== null ? ((hd.mer_db - HD_MER_DB[0]) / (HD_MER_DB[1] - HD_MER_DB[0])) * 100 : 0} width="70px" height="8px" />
+                      </span>
+                    {/if}
+                    {#if hd.synced}
+                      <div class="hdprogs">
+                        <button class:sel={hdProgram === null} onclick={() => setHdProgram(null)} title="Analog FM">FM</button>
+                        {#each hd.programs.length ? hd.programs : [0] as p}
+                          <button class:sel={p === hdProgram} onclick={() => setHdProgram(p)} title="Digital program {p + 1}">{hdLabel(p)}</button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+              <StationList rows={dial} {hue} {tuned} {vs} {ve} meterDb={METER_DB} onTune={tuneCentered} />
+              {#if !fmNearby.length}
+                <button class="dialhint" onclick={changeLocation}>Set your location to list every station near you</button>
+              {/if}
+            </div>
+          {:else if panel === 'hd'}
+            <div class="pbody hdbody">
               {#if hdTraffic}
                 <div class="col">
                   <h2>Traffic</h2>
@@ -2243,6 +2265,69 @@
       0 0 16px 3px color-mix(in srgb, var(--orange) 50%, transparent);
   }
   /* one column: the station card, then traffic, then weather */
+  .stationsbody {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .hdnow {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--muted);
+  }
+  .hdart {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 6px;
+    object-fit: cover;
+  }
+  .hdtext {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .hdtext span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hdtext .big {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--hue);
+  }
+  .hdtext .dim {
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .hdside {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .dialhint {
+    flex: none;
+    padding: 8px 12px;
+    border: 0;
+    border-top: 1px solid var(--muted);
+    border-radius: 0;
+    background: none;
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
   .hdbody {
     display: flex;
     flex-direction: column;

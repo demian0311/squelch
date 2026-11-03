@@ -177,6 +177,18 @@ pub fn drop_sidebands(signals: &mut Vec<Detected>) {
 
 /// Whether the averaged spectrum `row` shows digital sidebands around `station_hz`.
 pub fn sidebands(row: &[f32], floor: f32, center: f64, station_hz: f64, rate: f64) -> bool {
+    sidebands_seen(row, floor, center, station_hz, rate) == Some(true)
+}
+
+/// Marks each signal in `signals` with whether it shows sidebands, on the FM channel it sits on.
+pub fn mark_sidebands(signals: &mut [Detected], row: &[f32], floor: f32, center: f64, rate: f64) {
+    for s in signals {
+        s.hd = sidebands_seen(row, floor, center, (s.hz / 100_000.0).round() * 100_000.0, rate);
+    }
+}
+
+/// Like `sidebands`, but `None` when one side falls outside the capture.
+fn sidebands_seen(row: &[f32], floor: f32, center: f64, station_hz: f64, rate: f64) -> Option<bool> {
     let n = row.len();
     let bin_hz = rate / n as f64;
     let bin = |f: f64| ((f - center) / bin_hz + n as f64 / 2.0).round();
@@ -184,12 +196,14 @@ pub fn sidebands(row: &[f32], floor: f32, center: f64, station_hz: f64, rate: f6
         let (a, b) = (bin(station_hz + sign * SIDEBAND_HZ.0), bin(station_hz + sign * SIDEBAND_HZ.1));
         let (lo, hi) = (a.min(b), a.max(b));
         if lo < 0.0 || hi >= n as f64 {
-            return false;
+            return None;
         }
         let p: f32 = row[lo as usize..=hi as usize].iter().map(|db| 10f32.powf(db / 10.0)).sum::<f32>() / (hi - lo + 1.0) as f32;
-        10.0 * p.log10() - floor >= SIDEBAND_DB
+        Some(10.0 * p.log10() - floor >= SIDEBAND_DB)
     };
-    side(-1.0) && side(1.0)
+    // both, so a quiet side doesn't answer for one off the capture
+    let (low, high) = (side(-1.0)?, side(1.0)?);
+    Some(low && high)
 }
 
 /// Fractional resampler, 4-point cubic (Catmull-Rom). Good enough when the signal fills at most half the band.
@@ -497,7 +511,7 @@ mod tests {
 
     #[test]
     fn sidebands_fold_into_their_station() {
-        let sig = |mhz: f64, snr_db: f32| Detected { hz: mhz * 1e6, width_hz: 70_000.0, snr_db };
+        let sig = |mhz: f64, snr_db: f32| Detected { hz: mhz * 1e6, width_hz: 70_000.0, snr_db, hd: None };
         // 106.7 with sidebands, a real neighbour at 106.9, and a lone weak signal off-grid
         let mut v = vec![sig(106.537, 12.0), sig(106.7, 30.0), sig(106.863, 12.0), sig(106.9, 10.0), sig(105.45, 8.0)];
         drop_sidebands(&mut v);
@@ -590,6 +604,8 @@ mod tests {
             }
         }
         assert!(sidebands(&row, -60.0, 0.0, station, rate));
+        // one side off the capture's edge: unknown, not absent
+        assert_eq!(sidebands_seen(&row, -60.0, 0.0, rate / 2.0 - 100_000.0, rate), None);
         assert!(!sidebands(&row, -60.0, 0.0, -station, rate));
     }
 }

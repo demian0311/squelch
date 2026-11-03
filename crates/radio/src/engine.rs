@@ -422,6 +422,7 @@ fn run(
             signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
             if mode == Mode::Wfm {
                 crate::hd::drop_sidebands(&mut signals);
+                crate::hd::mark_sidebands(&mut signals, &avg, floor, center, rate as f64);
             }
             hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor, center, tuned, rate as f64);
             if hd_sidebands && hd.is_none() {
