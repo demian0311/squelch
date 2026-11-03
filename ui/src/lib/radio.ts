@@ -52,10 +52,10 @@ export interface Saved extends Bookmark {
 }
 
 /**
- * Bands that have given us nothing on eagle so far: the whole data group, MURS, railroad and military
- * aircraft. Keyed by id so they apply to an old user bands file too.
+ * Bands that have given us nothing on eagle so far: the whole data group, MURS, railroad, military
+ * aircraft and the ham bands except 2 m and 70 cm. Keyed by id so they apply to an old user bands file too.
  */
-export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil', 'murs'] };
+export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil', 'murs', '10m', '6m', '125', '33cm', '23cm'] };
 
 /** The band list without the dead-air bands, and without any group left empty. */
 export function withoutDeadAir(plan: BandPlan): BandPlan {
