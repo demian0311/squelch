@@ -194,6 +194,16 @@ impl Adsb {
         for f in std::mem::take(&mut self.frames) {
             self.take(&f);
         }
+        self.age();
+    }
+
+    /// Time passing with the dongle elsewhere.
+    pub fn skip(&mut self, samples: usize) {
+        self.clock += samples as u64;
+        self.age();
+    }
+
+    fn age(&mut self) {
         let now = self.now();
         let known = &mut self.demod.known;
         self.planes.retain(|icao, p| {

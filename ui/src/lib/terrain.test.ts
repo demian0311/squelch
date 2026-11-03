@@ -33,6 +33,7 @@ describe('terrain', () => {
   it('leaves flat ground the plain colour and missing ground transparent', () => {
     const h = new Float32Array([1000, 1000, 1000, 1000, 1000, 1000, NaN, 1000, 1000]);
     const px = shade(h, 3, 3, 0.5, palette);
+    expect(Array.from(shade(new Float32Array(9).fill(-5), 3, 3, 0.5, { ...palette, water: '#102030' }).slice(16, 20))).toEqual([16, 32, 48, 255]);
     expect([...px.slice(16, 20)]).toEqual([0x20, 0x28, 0x33, 255]);
     expect(px[6 * 4 + 3]).toBe(0);
   });

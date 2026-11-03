@@ -17,6 +17,8 @@
   import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
+  import AirplanesScreen from './components/AirplanesScreen.svelte';
+  import { AIR_TURNS, oneAirplanes, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
@@ -94,7 +96,7 @@
   store.onProblem((m) => (settingsError = m));
   // bands that rarely give us anything stay off the rail until someone wants to investigate them
   let showDeadAir = $state(store.getSettings().show_dead_air ?? false);
-  let railPlan = $derived(showDeadAir ? plan : withoutDeadAir(plan));
+  let railPlan = $derived(oneAirplanes(showDeadAir ? plan : withoutDeadAir(plan)));
   function toggleDeadAir() {
     showDeadAir = !showDeadAir;
     store.setSetting('show_dead_air', showDeadAir);
@@ -173,6 +175,8 @@
   }
 
   function tuneTo(hz: number, keepMode = false) {
+    // anything tuning by hand while the planes screen owns the radio means they want the radio
+    if (airWatching) seeRadio = true;
     tuned = Math.round(hz);
     if (tuned < vs || tuned > ve) {
       vs = tuned - span / 2;
@@ -233,6 +237,8 @@
 
   function pickBand(b: Band) {
     bookmarksOpen = false;
+    seeRadio = false;
+    airListen = null;
     bandId = b.id;
     panelPick = null;
     const s = Math.min(maxSpan, (b.high_mhz - b.low_mhz) * 1e6);
@@ -477,7 +483,33 @@
 
   // ── aircraft messages ───────────────────────────
 
-  let acarsOn = $derived(band?.decoder === 'acars');
+  // The Airplanes screen, on the voice band's entry. Watching, the dongle takes turns between planes and messages;
+  // listening, it sits on one channel and the screen says the map is paused; `seeRadio` is the ordinary voice band.
+  let seeRadio = $state(false);
+  let airListen = $state<Talk | null>(null);
+  let planesScreen = $derived(band?.id === 'air' && !seeRadio);
+  let airWatching = $derived(planesScreen && !airListen);
+  $effect(() => {
+    api.setAirTurns(airWatching ? AIR_TURNS : null);
+  });
+  let airWasWatching = false;
+  $effect(() => {
+    const on = airWatching;
+    if (band?.id === 'air') api.setMode(on ? 'none' : untrack(() => mode));
+    // the turns held the dongle: put it back where the page thinks it is
+    if (airWasWatching && !on) untrack(recenter);
+    airWasWatching = on;
+  });
+  function listenTo(t: Talk) {
+    airListen = t;
+    tuned = Math.round(t.channel.mhz * 1e6);
+    mode = 'am';
+    vs = tuned - span / 2;
+    ve = tuned + span / 2;
+    if (!playing) togglePlay();
+  }
+
+  let acarsOn = $derived(band?.decoder === 'acars' || airWatching);
   // the engine sends only the last few seconds; the list is kept here
   let acarsList = $state<api.AcarsMessage[]>([]);
   let acarsQuery = $state('');
@@ -500,7 +532,7 @@
 
   // ── aircraft ────────────────────────────────────
 
-  let adsbOn = $derived(band?.decoder === 'adsb');
+  let adsbOn = $derived(band?.decoder === 'adsb' || airWatching);
   let adsb = $derived(status?.adsb ?? null);
   let planeRows = $derived(aircraftRows(adsb?.aircraft ?? [], iss?.site ?? null));
   let planeMap = $derived(mapFrame(adsb?.aircraft ?? [], iss?.site ?? null));
@@ -619,6 +651,8 @@
   let ramp = $derived(rampGradient(stops, METER_DB, setup.below_floor_db, setup.range_db));
   // the local map's shaded terrain, in theme colours
   let mapPalette = $derived({ plain: theme.lighter_background, peak: mix(theme.muted, theme.light_foreground, 0.15), shadow: theme.darker_background, light: theme.light_foreground });
+  // flat country has no relief to show, so land and water get a trace of colour
+  let airPalette = $derived({ ...mapPalette, plain: mix(theme.lighter_background, theme.green, 0.1), water: mix(theme.dark_background, theme.blue, 0.16) });
   let wfColors = $derived({
     bg: theme.darker_background,
     grid: theme.lighter_background,
@@ -798,9 +832,9 @@
     const own: PanelId[] = [];
     if (band?.id === 'iss') own.push('iss');
     if (decoding) own.push('sondes');
-    if (acarsOn) own.push('acars');
-    if (adsbOn) own.push('aircraft');
-    if (adsbOn || acarsOn) own.push('flights');
+    if (band?.decoder === 'acars') own.push('acars');
+    if (band?.decoder === 'adsb') own.push('aircraft');
+    if (band?.decoder === 'adsb' || band?.decoder === 'acars') own.push('flights');
     if (p25) own.push('p25');
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     if (band?.mode === 'wfm') own.push('stations');
@@ -1096,6 +1130,7 @@
   {/if}
 
   <div class="right">
+    {#if !planesScreen || bookmarksOpen}
     <header>
       <div class="freq">
         <button class="digits mono" onclick={showTuned} title="Show this frequency on the waterfall"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</button>
@@ -1162,7 +1197,9 @@
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
         <Icon name={full ? 'shrink' : 'expand'} size={18} />
       </button>
+      {#if band?.id === 'air'}<button class="chip backair" onclick={() => { seeRadio = false; airListen = null; bookmarksOpen = false; }}>Back to the map</button>{/if}
     </header>
+    {/if}
 
     {#if onPlan}
       <div class="planbar">
@@ -1516,6 +1553,9 @@
           {/if}
         </Pane>
       {/if}
+      {#if planesScreen && !bookmarksOpen}
+        <AirplanesScreen live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} simulated={!!status?.simulated} problem={status?.error ?? null} bind:volume palette={airPalette} onListen={listenTo} onStopListening={() => (airListen = null)} onSeeRadio={() => { seeRadio = true; airListen = null; }} onSettings={() => (settingsOpen = true)} />
+      {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
       {/if}
@@ -1803,6 +1843,11 @@
     border: 0;
     font-size: 12px;
     font-weight: 600;
+  }
+  .chip.backair {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    cursor: pointer;
   }
   .chip.warn {
     color: var(--yellow);

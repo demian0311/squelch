@@ -216,6 +216,16 @@ async fn repeaters_map(location: String) -> Vec<Repeater> {
 
 /// FM stations near `location`, from the FCC's list bundled in the app; none without a location.
 #[tauri::command]
+fn airports_near(lat: f64, lon: f64) -> Vec<radio::airports::Airport> {
+    radio::airports::near(lat, lon)
+}
+
+#[tauri::command]
+fn airports_by_code(codes: Vec<String>) -> Vec<radio::airports::Airport> {
+    radio::airports::by_code(&codes)
+}
+
+#[tauri::command]
 fn fm_stations(location: String) -> Vec<radio::fm_list::FmStation> {
     let Some(s) = radio::iss::parse_site(&location) else { return vec![] };
     radio::fm_list::near(s.lat, s.lon, radio::iss::place::state_code(&location))
@@ -323,6 +333,11 @@ fn set_acars(app: State<App>, on: bool) {
 #[tauri::command]
 fn set_adsb(app: State<App>, on: bool) {
     send(&app, Command::SetAdsb(on));
+}
+
+#[tauri::command]
+fn set_air_turns(app: State<App>, planes_s: Option<f64>, messages_s: Option<f64>) {
+    send(&app, Command::AirTurns(planes_s.zip(messages_s)));
 }
 
 /// The listener's position, for decoding aircraft on the ground.
@@ -511,7 +526,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

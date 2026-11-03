@@ -53,6 +53,8 @@ pub enum Command {
     SetAcars(bool),
     /// Decode aircraft broadcasts (ADS-B) across the whole capture; the capture should sit on 1090 MHz.
     SetAdsb(bool),
+    /// Share the dongle between aircraft broadcasts and aircraft messages, this many seconds on each, or stop.
+    AirTurns(Option<(f64, f64)>),
     /// Where the listener is; surface positions need it.
     SetSite(Option<(f64, f64)>),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
@@ -188,6 +190,56 @@ impl Drop for Engine {
     }
 }
 
+/// Hardware centre for aircraft broadcasts, off the replies by the same DC offset the page uses.
+pub const ADSB_CENTER_HZ: f64 = 1_090_060_000.0;
+/// Samples just after a retune are the tuner settling.
+const SETTLE_SECS: f64 = 0.05;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum AirJob {
+    Both,
+    Planes,
+    Messages,
+    Settling,
+}
+
+/// One dongle, two aircraft jobs far apart: planes on 1090 MHz, messages around 130.5 MHz.
+struct Turns {
+    planes_s: f64,
+    messages_s: f64,
+    on_planes: bool,
+    left: i64,
+    settle: i64,
+}
+
+impl Turns {
+    fn new(planes_s: f64, messages_s: f64, rate: u32) -> Self {
+        Turns { planes_s, messages_s, on_planes: true, left: (planes_s * rate as f64) as i64, settle: (SETTLE_SECS * rate as f64) as i64 }
+    }
+
+    /// Count a block. Returns the new hardware centre when the turn ends.
+    fn advance(&mut self, samples: i64, rate: u32) -> Option<f64> {
+        self.left -= samples;
+        self.settle -= samples;
+        if self.left > 0 {
+            return None;
+        }
+        self.on_planes = !self.on_planes;
+        let secs = if self.on_planes { self.planes_s } else { self.messages_s };
+        self.left = (secs * rate as f64) as i64;
+        self.settle = (SETTLE_SECS * rate as f64) as i64;
+        Some(if self.on_planes { ADSB_CENTER_HZ } else { crate::acars::CENTER_HZ })
+    }
+
+    fn job(&self) -> AirJob {
+        match (self.settle > 0, self.on_planes) {
+            (true, _) => AirJob::Settling,
+            (false, true) => AirJob::Planes,
+            (false, false) => AirJob::Messages,
+        }
+    }
+}
+
 fn run(
     mut src: Box<dyn IqSource>,
     simulated_because: Option<String>,
@@ -236,6 +288,7 @@ fn run(
     let mut scanner: Option<Scanner> = None;
     let mut acars: Option<Acars> = None;
     let mut adsb: Option<Adsb> = None;
+    let mut turns: Option<Turns> = None;
     // kept across a decoder switching off; nothing from the simulator goes in it
     let mut airlog: Option<crate::airlog::Writer> = None;
     let mut air_lines: Vec<crate::airlog::Line> = Vec::new();
@@ -257,6 +310,8 @@ fn run(
             match rx.try_recv() {
                 Ok(Command::Stop) | Err(TryRecvError::Disconnected) => return,
                 Ok(Command::Tune { center_hz, tuned_hz }) => {
+                    // while the two aircraft jobs take turns, the turns say where the dongle sits
+                    let center_hz = if turns.is_some() { center } else { center_hz };
                     // the view moves the dongle but not what is playing: only a new frequency restarts the audio
                     let center_moved = (center_hz - center).abs() > 1.0;
                     let tuned_moved = (tuned_hz - tuned).abs() > 1.0;
@@ -324,6 +379,21 @@ fn run(
                             a.set_site(site);
                             a
                         });
+                    }
+                }
+                Ok(Command::AirTurns(t)) => {
+                    match (t, &mut turns) {
+                        (None, _) => turns = None,
+                        (Some((planes_s, messages_s)), Some(old)) => (old.planes_s, old.messages_s) = (planes_s, messages_s),
+                        (Some((planes_s, messages_s)), None) => {
+                            turns = Some(Turns::new(planes_s, messages_s, rate));
+                            center = ADSB_CENTER_HZ;
+                            if let Err(e) = src.set_center(center as u32) {
+                                error = Some(e.to_string());
+                            }
+                            mixer.set(tuned - center, rate as f64);
+                            recent.clear();
+                        }
                     }
                 }
                 Ok(Command::SetSite(s)) => {
@@ -456,12 +526,30 @@ fn run(
         }
         prof.lap("sondes");
 
-        if let Some(a) = &mut acars {
+        let job = match &mut turns {
+            None => AirJob::Both,
+            Some(t) => {
+                if let Some(c) = t.advance(iq.len() as i64, rate) {
+                    center = c;
+                    if let Err(e) = src.set_center(center as u32) {
+                        error = Some(e.to_string());
+                    }
+                    mixer.set(tuned - center, rate as f64);
+                    recent.clear();
+                }
+                t.job()
+            }
+        };
+        if let (Some(a), AirJob::Both | AirJob::Messages) = (&mut acars, job) {
             a.process(&iq, center);
         }
         prof.lap("acars");
         if let Some(a) = &mut adsb {
-            a.process(&iq);
+            if matches!(job, AirJob::Both | AirJob::Planes) {
+                a.process(&iq);
+            } else {
+                a.skip(iq.len());
+            }
         }
         prof.lap("adsb");
         if !simulated && (acars.is_some() || adsb.is_some()) {
@@ -685,6 +773,44 @@ pub fn demo_signals() -> Vec<SimSignal> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn air_turns_alternate_and_own_the_dongle() {
+        let source = Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true));
+        let centers = Arc::new(Mutex::new(Vec::<f64>::new()));
+        let log = centers.clone();
+        let engine = Engine::start(source, None, |_| {}, move |s| log.lock().unwrap().push(s.center_hz));
+        engine.send(Command::SetAdsb(true));
+        engine.send(Command::SetAcars(true));
+        engine.send(Command::AirTurns(Some((0.4, 0.4))));
+        std::thread::sleep(Duration::from_millis(300));
+        engine.send(Command::Tune { center_hz: 100e6, tuned_hz: 100e6 });
+        std::thread::sleep(Duration::from_millis(2500));
+        {
+            let seen = centers.lock().unwrap();
+            assert!(!seen.contains(&100e6), "a tune moved the dongle during turns");
+            assert!(seen.contains(&ADSB_CENTER_HZ), "never on planes: {seen:?}");
+            assert!(seen.contains(&crate::acars::CENTER_HZ), "never on messages: {seen:?}");
+        }
+        engine.send(Command::AirTurns(None));
+        engine.send(Command::Tune { center_hz: 100e6, tuned_hz: 100e6 });
+        std::thread::sleep(Duration::from_millis(1500));
+        assert_eq!(centers.lock().unwrap().last(), Some(&100e6));
+    }
+
+    #[test]
+    fn turns_rest_after_each_retune() {
+        let rate = 1000;
+        let mut t = Turns::new(1.0, 2.0, rate);
+        assert_eq!(t.job(), AirJob::Settling);
+        assert_eq!(t.advance(100, rate), None);
+        assert_eq!(t.job(), AirJob::Planes);
+        assert_eq!(t.advance(900, rate), Some(crate::acars::CENTER_HZ));
+        assert_eq!(t.job(), AirJob::Settling);
+        assert_eq!(t.advance(1999, rate), None);
+        assert_eq!(t.job(), AirJob::Messages);
+        assert_eq!(t.advance(1, rate), Some(ADSB_CENTER_HZ));
+    }
 
     /// Mean channel level over `secs` of status, while `drag` runs between statuses.
     fn level(engine: &Engine, seen: &Arc<Mutex<Vec<f32>>>, secs: f64, drag: Option<Command>) -> f32 {

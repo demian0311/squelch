@@ -16,6 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// US ACARS channels in the airband (136.7–136.8 MHz are too far from these to share a capture).
 pub const US_CHANNELS_HZ: [f64; 6] = [129_125_000.0, 130_025_000.0, 130_425_000.0, 130_450_000.0, 131_125_000.0, 131_550_000.0];
+/// Hardware centre that holds the most channels (5 of 6).
+pub const CENTER_HZ: f64 = 130_500_000.0;
 /// Channels this far from the capture centre are in the dongle's filter roll-off.
 const EDGE: f64 = 0.45;
 /// Messages kept on the engine side.
