@@ -10,8 +10,12 @@
     halfKm: number;
     /** the listener sits at the centre */
     here: boolean;
+    /** where aircraft have been, an SVG path in km per address */
+    trails?: Record<string, string>;
+    selected?: string | null;
+    onpick?: (icao: string) => void;
   }
-  let { planes, centre, halfKm, here }: Props = $props();
+  let { planes, centre, halfKm, here, trails = {}, selected = null, onpick }: Props = $props();
 
   // arrows and labels keep their size on screen whatever the panel's
   const ARROW_PX = 7;
@@ -50,8 +54,12 @@
     {/each}
     <circle r={SITE_PX * kmPerPx} class="site" />
   {/if}
+  {#each Object.entries(trails) as [icao, d] (icao)}
+    <path {d} class="trail" class:picked={icao === selected} />
+  {/each}
   {#each planes as p (p.icao)}
-    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale}>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale} class:alarm={p.alarm} class:picked={p.icao === selected} onclick={() => onpick?.(p.icao)}>
       <title>{p.name}</title>
       {#if p.heading !== null}
         <path d="M0 -1L0.7 0.8L0 0.4L-0.7 0.8Z" transform="rotate({p.heading}) scale({ARROW_PX * kmPerPx})" class="arrow" />
@@ -106,11 +114,32 @@
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
+  .trail {
+    fill: none;
+    stroke: var(--accent);
+    stroke-opacity: 0.45;
+    stroke-width: 1.2;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .trail.picked {
+    stroke-opacity: 1;
+    stroke-width: 2;
+  }
+  .plane {
+    cursor: pointer;
+  }
   .arrow {
     fill: var(--accent);
     stroke: var(--bg-darker);
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
+  }
+  .alarm .arrow {
+    fill: var(--red);
+  }
+  .picked .arrow {
+    fill: var(--yellow);
   }
   .label {
     fill: var(--fg-bright);

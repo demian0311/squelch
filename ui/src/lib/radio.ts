@@ -1,4 +1,5 @@
 // Pure helpers: frequency text, band lookup, labelling detected signals and placing their cards.
+import { ACARS_CENTRE_HZ } from './acars';
 import type { Band, BandPlan, Bookmark, Detected, Mode, Rds, Sonde } from './api';
 import { channelAt } from './channels';
 
@@ -40,6 +41,8 @@ export function outOfBand(vs: number, ve: number, lo: number, hi: number): { bel
 
 /** Where to tune on entering a band: the last frequency used there, else its start. */
 export function bandEntryHz(b: Band, lastHz: Record<string, number>): number {
+  // ACARS decodes channels, not the tuned frequency, and a remembered one can push the busiest out of the capture
+  if (b.decoder === 'acars') return ACARS_CENTRE_HZ;
   const hz = lastHz[b.id];
   return hz !== undefined && hz >= b.low_mhz * 1e6 && hz <= b.high_mhz * 1e6 ? hz : Math.round(b.start_mhz * 1e6);
 }
@@ -54,12 +57,13 @@ export interface Saved extends Bookmark {
 /**
  * Bands that have given us nothing on eagle so far: the whole data group, MURS, railroad, military
  * aircraft and the ham bands except 2 m and 70 cm. Keyed by id so they apply to an old user bands file too.
+ * `keep` are in such a group but do have signals: both aircraft decoders, heard live 2026-11-02.
  */
-export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil', 'murs', '10m', '6m', '125', '33cm', '23cm'] };
+export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil', 'murs', '10m', '6m', '125', '33cm', '23cm'], keep: ['adsb', 'acars'] };
 
 /** The band list without the dead-air bands, and without any group left empty. */
 export function withoutDeadAir(plan: BandPlan): BandPlan {
-  const bands = plan.bands.filter((b) => !DEAD_AIR.groups.includes(b.group) && !DEAD_AIR.bands.includes(b.id));
+  const bands = plan.bands.filter((b) => DEAD_AIR.keep.includes(b.id) || (!DEAD_AIR.groups.includes(b.group) && !DEAD_AIR.bands.includes(b.id)));
   return { ...plan, groups: plan.groups.filter((g) => bands.some((b) => b.group === g.id)), bands };
 }
 

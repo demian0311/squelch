@@ -53,6 +53,8 @@ pub enum Command {
     SetAcars(bool),
     /// Decode aircraft broadcasts (ADS-B) across the whole capture; the capture should sit on 1090 MHz.
     SetAdsb(bool),
+    /// Where the listener is; surface positions need it.
+    SetSite(Option<(f64, f64)>),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
     SetHd(Option<u32>),
     /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
@@ -234,6 +236,10 @@ fn run(
     let mut scanner: Option<Scanner> = None;
     let mut acars: Option<Acars> = None;
     let mut adsb: Option<Adsb> = None;
+    // kept across a decoder switching off; nothing from the simulator goes in it
+    let mut airlog: Option<crate::airlog::Writer> = None;
+    let mut air_lines: Vec<crate::airlog::Line> = Vec::new();
+    let mut site: Option<(f64, f64)> = None;
     let mut hd_program: Option<u32> = None;
     let mut hd: Option<Hd> = None;
     let mut hd_sidebands = false;
@@ -313,7 +319,17 @@ fn run(
                 }
                 Ok(Command::SetAdsb(on)) => {
                     if on != adsb.is_some() {
-                        adsb = on.then(|| Adsb::new(rate));
+                        adsb = on.then(|| {
+                            let mut a = Adsb::new(rate);
+                            a.set_site(site);
+                            a
+                        });
+                    }
+                }
+                Ok(Command::SetSite(s)) => {
+                    site = s;
+                    if let Some(a) = &mut adsb {
+                        a.set_site(s);
                     }
                 }
                 Ok(Command::SetHd(p)) => {
@@ -448,6 +464,21 @@ fn run(
             a.process(&iq);
         }
         prof.lap("adsb");
+        if !simulated && (acars.is_some() || adsb.is_some()) {
+            let now = crate::airlog::now_ms();
+            if let Some(a) = &mut adsb {
+                a.drain_log(now, &mut air_lines);
+            }
+            if let Some(a) = &mut acars {
+                air_lines.extend(a.take_fresh().into_iter().map(crate::airlog::Line::Message));
+            }
+            if !air_lines.is_empty() {
+                let log = airlog.get_or_insert_with(|| crate::airlog::Writer::start(crate::airlog::dir().unwrap_or_else(std::env::temp_dir)));
+                for l in air_lines.drain(..) {
+                    log.send(l);
+                }
+            }
+        }
 
         if let Some(p) = &mut p25 {
             // the receiver opens and closes on calls itself, so the squelch stays out of it

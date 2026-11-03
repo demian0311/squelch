@@ -297,7 +297,7 @@ icon = "msg"
 mode = "am"
 low_mhz = 129.0
 high_mhz = 131.7
-start_mhz = 130.4
+start_mhz = 130.5
 decoder = "acars"
 names = [
   { mhz = 129.125, name = "ACARS" },

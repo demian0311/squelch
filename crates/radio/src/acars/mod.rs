@@ -10,7 +10,7 @@ pub mod msk;
 
 use crate::dsp::C32;
 use msk::Channel;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -24,7 +24,7 @@ const KEEP: usize = 100;
 const SEND_FOR: Duration = Duration::from_secs(10);
 
 /// One decoded block.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     /// Counts up from 1 for each block decoded since decoding started.
     pub id: u64,
@@ -63,11 +63,13 @@ pub struct Acars {
     messages: VecDeque<(Instant, Message)>,
     heard: u64,
     blocks: Vec<Vec<u8>>,
+    /// Decoded since `take_fresh`, for the log.
+    fresh: Vec<Message>,
 }
 
 impl Acars {
     pub fn new(rate: u32) -> Self {
-        Acars { rate, center: f64::NAN, channels: Vec::new(), messages: VecDeque::new(), heard: 0, blocks: Vec::new() }
+        Acars { rate, center: f64::NAN, channels: Vec::new(), messages: VecDeque::new(), heard: 0, blocks: Vec::new(), fresh: Vec::new() }
     }
 
     /// Feed a block of the capture centred on `center` Hz; channels follow the centre when it moves.
@@ -86,12 +88,18 @@ impl Acars {
                 m.id = self.heard;
                 m.hz = ch.hz();
                 m.at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                self.fresh.push(m.clone());
                 self.messages.push_back((Instant::now(), m));
                 if self.messages.len() > KEEP {
                     self.messages.pop_front();
                 }
             }
         }
+    }
+
+    /// Messages decoded since the last call.
+    pub fn take_fresh(&mut self) -> Vec<Message> {
+        std::mem::take(&mut self.fresh)
     }
 
     pub fn info(&self) -> Info {

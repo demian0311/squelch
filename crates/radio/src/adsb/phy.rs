@@ -6,10 +6,13 @@
 //! tried at `PHASES` sub-sample starts.
 
 use crate::dsp::C32;
+use std::collections::HashSet;
 
 /// Long replies (DF17 and up) carry 112 bits, the last 24 of them parity.
 pub const LONG_BITS: usize = 112;
 pub const LONG_BYTES: usize = LONG_BITS / 8;
+/// Short replies carry 56, the last 24 parity with the sender's address overlaid.
+const SHORT_BITS: usize = 56;
 const PREAMBLE_CHIPS: usize = 16;
 const PREAMBLE_HIGH: [usize; 4] = [0, 2, 7, 9];
 /// Chips the preamble leaves empty, and where a pulse would show up first if the timing were off.
@@ -33,6 +36,17 @@ pub struct Frame {
     pub snr_db: f32,
     /// One bit was flipped to make the parity check.
     pub corrected: bool,
+    /// For a reply that overlays its address on the parity (all but DF11, 17, 18): that address.
+    pub overlaid: Option<u32>,
+}
+
+/// Bits of a reply by its format, for the formats this decoder reads.
+fn bits_of(df: u8) -> Option<usize> {
+    match df {
+        0 | 4 | 5 | 11 => Some(SHORT_BITS),
+        17 | 18 | 20 | 21 => Some(LONG_BITS),
+        _ => None,
+    }
 }
 
 pub struct Demod {
@@ -47,6 +61,9 @@ pub struct Demod {
     base: u64,
     /// The syndrome each single-bit error leaves, with the bit.
     syndromes: Vec<(u32, usize)>,
+    /// Addresses heard in a reply that states them. A reply overlaying its address on the parity has no check
+    /// of its own, so it counts only when the address it implies is one of these.
+    pub known: HashSet<u32>,
 }
 
 impl Demod {
@@ -58,7 +75,7 @@ impl Demod {
                 (syndrome(&f), k)
             })
             .collect();
-        Demod { chip: rate as f64 / 2e6, mag: Vec::new(), cum: Vec::new(), next: 0, base: 0, syndromes }
+        Demod { chip: rate as f64 / 2e6, mag: Vec::new(), cum: Vec::new(), next: 0, base: 0, syndromes, known: HashSet::new() }
     }
 
     pub fn process(&mut self, iq: &[C32], out: &mut Vec<Frame>) {
@@ -98,9 +115,10 @@ impl Demod {
             }
             match self.try_at(i, noise) {
                 Some(f) => {
-                    out.push(f);
                     // the reply's own pulses would look like more preambles
-                    i += ((PREAMBLE_CHIPS + 2 * LONG_BITS) as f64 * self.chip) as usize;
+                    let bits = bits_of(f.bytes[0] >> 3).unwrap_or(LONG_BITS);
+                    out.push(f);
+                    i += ((PREAMBLE_CHIPS + 2 * bits) as f64 * self.chip) as usize;
                 }
                 None => i += 1,
             }
@@ -147,34 +165,56 @@ impl Demod {
         cands.sort_by(|a, b| b.0.total_cmp(&a.0));
         for (_, x, snr_db) in cands {
             let mut bytes = [0u8; LONG_BYTES];
+            let mut bits = LONG_BITS;
             let mut ok = true;
-            for k in 0..LONG_BITS {
+            let mut k = 0;
+            while k < bits {
                 let c = PREAMBLE_CHIPS + 2 * k;
                 if self.chip(x, c) > self.chip(x, c + 1) {
                     bytes[k / 8] |= 0x80 >> (k % 8);
                 }
-                // only extended squitters are decoded; anything else is dropped as soon as its format shows
-                if k == 4 && !matches!(bytes[0] >> 3, 17 | 18) {
-                    ok = false;
-                    break;
+                // anything this decoder cannot read is dropped as soon as its format shows
+                if k == 4 {
+                    match bits_of(bytes[0] >> 3) {
+                        Some(b) => bits = b,
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
                 }
+                k += 1;
             }
             if !ok {
                 continue;
             }
+            let df = bytes[0] >> 3;
             let mut corrected = false;
-            let syn = syndrome(&bytes);
-            if syn != 0 {
-                // never past the format bits, which were already taken as 17 or 18
-                match self.syndromes.iter().find(|(s, k)| *s == syn && *k >= 5) {
-                    Some(&(_, k)) => {
-                        bytes[k / 8] ^= 0x80 >> (k % 8);
-                        corrected = true;
+            let mut overlaid = None;
+            let syn = syndrome_of(&bytes[..bits / 8]);
+            if matches!(df, 17 | 18) {
+                if syn != 0 {
+                    // never past the format bits, which were already taken as 17 or 18
+                    match self.syndromes.iter().find(|(s, k)| *s == syn && *k >= 5) {
+                        Some(&(_, k)) => {
+                            bytes[k / 8] ^= 0x80 >> (k % 8);
+                            corrected = true;
+                        }
+                        None => continue,
                     }
-                    None => continue,
                 }
+            } else if df == 11 {
+                // parity overlaid with an interrogator id, zero when nothing asked: only those are checked in full
+                if syn != 0 {
+                    continue;
+                }
+            } else {
+                if !self.known.contains(&syn) {
+                    continue;
+                }
+                overlaid = Some(syn);
             }
-            return Some(Frame { bytes, at: self.base + i as u64, snr_db, corrected });
+            return Some(Frame { bytes, at: self.base + i as u64, snr_db, corrected, overlaid });
         }
         None
     }
@@ -197,8 +237,13 @@ pub fn crc24(data: &[u8]) -> u32 {
 
 /// Parity the message bits imply, against the parity the reply carries; 0 when they agree.
 pub fn syndrome(f: &[u8; LONG_BYTES]) -> u32 {
-    let parity = (f[11] as u32) << 16 | (f[12] as u32) << 8 | f[13] as u32;
-    crc24(&f[..11]) ^ parity
+    syndrome_of(f)
+}
+
+fn syndrome_of(f: &[u8]) -> u32 {
+    let n = f.len() - 3;
+    let parity = (f[n] as u32) << 16 | (f[n + 1] as u32) << 8 | f[n + 2] as u32;
+    crc24(&f[..n]) ^ parity
 }
 
 #[cfg(test)]
@@ -208,7 +253,8 @@ pub mod testutil {
     pub fn hex(s: &str) -> [u8; LONG_BYTES] {
         let mut f = [0u8; LONG_BYTES];
         for (k, b) in f.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&s[2 * k..2 * k + 2], 16).unwrap();
+            // a short reply leaves the rest zero
+            *b = s.get(2 * k..2 * k + 2).map_or(0, |h| u8::from_str_radix(h, 16).unwrap());
         }
         f
     }
@@ -306,6 +352,22 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert!(out[0].corrected);
         assert_eq!(out[0].bytes, hex(KNOWN[1]));
+    }
+
+    #[test]
+    fn overlaid_address_counts_only_when_known() {
+        // 3C6DD0, from The 1090 MHz Riddle: DF20 with the parity overlaid
+        let f = hex("A0001838CA380031440000F24177");
+        let iq = synth(&[f], 2_400_000, 300.0, 0.4, 0.02, 0.0);
+        let mut d = Demod::new(2_400_000);
+        let mut out = Vec::new();
+        d.process(&iq, &mut out);
+        assert!(out.is_empty());
+        d = Demod::new(2_400_000);
+        d.known.insert(0x3C6DD0);
+        d.process(&iq, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].overlaid, Some(0x3C6DD0));
     }
 
     #[test]

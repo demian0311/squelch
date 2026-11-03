@@ -325,6 +325,12 @@ fn set_adsb(app: State<App>, on: bool) {
     send(&app, Command::SetAdsb(on));
 }
 
+/// The listener's position, for decoding aircraft on the ground.
+#[tauri::command]
+fn set_site(app: State<App>, lat: Option<f64>, lon: Option<f64>) {
+    send(&app, Command::SetSite(lat.zip(lon)));
+}
+
 #[derive(Serialize)]
 struct Iss {
     /// The location text did not parse as a ZIP code, state or "lat, lon".
@@ -360,6 +366,32 @@ fn iss(location: String) -> Iss {
 fn iss_track() -> Vec<radio::iss::GroundPoint> {
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs_f64();
     radio::iss::load_cached().map(|o| o.track(now - 2700.0, now + 6000.0, 30.0)).unwrap_or_default()
+}
+
+/// Flights in the aircraft log from the last `days` days, newest first.
+#[tauri::command]
+async fn air_flights(days: u64) -> Vec<radio::airlog::Flight> {
+    let since = radio::airlog::now_ms().saturating_sub(days * 86_400_000);
+    tauri::async_runtime::spawn_blocking(move || radio::airlog::dir().map(|d| radio::airlog::flights(&d, since)).unwrap_or_default()).await.unwrap_or_default()
+}
+
+/// One flight's track from the aircraft log.
+#[tauri::command]
+async fn air_track(icao: String, from_ms: u64, to_ms: u64) -> Vec<radio::airlog::Point> {
+    tauri::async_runtime::spawn_blocking(move || radio::airlog::dir().map(|d| radio::airlog::track(&d, &icao, from_ms, to_ms)).unwrap_or_default()).await.unwrap_or_default()
+}
+
+/// Every address's track since a time, to start the map's trails with.
+#[tauri::command]
+async fn air_tracks(since_ms: u64) -> std::collections::HashMap<String, Vec<radio::airlog::Point>> {
+    tauri::async_runtime::spawn_blocking(move || radio::airlog::dir().map(|d| radio::airlog::tracks(&d, since_ms)).unwrap_or_default()).await.unwrap_or_default()
+}
+
+/// The last `max` aircraft messages from the log, oldest first.
+#[tauri::command]
+async fn air_messages(days: u64, max: usize) -> Vec<radio::acars::Message> {
+    let since = radio::airlog::now_ms().saturating_sub(days * 86_400_000);
+    tauri::async_runtime::spawn_blocking(move || radio::airlog::dir().map(|d| radio::airlog::messages(&d, since, max)).unwrap_or_default()).await.unwrap_or_default()
 }
 
 /// One elevation tile for the local map, as a data URL; null when it is neither cached nor downloadable.
@@ -479,7 +511,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

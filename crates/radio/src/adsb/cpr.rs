@@ -59,11 +59,21 @@ pub fn local(report: (u32, u32), odd: bool, near: (f64, f64)) -> (f64, f64) {
     (lat, dlon * (m + lon_c))
 }
 
+/// Surface position from one report near a known one, which must be within 45 NM: zones are a quarter the size.
+pub fn surface_local(report: (u32, u32), odd: bool, near: (f64, f64)) -> (f64, f64) {
+    let (lat_c, lon_c) = (report.0 as f64 / SCALE, report.1 as f64 / SCALE);
+    let d = dlat(odd) / 4.0;
+    let j = (near.0 / d).floor() + (near.0.rem_euclid(d) / d - lat_c + 0.5).floor();
+    let lat = d * (j + lat_c);
+    let dlon = 90.0 / (nl(lat) as f64 - if odd { 1.0 } else { 0.0 }).max(1.0);
+    let m = (near.1 / dlon).floor() + (near.1.rem_euclid(dlon) / dlon - lon_c + 0.5).floor();
+    (lat, dlon * (m + lon_c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // "The 1090 MHz Riddle": 8D40621D58C382D690C8AC2863A7 (even, later) and 8D40621D58C386435CC412692AD6 (odd)
     const EVEN: (u32, u32) = (93_000, 51_372);
     const ODD: (u32, u32) = (74_158, 50_194);
 

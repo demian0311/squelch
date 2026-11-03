@@ -8,7 +8,7 @@
   import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
-  import { acarsSummary, acarsTime, acarsWho, mergeMessages } from './lib/acars';
+  import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
@@ -22,7 +22,7 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
-  import { adsbSummary, aircraftLine, aircraftRows, mapFrame } from './lib/adsb';
+  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
@@ -153,7 +153,10 @@
 
   /** Move the dongle only when the view or the tuned frequency leaves the usable capture. */
   function recenter() {
-    center = captureCenter(center, vs, ve, tuned, rate * 0.45, DC_OFFSET);
+    const half = rate * 0.45;
+    // ACARS listens on channels, not on what is in view: stay where the most of them fit while the view allows it
+    const fitsAcars = [vs, ve, tuned].every((f) => Math.abs(f - ACARS_CENTRE_HZ) <= half);
+    center = band?.decoder === 'acars' && fitsAcars ? ACARS_CENTRE_HZ : captureCenter(center, vs, ve, tuned, half, DC_OFFSET);
     send();
   }
 
@@ -477,9 +480,19 @@
   let acarsOn = $derived(band?.decoder === 'acars');
   // the engine sends only the last few seconds; the list is kept here
   let acarsList = $state<api.AcarsMessage[]>([]);
+  let acarsQuery = $state('');
+  let acarsShown = $derived(filterMessages(joinBlocks(acarsList), acarsQuery));
   $effect(() => {
     const incoming = status?.acars?.messages;
     if (incoming?.length) acarsList = mergeMessages(untrack(() => acarsList), incoming);
+  });
+  // what earlier runs heard, once, the first time an aircraft band opens
+  let airLogLoaded = false;
+  $effect(() => {
+    if (!(acarsOn || adsbOn) || airLogLoaded) return;
+    airLogLoaded = true;
+    api.airMessages(LOG_DAYS, MAX_MESSAGES).then((old) => (acarsList = mergeMessages(untrack(() => acarsList), old)));
+    api.airTracks(Date.now() - TRAIL_KEEP_MS).then((t) => (trails = { ...t, ...untrack(() => trails) }));
   });
   $effect(() => {
     api.setAcars(acarsOn);
@@ -495,6 +508,45 @@
   $effect(() => {
     api.setAdsb(adsbOn);
   });
+  $effect(() => {
+    api.setSite(iss?.site?.lat ?? null, iss?.site?.lon ?? null);
+  });
+  // where each has been: from the log at first, then from each status
+  let trails = $state<Trails>({});
+  $effect(() => {
+    const list = adsb?.aircraft;
+    if (list) trails = extendTrails(untrack(() => trails), list, Date.now());
+  });
+  let trailPaths = $derived.by(() => {
+    if (!planeMap) return {};
+    const c = planeMap.centre;
+    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, trackPath(v, c)]));
+  });
+  let planePick = $state<string | null>(null);
+  let pickedPlane = $derived(planeRows.find((r) => r.a.icao === planePick)?.a ?? null);
+  // messages from the same airframe, matched on the registration both carry
+  let pickedMessages = $derived(pickedPlane?.registration ? acarsList.filter((m) => m.registration === pickedPlane?.registration).slice(0, 5) : []);
+  const pickPlane = (icao: string) => (planePick = planePick === icao ? null : icao);
+
+  // the log: every flight heard, across runs
+  const FLIGHT_LOG_DAYS = 60;
+  const FLIGHT_REFRESH_MS = 60_000;
+  let flightList = $state<api.Flight[]>([]);
+  let flightQuery = $state('');
+  let flightShown = $derived(flightDays(filterFlights(flightList, flightQuery), Date.now()));
+  let flightPick = $state<api.Flight | null>(null);
+  let flightTrack = $state<api.TrackPoint[]>([]);
+  let flightMap = $derived(flightPick && flightTrack.length ? mapFrame([], iss?.site ?? null, flightTrack) : null);
+  let flightPath = $derived(flightPick && flightMap ? { [flightPick.icao]: trackPath(flightTrack, flightMap.centre) } : {});
+  function pickFlight(f: api.Flight) {
+    if (flightPick && flightPick.icao === f.icao && flightPick.first_ms === f.first_ms) {
+      flightPick = null;
+      flightTrack = [];
+      return;
+    }
+    flightPick = f;
+    api.airTrack(f.icao, f.first_ms, f.last_ms).then((t) => (flightTrack = t));
+  }
 
   // weather services launch twice a day at about 00:00 and 12:00 UTC
   const launchTimes = [0, 12]
@@ -505,6 +557,8 @@
     })
     .join(' and ');
 
+  // a date only on messages from other days
+  const acarsDay = (ms: number) => (new Date(ms).toDateString() === new Date().toDateString() ? '' : `${new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })} `);
   function ago(secs: number): string {
     if (secs < 5) return 'just now';
     if (secs < 90) return `${Math.round(secs)} s ago`;
@@ -573,7 +627,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'stations' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'flights' | 'stations' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
   let panelPick = $state<PanelId | null>(null);
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
@@ -742,6 +796,7 @@
     if (decoding) own.push('sondes');
     if (acarsOn) own.push('acars');
     if (adsbOn) own.push('aircraft');
+    if (adsbOn || acarsOn) own.push('flights');
     if (p25) own.push('p25');
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     if (band?.mode === 'wfm') own.push('stations');
@@ -792,12 +847,19 @@
   let chLive = $derived(chList.reduce((n, s) => n + s.channels.filter((c) => c.live).length, 0));
   let chSummary = $derived(chLive ? `${chLive} on air` : 'Nothing on air right now');
   let panel = $derived(panelPick && panels.includes(panelPick) ? panelPick : (panels[0] ?? null));
-  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', stations: 'Stations', hd: 'Traffic and weather', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  $effect(() => {
+    if (panel !== 'flights') return;
+    const load = () => api.airFlights(FLIGHT_LOG_DAYS).then((f) => (flightList = f));
+    load();
+    const t = setInterval(load, FLIGHT_REFRESH_MS);
+    return () => clearInterval(t);
+  });
+  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', flights: 'Flights log', stations: 'Stations', hd: 'Traffic and weather', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
   const panelTitle = (id: PanelId) => (id === 'board' ? (board?.title ?? 'Channels') : PANEL_TITLE[id]);
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'stations' ? dialSummary : panel === 'hd' ? (hd?.name ?? '') : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'flights' ? `${flightList.length} flight${flightList.length === 1 ? '' : 's'} in the last ${FLIGHT_LOG_DAYS} days` : panel === 'stations' ? dialSummary : panel === 'hd' ? (hd?.name ?? '') : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
   );
 
   let wfSummary = $derived(
@@ -1227,39 +1289,80 @@
             </div>
           {:else if panel === 'acars'}
             <div class="pbody acars">
-              {#each acarsList as m (m.at_ms + ':' + m.id)}
+              {#if acarsList.length}<input class="in airfind" bind:value={acarsQuery} placeholder="Find a flight, aircraft or word" aria-label="Find a message" />{/if}
+              {#each acarsShown as m (m.at_ms + ':' + m.id)}
+                {@const at = acarsPosition(m)}
                 <div class="item msg copy">
                   <span class="mhead">
                     <span class="name">{acarsWho(m)}</span>
                     {#if m.flight && m.registration}<span class="dim">{m.registration}</span>{/if}
-                    <span class="mono dim" title="Message label">{m.label}</span>
-                    <span class="mono dim when">{acarsTime(m.at_ms)} · {fmtMHz(m.hz)} MHz</span>
+                    <span class="dim" title="Message label {m.label}">{labelName(m.label) || m.label}</span>
+                    <span class="mono dim when">{acarsDay(m.at_ms)}{acarsTime(m.at_ms)} · {fmtMHz(m.hz)} MHz</span>
                   </span>
+                  {#if at}<span class="mono dim">{at.lat.toFixed(3)}, {at.lon.toFixed(3)}</span>{/if}
                   {#if m.text}<span class="mono mtext">{m.text}{m.more ? ' …' : ''}</span>{/if}
                 </div>
               {:else}
-                <p class="empty">None decoded yet. Every US ACARS channel in the capture is decoded all the time; aircraft on the ground or climbing out nearby send the most.</p>
+                <p class="empty">{#if acarsList.length}Nothing matches.{:else}None decoded yet. Every US ACARS channel in the capture is decoded all the time; aircraft on the ground or climbing out nearby send the most.{/if}</p>
               {/each}
             </div>
           {:else if panel === 'aircraft'}
             <div class="split">
               {#if planeMap}
                 <div class="mapbox repmap">
-                  <AircraftMap planes={planeMap.planes} centre={planeMap.centre} halfKm={planeMap.halfKm} here={!!iss?.site} />
+                  <AircraftMap planes={planeMap.planes} centre={planeMap.centre} halfKm={planeMap.halfKm} here={!!iss?.site} trails={trailPaths} selected={planePick} onpick={pickPlane} />
                   <span class="maplabel">{iss?.site ? 'Arrows point along the track; faded: no position for 30 s' : 'Centred on the aircraft; set your location to see distances'}</span>
                 </div>
               {/if}
               <div class="list">
                 {#each planeRows as r (r.a.icao)}
-                  <div class="reprow" title="Address {r.a.icao} · {r.a.messages} messages · {r.a.snr_db.toFixed(0)} dB">
+                  <button class="reprow" class:sel={planePick === r.a.icao} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                     <span class="name">{r.name}</span>
-                    <span class="dim town">{aircraftLine(r.a)}</span>
+                    <span class="dim town">{r.a.emergency ?? aircraftLine(r.a)}</span>
                     {#if r.km !== null}<span class="mono">{Math.round(r.km)} km</span>{/if}
                     <span class="mono dim">{ago(r.a.age_s)}</span>
-                  </div>
+                  </button>
+                  {#if planePick === r.a.icao}
+                    <dl class="facts copy">
+                      {#each aircraftFacts(r.a) as f (f.label)}
+                        <dt>{f.label}</dt>
+                        <dd class:mono={f.label === 'Address' || f.label === 'Squawk' || f.label === 'Position'}>{f.value}</dd>
+                      {/each}
+                    </dl>
+                    {#each pickedMessages as m (m.at_ms + ':' + m.id)}
+                      <div class="item msg copy">
+                        <span class="mhead"><span class="dim">{labelName(m.label) || m.label}</span><span class="mono dim when">{acarsDay(m.at_ms)}{acarsTime(m.at_ms)}</span></span>
+                        {#if m.text}<span class="mono mtext">{m.text}</span>{/if}
+                      </div>
+                    {/each}
+                  {/if}
                 {:else}
                   <p class="empty">None heard yet. Aircraft broadcast every second or so; a line of sight to the sky matters most, and an antenna outdoors reaches a few hundred kilometres.</p>
                   {#if !iss?.site}<p class="empty">Set your location in Settings (S) to see how far each one is.</p>{/if}
+                {/each}
+              </div>
+            </div>
+          {:else if panel === 'flights'}
+            <div class="split">
+              {#if flightMap}
+                <div class="mapbox repmap">
+                  <AircraftMap planes={[]} centre={flightMap.centre} halfKm={flightMap.halfKm} here={!!iss?.site} trails={flightPath} selected={flightPick?.icao ?? null} />
+                  <span class="maplabel">{flightPick ? flightName(flightPick) : ''}: where it was heard</span>
+                </div>
+              {/if}
+              <div class="list">
+                {#if flightList.length}<input class="in airfind" bind:value={flightQuery} placeholder="Find a flight, aircraft, type or country" aria-label="Find a flight" />{/if}
+                {#each flightShown as d (d.day)}
+                  <p class="airday">{d.day}</p>
+                  {#each d.flights as f (f.icao + f.first_ms)}
+                    <button class="reprow" class:sel={flightPick?.icao === f.icao && flightPick?.first_ms === f.first_ms} class:alarm={!!f.emergency} onclick={() => pickFlight(f)} title="Address {f.icao}{f.country ? ` · ${f.country}` : ''}{f.squawk ? ` · squawk ${f.squawk}` : ''}">
+                      <span class="name">{flightName(f)}</span>
+                      <span class="dim town">{flightLine(f)}</span>
+                      <span class="mono dim">{acarsTime(f.first_ms).slice(0, 5)}–{acarsTime(f.last_ms).slice(0, 5)}</span>
+                    </button>
+                  {/each}
+                {:else}
+                  <p class="empty">{flightList.length ? 'Nothing matches.' : 'Nothing logged yet. Every aircraft heard stays here, with its track, across runs.'}</p>
                 {/each}
               </div>
             </div>
@@ -2450,6 +2553,40 @@
   }
   .reprow:hover {
     background: var(--bg-light);
+  }
+  .reprow.alarm .name {
+    color: var(--red);
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 2px 12px;
+    margin: 2px 8px 8px;
+    font-size: 12px;
+  }
+  .facts dt {
+    color: var(--fg-dim);
+  }
+  .facts dd {
+    margin: 0;
+  }
+  .airfind {
+    flex: none;
+    box-sizing: border-box;
+    width: calc(100% - 16px);
+    min-height: 28px;
+    margin: 4px 8px;
+    padding: 0 8px;
+    border: 1px solid var(--muted);
+    border-radius: 6px;
+    background: var(--bg-light);
+    color: var(--fg);
+    font: inherit;
+  }
+  .airday {
+    margin: 8px 8px 2px;
+    font-size: 11px;
+    color: var(--fg-dim);
   }
   .reprow.sel {
     background: color-mix(in srgb, var(--pane, var(--hue)) 14%, var(--bg-light));

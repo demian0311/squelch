@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { BandPlan } from './api';
+import type { Band, BandPlan } from './api';
 import { allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
@@ -315,7 +315,17 @@ describe('dead air', () => {
 
   it('drops the data group, MURS, railroad, military aircraft and ham except 2 m and 70 cm', () => {
     const out = withoutDeadAir(p);
-    expect(out.bands.map((x) => x.id)).toEqual(['fm', '2m', '70cm']);
-    expect(out.groups.map((g) => g.id)).toEqual(['listen', 'ham']);
+    expect(out.bands.map((x) => x.id)).toEqual(['fm', '2m', '70cm', 'adsb']);
+    expect(out.groups.map((g) => g.id)).toEqual(['listen', 'ham', 'data']);
+  });
+  it('enters the ACARS band where the most channels fit, whatever was last tuned', () => {
+    const b = { id: 'acars', group: 'data', name: 'x', icon: 'msg', mode: 'am', low_mhz: 129, high_mhz: 131.7, start_mhz: 130.4, decoder: 'acars', bookmarks: [] };
+    expect(bandEntryHz(b as Band, { acars: 129_600_500 })).toBe(130_500_000);
+  });
+  it('keeps the aircraft decoders in an otherwise quiet group', () => {
+    const band = (id: string) => ({ id, group: 'data', name: id, icon: 'pin', mode: 'none', low_mhz: 1, high_mhz: 2, start_mhz: 1, bookmarks: [] });
+    const out = withoutDeadAir({ groups: [{ id: 'data', name: 'Data' }], bands: [band('adsb'), band('acars'), band('sonde')] } as BandPlan);
+    expect(out.bands.map((x) => x.id)).toEqual(['adsb', 'acars']);
+    expect(out.groups.map((g) => g.id)).toEqual(['data']);
   });
 });

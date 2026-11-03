@@ -248,6 +248,49 @@ export interface Aircraft {
   pos_age_s: number | null;
   messages: number;
   snr_db: number;
+  /** From the address alone; null where no rule is known. */
+  registration: string | null;
+  country: string | null;
+  category: string | null;
+  squawk: string | null;
+  emergency: string | null;
+  /** A collision-avoidance advisory is active. */
+  advisory: boolean;
+  alert: boolean;
+  spi: boolean;
+  on_ground: boolean | null;
+  gnss_alt_ft: number | null;
+  selected_alt_ft: number | null;
+  /** The selected altitude comes from the flight computer, not the autopilot panel. */
+  selected_alt_fms: boolean;
+  selected_heading_deg: number | null;
+  baro_hpa: number | null;
+  modes: string[];
+  adsb_version: number | null;
+  /** Has broadcast; otherwise known only from radar replies, and never has a position. */
+  broadcasting: boolean;
+  seen_s: number;
+}
+/** One aircraft on one flight in the log. */
+export interface Flight {
+  icao: string;
+  callsign: string | null;
+  registration: string | null;
+  country: string | null;
+  category: string | null;
+  squawk: string | null;
+  emergency: string | null;
+  first_ms: number;
+  last_ms: number;
+  points: number;
+  max_alt_ft: number | null;
+  messages: number;
+}
+export interface TrackPoint {
+  t: number;
+  la: number;
+  lo: number;
+  a?: number;
 }
 export interface Adsb {
   aircraft: Aircraft[];
@@ -357,6 +400,11 @@ export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 export const setAcars = (on: boolean) => invoke('set_acars', { on });
 /** Decode aircraft broadcasts across the capture. */
 export const setAdsb = (on: boolean) => invoke('set_adsb', { on });
+export const setSite = (lat: number | null, lon: number | null) => invoke('set_site', { lat, lon });
+export const airFlights = (days: number) => invoke<Flight[]>('air_flights', { days });
+export const airTrack = (icao: string, fromMs: number, toMs: number) => invoke<TrackPoint[]>('air_track', { icao, fromMs, toMs });
+export const airTracks = (sinceMs: number) => invoke<Record<string, TrackPoint[]>>('air_tracks', { sinceMs });
+export const airMessages = (days: number, max: number) => invoke<AcarsMessage[]>('air_messages', { days, max });
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
