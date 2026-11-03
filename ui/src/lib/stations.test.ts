@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, localStations, localName, localType, heardName, type Heard } from './stations';
+import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, localStations, localName, localType, heardName, type Heard } from './stations';
 import type { FmStation } from './api';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
@@ -129,5 +129,34 @@ describe('the dial', () => {
     const a = noteHeard([], [{ hz: 99.9e6, snr_db: 20, hd: true }], new Map(), 1000);
     expect(a[0].hd).toBe(true);
     expect(noteHeard(a, [{ hz: 99.9e6, snr_db: 20, hd: null }], new Map(), 1000 + TOUCH_MS)[0].hd).toBe(true);
+  });
+});
+
+describe('sortDial', () => {
+  const row = (mhz: number, title: string, city: string | undefined, snrDb: number | null) => ({ hz: mhz * 1e6, title, city, snrDb, hd: false, onAir: false });
+  const rows = [row(99.9, 'WKIS', 'Boca Raton', 23), row(88.9, 'WDNA', 'Miami', null), row(100.7, 'WHYI', undefined, 30), row(93.1, 'WFEZ', 'Aventura', 8)];
+  const order = (key: Parameters<typeof sortDial>[1], desc: boolean) => sortDial(rows, key, desc).map((r) => r.title);
+
+  it('sorts by frequency and call sign, both ways', () => {
+    expect(order('freq', false)).toEqual(['WDNA', 'WFEZ', 'WKIS', 'WHYI']);
+    expect(order('freq', true)).toEqual(['WHYI', 'WKIS', 'WFEZ', 'WDNA']);
+    expect(order('call', false)).toEqual(['WDNA', 'WFEZ', 'WHYI', 'WKIS']);
+  });
+
+  it('keeps rows with nothing in the column last, both ways', () => {
+    expect(order('city', false)).toEqual(['WFEZ', 'WKIS', 'WDNA', 'WHYI']);
+    expect(order('city', true)).toEqual(['WDNA', 'WKIS', 'WFEZ', 'WHYI']);
+    expect(order('signal', true)).toEqual(['WHYI', 'WKIS', 'WFEZ', 'WDNA']);
+    expect(order('signal', false)).toEqual(['WFEZ', 'WKIS', 'WHYI', 'WDNA']);
+  });
+
+  it('does not swap rows over a small change in signal', () => {
+    const a = [row(99.1, 'A', 'x', 20), row(99.9, 'B', 'x', 21)];
+    expect(sortDial(a, 'signal', true).map((r) => r.title)).toEqual(['A', 'B']);
+  });
+
+  it('leaves its input alone', () => {
+    sortDial(rows, 'call', false);
+    expect(rows[0].title).toBe('WKIS');
   });
 });

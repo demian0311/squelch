@@ -1,29 +1,61 @@
 <script lang="ts">
-  // The dial as a list. A blue edge marks stations in the waterfall's view; a grey bar is the last reading.
+  // The dial as a table, sorted by a column head. A blue edge marks stations in the waterfall's view; a grey bar is the last reading.
   import Level from './Level.svelte';
   import { fmChannel } from '../lib/radio';
-  import type { DialRow } from '../lib/stations';
+  import { firstDesc, sortDial, type DialRow, type DialSort } from '../lib/stations';
+  import * as store from '../lib/store';
 
   let { rows, hue, tuned, vs, ve, meterDb, onTune }: { rows: DialRow[]; hue: string; tuned: number; vs: number; ve: number; meterDb: number; onTune: (hz: number) => void } = $props();
 
+  const saved = store.getState<{ key: DialSort; desc: boolean }>('stations.sort', { key: 'freq', desc: false });
+  let sortKey = $state(saved.key);
+  let desc = $state(saved.desc);
+  let sorted = $derived(sortDial(rows, sortKey, desc));
+  function sortBy(key: DialSort) {
+    desc = key === sortKey ? !desc : firstDesc(key);
+    sortKey = key;
+    store.setState('stations.sort', { key, desc });
+  }
+
   let list = $state<HTMLElement>();
+  let head = $state<HTMLElement>();
   let placed = false;
-  // only when the tuned channel changes, so a status never costs a layout read; the first time puts it mid-list
   let channel = $derived(fmChannel(tuned));
+  // only when the tuned channel or the order's column changes, or rows first arrive, so a status never costs a layout read
+  let hasRows = $derived(rows.length > 0);
   $effect(() => {
-    const row = list?.querySelector<HTMLElement>(`[data-hz="${channel}"]`);
-    if (!list || !row) return;
-    const top = row.offsetTop - list.offsetTop;
-    if (!placed || top < list.scrollTop || top + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top - list.clientHeight / 2;
+    void sortKey;
+    void desc;
+    if (!hasRows || !list) return;
+    const row = list.querySelector<HTMLElement>(`[data-hz="${channel}"]`);
+    if (!row) return;
+    const under = head?.offsetHeight ?? 0;
+    const top = row.offsetTop;
+    if (!placed || top < list.scrollTop + under || top + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top - list.clientHeight / 2;
     placed = true;
   });
 </script>
 
+{#snippet sortHead(key: DialSort, label: string, cls: string)}
+  <button class="hc {cls}" class:on={sortKey === key} aria-pressed={sortKey === key} onclick={() => sortBy(key)} title="Sort by {label.toLowerCase()}">
+    {label}<i>{sortKey === key ? (desc ? '▼' : '▲') : ''}</i>
+  </button>
+{/snippet}
+
 <div class="stations" style:--c={hue} bind:this={list}>
-  {#each rows as r (r.hz)}
+  <div class="head" bind:this={head}>
+    {@render sortHead('freq', 'MHz', 'f')}
+    {@render sortHead('call', 'Call sign', 'n')}
+    {@render sortHead('city', 'City', 'c')}
+    <span class="hc t">Type</span>
+    <span class="hc h">HD</span>
+    {@render sortHead('signal', 'Signal', 'l')}
+  </div>
+  {#each sorted as r (r.hz)}
     <button class="row" class:view={r.hz >= vs && r.hz <= ve} class:tuned={r.hz === channel} data-hz={r.hz} onclick={() => onTune(r.hz)} title="Tune to {r.title}">
       <span class="f">{(r.hz / 1e6).toFixed(1)}</span>
-      <span class="n">{r.title}{#if r.city}<em>{r.city}</em>{/if}</span>
+      <span class="n">{r.title}</span>
+      <span class="c">{r.city ?? ''}</span>
       <span class="t">{r.type ?? ''}</span>
       <span class="h">{#if r.hd}<b title="Also broadcasts digitally (HD Radio)">HD</b>{/if}</span>
       <span class="l" class:old={!r.onAir}>{#if r.snrDb !== null}<Level pct={(r.snrDb / meterDb) * 100} width="100%" height="5px" />{/if}</span>
@@ -33,22 +65,62 @@
 
 <style>
   .stations {
+    --cols: 44px 72px minmax(0, 1fr) 92px 24px 56px;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     position: relative;
     container-type: inline-size;
-    padding-block: 4px;
+    padding-bottom: 4px;
   }
+  .head,
   .row {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) 92px 24px 44px;
+    grid-template-columns: var(--cols);
     gap: 10px;
     align-items: center;
-    width: 100%;
     padding: 3px 12px 3px 10px;
-    border: 0;
     border-left: 2px solid transparent;
+  }
+  .head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-block: 5px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--muted);
+  }
+  .hc {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 11.5px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  button.hc {
+    cursor: pointer;
+  }
+  button.hc:hover,
+  button.hc:focus-visible,
+  .hc.on {
+    color: var(--fg);
+    outline: none;
+  }
+  .hc i {
+    margin-left: 3px;
+    font-style: normal;
+    font-size: 8px;
+  }
+  .row {
+    width: 100%;
+    border-block: 0;
+    border-right: 0;
     border-radius: 0;
     background: none;
     color: inherit;
@@ -69,34 +141,32 @@
     background: color-mix(in srgb, var(--c) 28%, transparent);
   }
   .f {
+    text-align: right;
+  }
+  .row .f {
     font-family: var(--mono);
     font-size: 12.5px;
-    text-align: right;
     color: var(--fg-dim);
   }
   .view .f,
   .tuned .f {
     color: inherit;
   }
-  .n {
+  .row .n {
     font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
-  .n em {
-    margin-left: 6px;
-    font-style: normal;
-    font-weight: 400;
-    font-size: 12px;
-    color: var(--fg-dim);
-  }
+  .n,
+  .c,
   .t {
-    font-size: 12px;
-    color: var(--fg-dim);
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .row .c,
+  .row .t {
+    font-size: 12px;
+    color: var(--fg-dim);
   }
   .h b {
     font-family: var(--mono);
@@ -114,9 +184,11 @@
     filter: grayscale(1);
     opacity: 0.6;
   }
-  @container (max-width: 340px) {
+  /* Type goes first: the three columns that sort stay */
+  @container (max-width: 400px) {
+    .head,
     .row {
-      grid-template-columns: 44px minmax(0, 1fr) 24px 36px;
+      grid-template-columns: 44px 62px minmax(0, 1fr) 24px 44px;
     }
     .t {
       display: none;

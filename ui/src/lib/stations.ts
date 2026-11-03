@@ -137,6 +137,24 @@ export function dialRows(hasList: boolean, local: Map<number, FmStation>, heard:
   return rows.sort((a, b) => a.hz - b.hz);
 }
 
+export type DialSort = 'freq' | 'call' | 'city' | 'signal';
+/** Signals this close sort as equal, so a row doesn't jump with every status. */
+export const SORT_DB = 3;
+/** How a column sorts when first clicked: strongest first, everything else from the top of the alphabet or dial. */
+export const firstDesc = (key: DialSort) => key === 'signal';
+
+/** A copy of `rows` by that column. Rows with nothing in it stay last either way; ties go by frequency. */
+export function sortDial(rows: DialRow[], key: DialSort, desc: boolean): DialRow[] {
+  const sign = desc ? -1 : 1;
+  const missing = (r: DialRow) => (key === 'signal' ? r.snrDb === null : key === 'city' ? !r.city : false);
+  const by = (a: DialRow, b: DialRow) => {
+    if (key === 'freq') return a.hz - b.hz;
+    if (key === 'signal') return Math.round((a.snrDb ?? 0) / SORT_DB) - Math.round((b.snrDb ?? 0) / SORT_DB);
+    return (key === 'city' ? (a.city ?? '') : a.title).localeCompare(key === 'city' ? (b.city ?? '') : b.title);
+  };
+  return [...rows].sort((a, b) => Number(missing(a)) - Number(missing(b)) || sign * by(a, b) || a.hz - b.hz);
+}
+
 export interface Tick {
   hz: number;
   title: string;
