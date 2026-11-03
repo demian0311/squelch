@@ -87,6 +87,29 @@ describe('joinBlocks', () => {
   it('counts a retransmission once', () => {
     expect(joinBlocks([msg(2000, 'hello'), msg(1000, 'hello')]).length).toBe(1);
   });
+  it('drops the header each block repeats', () => {
+    const out = joinBlocks([msg(2000, '#DFB,0270/', false, 'D32B'), msg(1000, '#DFBA04/,54', true, 'D32A')]);
+    expect(out.map((m) => m.text)).toEqual(['#DFBA04/,54,0270/']);
+  });
+  it('counts a retransmitted later block once', () => {
+    const out = joinBlocks([msg(3000, '#DFBbb', false, 'D32B'), msg(2000, '#DFBbb', false, 'D32B'), msg(1000, '#DFBaa', true, 'D32A')]);
+    expect(out.map((m) => m.text)).toEqual(['#DFBaabb']);
+  });
+  it('marks blocks not heard, on air N390FR sent B, E, F, H', () => {
+    const out = joinBlocks([msg(4000, '#DFBh', true, 'D92H'), msg(3000, '#DFBf', true, 'D92F'), msg(2000, '#DFBe', true, 'D92E'), msg(1000, '#DFBb', true, 'D92B')]);
+    expect(out.map((m) => m.text)).toEqual(['… #DFBb … ef … h …']);
+  });
+  it('sorts by the last block heard', () => {
+    const out = joinBlocks([msg(3000, 'b', false, 'M12B'), msg(2000, 'other', false, 'M13A', 'N2'), msg(1000, 'a', true)]);
+    expect(out.map((m) => m.text)).toEqual(['ab', 'other']);
+  });
+  it('leaves an empty block empty', () => {
+    expect(joinBlocks([msg(1000, '', false, 'M12C')])[0].text).toBe('');
+  });
+  it('still finds a position in a report that joined nothing', () => {
+    const [m] = joinBlocks([msg(1000, 'POSN 26.082W 80.075, 229', false, 'M63A')]);
+    expect(acarsPosition({ label: '21', text: m.text })).toEqual({ lat: 26.082, lon: -80.075 });
+  });
   it('keeps other aircraft and later messages apart', () => {
     expect(joinBlocks([msg(2000, 'b', false, 'M12B', 'N2'), msg(1000, 'a', true)]).length).toBe(2);
     expect(joinBlocks([msg(500_000, 'b'), msg(1000, 'a', true)]).length).toBe(2);

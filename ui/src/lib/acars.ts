@@ -100,6 +100,13 @@ export function acarsPosition(m: { label: string; text: string }): { lat: number
 /** Blocks of one message arrive this close together, and a repeat of a block this soon is a retransmission. */
 const SAME_MESSAGE_MS = 120_000;
 
+/** Downlink message numbers end in the block's letter, A first (read on air, 2026-11-03). */
+const blockIndex = (m: AcarsMessage) => (/^[A-Z0-9]{3}[A-Z]$/.test(m.msn) ? m.msn.charCodeAt(3) - 65 : 0);
+/** Each block of a terminal message opens with the same header, in the middle of the data if need be. */
+const blockHeader = (text: string) => text.match(/^#\w{2}B/)?.[0] ?? '';
+/** Stands where a block was not heard. */
+const LOST = '…';
+
 /**
  * Blocks (newest first) as messages (newest first): a block ending in ETB is continued by the next from the
  * same aircraft with the same label and message number stem, and an unanswered block sent again counts once.
@@ -108,22 +115,31 @@ const SAME_MESSAGE_MS = 120_000;
 export function joinBlocks(list: AcarsMessage[]): AcarsMessage[] {
   const out: AcarsMessage[] = [];
   const open = new Map<string, AcarsMessage>();
+  const lastBlock = new Map<AcarsMessage, number>();
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i];
     const key = `${m.registration}|${m.label}|${m.msn.slice(0, 3)}`;
     const o = open.get(key);
-    if (o && m.at_ms - o.at_ms <= SAME_MESSAGE_MS && m.text && o.text.endsWith(m.text)) continue;
+    const head = o ? blockHeader(o.text) : '';
+    const body = head && m.text.startsWith(head) ? m.text.slice(head.length) : m.text;
+    if (o && m.at_ms - o.at_ms <= SAME_MESSAGE_MS && body && o.text.endsWith(body)) continue;
     if (o && o.more && m.at_ms - o.at_ms <= SAME_MESSAGE_MS) {
-      const joined = { ...o, text: o.text + m.text, more: m.more, at_ms: m.at_ms };
+      const lost = blockIndex(m) > (lastBlock.get(o) ?? 0) + 1;
+      const joined = { ...o, text: o.text + (lost ? ` ${LOST} ` : '') + body, more: m.more, at_ms: m.at_ms };
       out[out.indexOf(o)] = joined;
       open.set(key, joined);
+      lastBlock.set(joined, blockIndex(m));
       continue;
     }
     const copy = { ...m };
     out.push(copy);
     open.set(key, copy);
+    lastBlock.set(copy, blockIndex(m));
   }
-  return out.reverse();
+  return out
+    .map((m) => (m.text ? { ...m, text: (blockIndex(m) > 0 ? `${LOST} ` : '') + m.text + (m.more ? ` ${LOST}` : '') } : m))
+    .reverse()
+    .sort((a, b) => b.at_ms - a.at_ms);
 }
 
 /** Messages holding every word of `query` in who sent them, their label or their text. */
