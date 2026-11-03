@@ -1415,7 +1415,7 @@
           : 'Not measured yet. A few seconds on a strong FM station measures it.'}</small>
   </label>
   <label class="field toggle">
-    <span>Show quiet bands<small>Data and tracking, railroad and military aircraft: bands that have given us nothing so far</small></span>
+    <span>Show quiet bands<small>Data and tracking, MURS, railroad and military aircraft: bands that have given us nothing so far</small></span>
     <input type="checkbox" checked={showDeadAir} onchange={toggleDeadAir} />
   </label>
   {#if status?.error || bandsError || fileError}

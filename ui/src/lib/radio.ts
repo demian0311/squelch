@@ -52,10 +52,10 @@ export interface Saved extends Bookmark {
 }
 
 /**
- * Bands that have given us nothing on eagle so far: the whole data group, railroad and military
+ * Bands that have given us nothing on eagle so far: the whole data group, MURS, railroad and military
  * aircraft. Keyed by id so they apply to an old user bands file too.
  */
-export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil'] };
+export const DEAD_AIR = { groups: ['data'], bands: ['rail', 'mil', 'murs'] };
 
 /** The band list without the dead-air bands, and without any group left empty. */
 export function withoutDeadAir(plan: BandPlan): BandPlan {
