@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Repeater {
@@ -35,8 +37,8 @@ pub struct Repeaters {
 }
 
 /// Per-mode export files, by a word in the file name.
-const MODE_FILES: [(&str, &str); 11] = [
-    ("DMR", "DMR"), ("P-25", "P25"), ("NXDN", "NXDN"), ("D-Star", "D-STAR"), ("Fusion", "Fusion"), ("M17", "M17"),
+const MODE_FILES: [(&str, &str); 12] = [
+    ("DMR", "DMR"), ("P-25", "P25"), ("NXDN", "NXDN"), ("NXDA", "NXDN"), ("D-Star", "D-STAR"), ("Fusion", "Fusion"), ("M17", "M17"),
     ("ATV", "ATV"), ("AllStar", "AllStar"), ("Echolink", "EchoLink"), ("IRLP", "IRLP"), ("WIRES", "WIRES-X"),
 ];
 
@@ -51,21 +53,43 @@ fn between<'a>(s: &'a str, open: &str, close: &str) -> Option<&'a str> {
     Some(&s[start..start + end])
 }
 
+/// Every list in an export, each with its mode. The US-wide file holds one KML document per list
+/// ("Florida DMR.kml"), so a list's name inside the file beats the name of the file it is in.
+pub fn parse_export(file: &str, text: &str) -> Vec<(Option<&'static str>, Vec<Repeater>)> {
+    const OPEN: &str = "<name>";
+    const CLOSE: &str = ".kml</name>";
+    let mut lists = vec![];
+    let (mut rest, mut mode) = (text, file_mode(file));
+    while let Some(start) = rest.find(CLOSE).and_then(|end| rest[..end].rfind(OPEN).map(|s| (s, end))) {
+        let (start, end) = start;
+        lists.push((mode, parse_kml(&rest[..start])));
+        mode = file_mode(&rest[start + OPEN.len()..end]).or(file_mode(file));
+        rest = &rest[end + CLOSE.len()..];
+    }
+    lists.push((mode, parse_kml(rest)));
+    lists
+}
+
 /// Every placemark in a RepeaterBook KML export. Entries that don't parse are skipped.
 pub fn parse_kml(text: &str) -> Vec<Repeater> {
     text.split("<Placemark>").skip(1).filter_map(parse_placemark).collect()
 }
 
 // <description>City <![CDATA[ <br> ]]> 147.04500+ 123.0 <![CDATA[ <br> ]]> On-air: Yes ... ID=185' ...
+// or, in the US-wide file, the whole description inside one CDATA.
 fn parse_placemark(p: &str) -> Option<Repeater> {
-    let call = between(p, "<name>", "</name>")?.trim().to_string();
-    let desc = between(p, "<description>", "</description>")?;
-    let mut parts = desc.split("]]>");
-    let city = parts.next()?.split("<![CDATA[").next()?.trim().to_string();
-    let mut freq = parts.next()?.split("<![CDATA[").next()?.split_whitespace();
+    let p = p.split("</Placemark>").next()?;
+    // the US-wide file leaves out an empty call
+    let call = between(p, "<name>", "</name>").unwrap_or("").trim().to_string();
+    let desc = between(p, "<description>", "</description>")?.replace("<![CDATA[", "").replace("]]>", "");
+    let desc = desc.as_str();
+    let mut parts = desc.split("<br>");
+    let city = parts.next()?.trim().to_string();
+    let mut freq = parts.next()?.split_whitespace();
     let f = freq.next()?;
-    let (num, shift) = match f.strip_suffix(['+', '-', 's']) {
-        Some(n) => (n, &f[n.len()..]),
+    // "x" is not explained in the export; the output frequency is still good, so it counts as a split
+    let (num, shift) = match f.strip_suffix(['+', '-', 's', 'x']) {
+        Some(n) => (n, if f.ends_with('x') { "s" } else { &f[n.len()..] }),
         None => (f, ""),
     };
     let mhz: f64 = num.parse().ok()?;
@@ -86,7 +110,7 @@ pub fn km_between((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
     2.0 * 6371.0 * a.sqrt().asin()
 }
 
-/// Repeaters kept around a location given as a ZIP code or "lat, lon"; a state keeps the whole file.
+/// Repeaters kept around a location given as a ZIP code or "lat, lon"; a state keeps its own.
 pub const NEARBY_KM: f64 = 100.0;
 
 /// Repeaters the map can reach: the corner of its widest view at its longest range.
@@ -111,9 +135,9 @@ pub fn merge(files: Vec<(Option<&str>, Vec<Repeater>)>) -> Vec<Repeater> {
 }
 
 /// Those within `km` of `near`, one per output frequency: the nearest, or the first without a location.
-pub fn nearby(list: Vec<Repeater>, near: Option<(f64, f64)>, km: f64) -> Vec<Repeater> {
+pub fn nearby<'a>(list: impl IntoIterator<Item = &'a Repeater>, near: Option<(f64, f64)>, km: f64) -> Vec<Repeater> {
     let dist = |r: &Repeater| near.map_or(0.0, |n| km_between(n, (r.lat, r.lon)));
-    let mut by_hz: BTreeMap<u64, Repeater> = BTreeMap::new();
+    let mut by_hz: BTreeMap<u64, &Repeater> = BTreeMap::new();
     for r in list.into_iter().filter(|r| dist(r) <= km) {
         let hz = (r.mhz * 1e6).round() as u64;
         match by_hz.get(&hz) {
@@ -123,13 +147,21 @@ pub fn nearby(list: Vec<Repeater>, near: Option<(f64, f64)>, km: f64) -> Vec<Rep
             }
         }
     }
-    by_hz.into_values().collect()
+    by_hz.into_values().cloned().collect()
 }
 
 /// Everything within `km` of `near`, for the map: several repeaters may share an output frequency.
-pub fn within(list: Vec<Repeater>, near: (f64, f64), km: f64) -> Vec<Repeater> {
-    list.into_iter().filter(|r| km_between(near, (r.lat, r.lon)) <= km).collect()
+pub fn within<'a>(list: impl IntoIterator<Item = &'a Repeater>, near: (f64, f64), km: f64) -> Vec<Repeater> {
+    list.into_iter().filter(|r| km_between(near, (r.lat, r.lon)) <= km).cloned().collect()
 }
+
+/// Those RepeaterBook lists under a state, by its state_id.
+pub fn in_state<'a>(list: &'a [Repeater], state_id: &'a str) -> impl Iterator<Item = &'a Repeater> {
+    list.iter().filter(move |r| r.id.split('-').next() == Some(state_id))
+}
+
+/// The parsed file and the modification time it was read at.
+static SHARED: Mutex<Option<(SystemTime, Arc<Vec<Repeater>>)>> = Mutex::new(None);
 
 impl Repeaters {
     pub fn path() -> Option<PathBuf> {
@@ -142,6 +174,20 @@ impl Repeaters {
         let text = std::fs::read_to_string(&path)?;
         let r: Repeaters = toml::from_str(&text).with_context(|| format!("in {}", path.display()))?;
         Ok(r.list)
+    }
+
+    /// `load`, parsed once and again only after the file changes: the whole US takes a moment.
+    pub fn shared() -> Result<Arc<Vec<Repeater>>> {
+        let stamp = Self::path().and_then(|p| p.metadata().ok()?.modified().ok());
+        let mut shared = SHARED.lock().unwrap();
+        if let (Some(stamp), Some((at, list))) = (stamp, shared.as_ref()) {
+            if stamp == *at {
+                return Ok(list.clone());
+            }
+        }
+        let list = Arc::new(Self::load()?);
+        *shared = stamp.map(|s| (s, list.clone()));
+        Ok(list)
     }
 }
 
@@ -177,11 +223,59 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_us_wide_files_description() {
+        let kml = "<Placemark>\n<name>KD4HYG</name>\n<visibility>0</visibility>\n\
+                   <description><![CDATA[Bay Minette\n  <br>   145.43000- 123.0\n  <br>   On-air: Yes                    <br> \
+                   <a href='https://www.repeaterbook.com/repeaters/details.php?state_id=01&ID=31'>Click for Details</a>]]></description>\n\
+                   <Point>\n<coordinates>-87.75879669,30.99419975,0</coordinates>\n</Point>\n</Placemark>";
+        let r = parse_kml(kml);
+        assert_eq!((r[0].city.as_str(), r[0].mhz, r[0].shift.as_str(), r[0].tone.as_str()), ("Bay Minette", 145.43, "-", "123.0"));
+        assert_eq!((r[0].id.as_str(), r[0].on_air, r[0].lat), ("01-31", true, 30.99419975));
+        let odd = kml.replace("<name>KD4HYG</name>\n", "").replace("145.43000-", "53.25000x") + "<name>Alabama</name>";
+        let r = parse_kml(&odd);
+        assert_eq!((r[0].call.as_str(), r[0].mhz, r[0].shift.as_str()), ("", 53.25, "s"));
+    }
+
+    #[test]
     fn modes_from_file_names() {
         assert_eq!(file_mode("Colorado DMR.kml"), Some("DMR"));
         assert_eq!(file_mode("New Mexico System Fusion (YSF).kml"), Some("Fusion"));
         assert_eq!(file_mode("Colorado All.kml"), None);
         assert_eq!(file_mode("Colorado 70 Centimeters.kml"), None);
+        assert_eq!(file_mode("Florida NXDA.kml"), Some("NXDN"));
+    }
+
+    #[test]
+    fn a_us_wide_file_keeps_each_lists_mode() {
+        let one = placemark("K0ML", "Northglenn", "147.04500+ 123.0", "Yes", 185, -104.987, 39.8856);
+        let two = placemark("W0X", "Pueblo", "449.30000-", "Yes", 7, -104.7, 38.2);
+        let kml = format!(
+            "<Document><name>USA</name><Folder><name>Colorado</name>\
+             <Document><name>Colorado All.kml</name>{one}{two}</Document>\
+             <Document><name>Colorado DMR.kml</name>{two}</Document></Folder></Document>"
+        );
+        let r = merge(parse_export("doc.kml", &kml));
+        assert_eq!(r.len(), 2);
+        let (k, w) = (r.iter().find(|r| r.call == "K0ML").unwrap(), r.iter().find(|r| r.call == "W0X").unwrap());
+        assert!(k.modes.is_empty());
+        assert_eq!(w.modes, ["DMR"]);
+    }
+
+    #[test]
+    fn a_single_list_file_takes_its_mode_from_the_file_name() {
+        let one = placemark("K0ML", "Northglenn", "147.04500+ 123.0", "Yes", 185, -104.987, 39.8856);
+        for kml in [one.clone(), format!("<Document><name>export.kml</name>{one}</Document>")] {
+            assert_eq!(merge(parse_export("Colorado DMR.kml", &kml))[0].modes, ["DMR"]);
+        }
+    }
+
+    #[test]
+    fn a_state_keeps_only_its_own() {
+        let mut r = parse_kml(&placemark("K0ML", "Northglenn", "147.04500+ 123.0", "Yes", 185, -104.987, 39.8856));
+        r.extend(parse_kml(&placemark("W4X", "Miami", "147.04500+", "Yes", 12, -80.2, 25.8)));
+        r[1].id = "12-12".into();
+        let calls: Vec<_> = in_state(&r, "12").map(|r| r.call.as_str()).collect();
+        assert_eq!(calls, ["W4X"]);
     }
 
     #[test]
@@ -203,15 +297,15 @@ mod tests {
         assert_eq!(r[0].modes, ["DMR"]);
         let denver = (39.74, -104.99);
         let calls = |l: Vec<Repeater>| l.iter().map(|r| r.call.clone()).collect::<Vec<_>>();
-        assert_eq!(calls(nearby(r.clone(), Some(denver), 400.0)), ["DIGI", "SKI", "NEAR"]);
-        assert_eq!(calls(nearby(r.clone(), Some(denver), 50.0)), ["DIGI", "NEAR"]);
-        assert_eq!(calls(nearby(r.clone(), None, f64::INFINITY)), ["DIGI", "SKI", "NEAR"]);
+        assert_eq!(calls(nearby(&r, Some(denver), 400.0)), ["DIGI", "SKI", "NEAR"]);
+        assert_eq!(calls(nearby(&r, Some(denver), 50.0)), ["DIGI", "NEAR"]);
+        assert_eq!(calls(nearby(&r, None, f64::INFINITY)), ["DIGI", "SKI", "NEAR"]);
         let mut twin = r[0].clone();
         twin.call = "TWIN".into();
         let both: Vec<_> = r.into_iter().chain([twin]).collect();
-        assert_eq!(calls(nearby(both.clone(), Some(denver), 400.0)).len(), 3, "one per output frequency");
-        assert_eq!(calls(within(both.clone(), denver, 400.0)).len(), both.len(), "the map keeps every one");
-        assert!(calls(within(both.clone(), denver, 50.0)).len() < both.len());
+        assert_eq!(calls(nearby(&both, Some(denver), 400.0)).len(), 3, "one per output frequency");
+        assert_eq!(calls(within(&both, denver, 400.0)).len(), both.len(), "the map keeps every one");
+        assert!(calls(within(&both, denver, 50.0)).len() < both.len());
     }
 
     #[test]

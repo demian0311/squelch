@@ -1,9 +1,10 @@
 //! Convert RepeaterBook KML exports into the repeaters file the app reads.
 //! `repeaters [--out FILE] <file.kml>...`
-//! Pass the state's "All" file plus any per-mode files ("Colorado DMR.kml") to tag modes.
+//! Pass the US-wide `doc.kml` (unzip the .kmz), or a state's "All" file plus any per-mode files
+//! ("Colorado DMR.kml") to tag modes.
 //! The app keeps those near the location set in its controls.
 
-use radio::repeaters::{file_mode, merge, parse_kml, Repeaters};
+use radio::repeaters::{merge, parse_export, Repeaters};
 
 fn main() -> anyhow::Result<()> {
     let usage = "usage: repeaters [--out FILE] <file.kml>...";
@@ -18,10 +19,10 @@ fn main() -> anyhow::Result<()> {
     assert!(!files.is_empty(), "{usage}");
     let mut parsed = vec![];
     for f in &files {
-        let list = parse_kml(&std::fs::read_to_string(f)?);
         let name = std::path::Path::new(f).file_name().unwrap_or_default().to_string_lossy();
-        println!("{f}: {} repeaters{}", list.len(), file_mode(&name).map(|m| format!(", tagged {m}")).unwrap_or_default());
-        parsed.push((file_mode(&name), list));
+        let lists = parse_export(&name, &std::fs::read_to_string(f)?);
+        println!("{f}: {} lists, {} entries", lists.len(), lists.iter().map(|(_, l)| l.len()).sum::<usize>());
+        parsed.extend(lists);
     }
     let list = merge(parsed);
     let out = out.expect("no config directory; pass --out");

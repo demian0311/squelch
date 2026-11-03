@@ -363,10 +363,9 @@
   }
 
   let repeaters = $state<api.Repeater[]>([]);
-  let mapRepeaters = $state<api.Repeater[]>([]);
   async function loadRepeaters() {
+    mapFor = null;
     repeaters = await api.repeaters(location);
-    mapRepeaters = await api.repeatersMap(location);
     setRepeaters(repeaters, plan.bands);
     // channel lookups aren't reactive; a new plan object recomputes everything that uses them
     plan = { ...plan };
@@ -402,6 +401,21 @@
   }
   // the repeater panel: only on bands with a reach estimate, centred on the location
   let repReachKm = $derived(band ? REACH_KM[band.id] : undefined);
+  // the map's list: fetched the first time a band with a map opens, kept until the location or the file changes
+  let mapRepeaters = $state<api.Repeater[]>([]);
+  let mapFor = $state<string | null>(null);
+  let mapLoaded = $state(false);
+  $effect(() => {
+    if (repReachKm === undefined || mapFor === location) return;
+    const at = location;
+    mapFor = at;
+    mapLoaded = false;
+    api.repeatersMap(at).then((list) => {
+      if (at !== mapFor) return;
+      mapRepeaters = list;
+      mapLoaded = true;
+    });
+  });
   let repInBand = $derived(band && repReachKm !== undefined ? mapRepeaters.filter((r) => r.mhz >= band.low_mhz && r.mhz <= band.high_mhz) : []);
   let repPoints = $derived(band && iss?.site ? repeaterPoints(repInBand, band, iss.site) : []);
   let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
@@ -420,6 +434,7 @@
   }
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
+    if (!repInBand.length) return 'None near your location';
     const shown = repPoints.filter((p) => p.km <= repRange);
     const near = shown.filter((p) => p.reach).length;
     const maybe = shown.filter((p) => p.digital).length;
@@ -714,7 +729,7 @@
     if (acarsOn) own.push('acars');
     if (adsbOn) own.push('aircraft');
     if (p25) own.push('p25');
-    if (repInBand.length && repReachKm !== undefined) own.push('repeaters');
+    if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     // decoded in the background as soon as the station shows HD sidebands
     if (hd) own.push('hd');
     if (walkieBand) {
@@ -902,12 +917,10 @@
       setup = await api.setup();
       setTheme(await api.theme());
       const b = await api.bands();
-      repeaters = await api.repeaters(location);
-      mapRepeaters = await api.repeatersMap(location);
-      setRepeaters(repeaters, b.plan.bands);
       plan = b.plan;
       bandsPath = b.path;
       bandsError = b.error;
+      loadRepeaters();
       await api.start(
         (row) => waterfall?.push(row),
         (s) => {
@@ -1351,7 +1364,9 @@
               {/each}
             </div>
           {:else if panel === 'repeaters'}
-            {#if iss?.site}
+            {#if iss?.site && !repInBand.length}
+              <p class="empty pbody">No repeaters on this band near your location in ~/.config/squelch/repeaters.toml.</p>
+            {:else if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
                   <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, 'nfm')} range={repRange} onRange={setRepRange} site={iss.site} palette={mapPalette} />

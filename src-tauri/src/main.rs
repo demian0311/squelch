@@ -9,7 +9,7 @@ use radio::demod::Mode;
 use radio::device::Gain;
 use radio::engine::{Command, Engine, Status, BELOW_FLOOR_DB, FFT_SIZE, RANGE_DB, SAMPLE_RATE};
 use radio::prefs::{self, Slot};
-use radio::repeaters::{nearby, within, Repeater, Repeaters, MAP_KM, NEARBY_KM};
+use radio::repeaters::{in_state, nearby, within, Repeater, Repeaters, MAP_KM, NEARBY_KM};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -180,26 +180,38 @@ fn notify(title: String, body: String) {
     let _ = std::process::Command::new("notify-send").args(["--app-name=Squelch", "--urgency=normal", &title, &body]).spawn().map(|mut c| std::thread::spawn(move || c.wait()));
 }
 
-/// Repeaters near `location` (ZIP code, state or "lat, lon"); a state keeps the whole file.
+/// Repeaters near `location` (ZIP code, state or "lat, lon"), none without one; a state keeps its own.
 /// A broken repeaters file just means no repeater names, not a broken receiver.
 #[tauri::command]
-fn repeaters(location: String) -> Vec<Repeater> {
-    let list = Repeaters::load().unwrap_or_else(|e| {
-        eprintln!("repeaters: {e:#}");
-        vec![]
-    });
-    let near = radio::iss::parse_site(&location).map(|s| (s.lat, s.lon));
-    let km = if radio::iss::place::state(&location).is_some() { f64::INFINITY } else { NEARBY_KM };
-    nearby(list, near, km)
+async fn repeaters(location: String) -> Vec<Repeater> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(s) = radio::iss::parse_site(&location) else { return vec![] };
+        let list = Repeaters::shared().unwrap_or_else(|e| {
+            eprintln!("repeaters: {e:#}");
+            Default::default()
+        });
+        match radio::iss::place::state_id(&location) {
+            Some(id) => nearby(in_state(&list, id), Some((s.lat, s.lon)), f64::INFINITY),
+            None => nearby(list.iter(), Some((s.lat, s.lon)), NEARBY_KM),
+        }
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// What the repeater map draws: further out than the channel plan, and every repeater on a shared frequency.
 #[tauri::command]
-fn repeaters_map(location: String) -> Vec<Repeater> {
-    let Some(s) = radio::iss::parse_site(&location) else { return vec![] };
-    let list = Repeaters::load().unwrap_or_default();
-    let km = if radio::iss::place::state(&location).is_some() { f64::INFINITY } else { MAP_KM };
-    within(list, (s.lat, s.lon), km)
+async fn repeaters_map(location: String) -> Vec<Repeater> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(s) = radio::iss::parse_site(&location) else { return vec![] };
+        let list = Repeaters::shared().unwrap_or_default();
+        match radio::iss::place::state_id(&location) {
+            Some(id) => within(in_state(&list, id), (s.lat, s.lon), f64::INFINITY),
+            None => within(list.iter(), (s.lat, s.lon), MAP_KM),
+        }
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]

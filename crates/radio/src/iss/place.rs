@@ -16,15 +16,24 @@ pub fn zip(zip: &str) -> Option<Site> {
 
 /// A state's two-letter code or full name, any case. Its centre can be a few hundred km from the user.
 pub fn state(name: &str) -> Option<Site> {
-    let name = name.trim();
-    let line = STATES.lines().filter(|l| !l.starts_with('#')).find(|l| {
-        let mut f = l.splitn(4, ' ');
-        let code = f.next().unwrap_or("");
-        let full = f.nth(2).unwrap_or("");
-        code.eq_ignore_ascii_case(name) || full.eq_ignore_ascii_case(name)
-    })?;
+    let line = state_line(name)?;
     let mut f = line.split(' ').skip(1).map(|v| v.parse::<f64>());
     Some(Site { lat: f.next()?.ok()?, lon: f.next()?.ok()? })
+}
+
+/// A state's FIPS code, which RepeaterBook uses as its state_id.
+pub fn state_id(name: &str) -> Option<&'static str> {
+    state_line(name)?.split(' ').nth(3)
+}
+
+fn state_line(name: &str) -> Option<&'static str> {
+    let name = name.trim();
+    STATES.lines().filter(|l| !l.starts_with('#')).find(|l| {
+        let mut f = l.splitn(5, ' ');
+        let code = f.next().unwrap_or("");
+        let full = f.nth(3).unwrap_or("");
+        code.eq_ignore_ascii_case(name) || full.eq_ignore_ascii_case(name)
+    })
 }
 
 #[cfg(test)]
@@ -45,6 +54,9 @@ mod tests {
         assert!(state("District of Columbia").is_some());
         assert!(state("Atlantis").is_none());
         assert!(state("New").is_none());
+        assert_eq!(state_id("fl"), Some("12"));
+        assert_eq!(state_id("New Mexico"), Some("35"));
+        assert_eq!(state_id("33131"), None);
     }
 
     #[test]
