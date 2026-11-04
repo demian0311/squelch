@@ -1,8 +1,8 @@
 <script lang="ts">
   // A band's channels as tiles in strips by what they are for, a word on those with a special use and a bar on each while
   // it is on air. A channel with a twin frequency is two halves (ship, shore), or a link in the detail line (repeater input).
-  // A short panel drops the legend, then the strip headings, then shrinks the tiles, then drops the detail line.
-  import { channelByKey, channelOn, sideOf, type Board, type BoardChannel } from '../lib/board';
+  // Every tile fits the panel: `boardFit` shrinks the tiles, then drops the legend, the detail line and the strip headings.
+  import { boardFit, boardRows, channelByKey, channelOn, sideOf, type Board, type BoardChannel } from '../lib/board';
   import { fmtMHz } from '../lib/radio';
 
   interface Props {
@@ -27,17 +27,21 @@
   const pct = (c: BoardChannel) => Math.max(8, Math.min(100, ((live.get(c.key) ?? 0) / fullDb) * 100));
   const title = (c: BoardChannel) => `${fmtMHz(c.hz, 4)} MHz${on(c) ? ' · on air' : heard(c.hz) ? '' : ' · other side, not heard'}. ${c.use}`;
   let anyAway = $derived(board.sides.some((_, i) => !sides.includes(i)));
+
+  let height = $state(0);
+  let rows = $derived(boardRows(board));
+  let fit = $derived(boardFit(height, rows));
 </script>
 
 {#snippet bar(c: BoardChannel)}
   <span class="bar"><i style:transform="scaleX({on(c) ? pct(c) / 100 : 0})"></i></span>
 {/snippet}
 
-<div class="board">
-  <div class="inner">
+<div class="board" bind:clientHeight={height}>
+  <div class="inner" class:tight={fit.tight} style:--row="{fit.rowPx}px" style:gap="{fit.gapPx}px">
     {#each board.strips as s (s.name)}
       <div class="strip">
-        <div class="lbl"><span><b>{s.name}</b></span>{#if s.note}<span>{s.note}</span>{/if}</div>
+        {#if fit.headings}<div class="lbl"><span><b>{s.name}</b></span>{#if s.note}<span>{s.note}</span>{/if}</div>{/if}
         <div class="tiles">
           {#each s.keys as key (key)}
             {@const c = channelByKey(board, key)!}
@@ -58,12 +62,12 @@
         </div>
       </div>
     {/each}
-    <div class="legend">
+    {#if fit.legend}<div class="legend">
       <span><i class="busy"></i>on air</span>
       {#if hasDot}<span><i class="dotkey"></i>repeater channel</span>{/if}
       {#if anyAway}<span class="faded">faded: other side, not heard</span>{/if}
-    </div>
-    <p class="detail">
+    </div>{/if}
+    {#if fit.detail}<p class="detail">
       {#if here}
         <b>{here.name ?? here.key} · {fmtMHz(here.hz, 4)}</b>
         {here.use}
@@ -73,7 +77,7 @@
       {:else}
         {board.hint}
       {/if}
-    </p>
+    </p>{/if}
   </div>
 </div>
 
@@ -81,10 +85,8 @@
   .board {
     flex: 1 1 0;
     min-height: 0;
-    container-type: size;
     overflow-y: auto;
   }
-  /* a container can't query its own size, so the spacing that changes lives one level down */
   .inner {
     padding: 10px;
     display: flex;
@@ -111,11 +113,17 @@
   .tiles {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
+    grid-auto-rows: var(--row);
     gap: 4px;
   }
   .tile {
     position: relative;
-    padding: 7px 0 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 0 3px;
     border: 1px solid var(--muted);
     border-radius: 6px;
     background: var(--bg-light);
@@ -145,6 +153,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2px;
+    min-height: 0;
     padding: 2px;
     border: 1px solid var(--muted);
     border-radius: 6px;
@@ -267,64 +276,33 @@
     text-underline-offset: 2px;
     cursor: pointer;
   }
-  @container (max-height: 300px) {
-    .legend {
-      display: none;
-    }
+  /* Short tiles: the word goes beside the number, a pair's number beside its halves. */
+  .tight .tile {
+    flex-direction: row;
+    gap: 5px;
+    font-size: 13px;
   }
-  @container (max-height: 260px) {
-    .inner {
-      gap: 6px;
-    }
-    .lbl {
-      display: none;
-    }
-    .detail {
-      padding-top: 6px;
-    }
+  .tight .tile small {
+    margin-top: 0;
   }
-  @container (max-height: 190px) {
-    .tile {
-      padding: 3px 0 7px;
-      font-size: 12px;
-    }
-    .detail {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+  .tight .pair {
+    grid-template-columns: auto 1fr 1fr;
+    align-items: stretch;
   }
-  @container (max-height: 150px) {
-    .detail {
-      display: none;
-    }
-    .inner {
-      padding-block: 6px;
-    }
+  .tight .num {
+    grid-column: auto;
+    align-self: center;
+    padding: 0 3px;
+    font-size: 13px;
   }
-  @container (max-height: 110px) {
-    .tile small {
-      display: none;
-    }
-    .inner {
-      gap: 3px;
-    }
-    .tiles {
-      gap: 2px;
-    }
-    .tile {
-      padding: 1px 0 5px;
-      border-radius: 4px;
-    }
-    .bar {
-      bottom: 2px;
-      height: 2px;
-    }
-    .tile.rpt::after {
-      top: 2px;
-      right: 2px;
-      width: 4px;
-      height: 4px;
-    }
+  .tight .half {
+    padding: 0 0 3px;
+  }
+  .detail {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
   }
 </style>

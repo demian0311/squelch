@@ -232,6 +232,69 @@ const BY_BAND: Record<string, Board> = Object.fromEntries(BOARDS.map((b) => [b.i
 // bands files from before FRS and GMRS were one band
 BY_BAND.frs_only = BY_BAND.gmrs = WALKIE_BOARD;
 
+/** Rows the board's tiles take in a grid of TILE_COLUMNS, a word or a pair spanning two. */
+export function boardRows(board: Board): number[] {
+  return board.strips.map((s) => {
+    let rows = 1;
+    let used = 0;
+    for (const key of s.keys) {
+      const c = channelByKey(board, key);
+      const span = c?.word || (c?.twin && board.halves) ? 2 : 1;
+      if (used + span > TILE_COLUMNS) {
+        rows += 1;
+        used = 0;
+      }
+      used += span;
+    }
+    return rows;
+  });
+}
+
+export const TILE_COLUMNS = 8;
+/** Tile height, px: the shortest that still reads and the tallest worth drawing. */
+const MIN_ROW = 22;
+const MAX_ROW = 48;
+const TIGHT_ROW = 46;
+/** Last resort, when nothing else is left to drop. */
+const FLOOR_ROW = 18;
+const PADDING = 20;
+const HEADING = 21;
+const ROW_GAP = 4;
+const LEGEND = 16;
+/** Three lines of the detail text, the most it shows. */
+const DETAIL = 60;
+
+export interface BoardFit {
+  rowPx: number;
+  /** Tiles too short for a word under the number: it goes beside it. */
+  tight: boolean;
+  legend: boolean;
+  headings: boolean;
+  detail: boolean;
+  gapPx: number;
+}
+
+/** How to draw a board so every tile fits `height`: drops the legend, then the detail line, then the
+ *  strip headings, each only when tiles would otherwise go under MIN_ROW. */
+export function boardFit(height: number, rows: number[], fullLegend = true): BoardFit {
+  const total = rows.reduce((a, b) => a + b, 0);
+  const strips = rows.length;
+  const steps = [
+    { legend: fullLegend, detail: true, headings: true, gapPx: 12 },
+    { legend: false, detail: true, headings: true, gapPx: 8 },
+    { legend: false, detail: false, headings: true, gapPx: 6 },
+    { legend: false, detail: false, headings: false, gapPx: 4 },
+  ];
+  const rowFor = (o: (typeof steps)[number]) => {
+    const parts = strips + (o.legend ? 1 : 0) + (o.detail ? 1 : 0);
+    const over = PADDING + (parts - 1) * o.gapPx + (total - strips) * ROW_GAP + (o.headings ? strips * HEADING : 0) + (o.legend ? LEGEND : 0) + (o.detail ? DETAIL : 0);
+    return (height - over) / total;
+  };
+  const pick = steps.find((o) => rowFor(o) >= MIN_ROW) ?? steps[steps.length - 1];
+  const rowPx = Math.floor(Math.min(MAX_ROW, Math.max(FLOOR_ROW, rowFor(pick))));
+  return { ...pick, rowPx, tight: rowPx < TIGHT_ROW };
+}
+
 export const boardFor = (bandId: string | undefined): Board | undefined => (bandId ? BY_BAND[bandId] : undefined);
 export const stripOf = (board: Board, key: string) => board.strips.find((s) => s.keys.includes(key));
 export const channelByKey = (board: Board, key: string) => board.channels.find((c) => c.key === key);

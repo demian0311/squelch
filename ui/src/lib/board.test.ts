@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOARDS, KEEP_MIN, activity, ago, boardFor, channelOn, listened, liveOn, parseHistory, record, sideOf, sideView, sidesIn, stripOf, type Minute } from './board';
+import { BOARDS, KEEP_MIN, boardFit, boardRows, activity, ago, boardFor, channelOn, listened, liveOn, parseHistory, record, sideOf, sideView, sidesIn, stripOf, type Minute } from './board';
 
 const W = boardFor('walkie')!;
 const MIN = 60_000;
@@ -141,5 +141,28 @@ describe('marine and CB', () => {
   it('takes old walkie band ids', () => {
     expect(boardFor('gmrs')).toBe(W);
     expect(boardFor('rail')).toBeUndefined();
+  });
+});
+
+describe('board fit', () => {
+  const M = boardFor('marine')!;
+  it('counts the rows a grid places, a pair spanning two', () => {
+    expect(boardRows(M)).toEqual([1, 1, 1, 1, 2, 2, 2]);
+  });
+  it('keeps headings and detail in a normal marine panel', () => {
+    const f = boardFit(640, boardRows(M));
+    expect(f).toMatchObject({ headings: true, detail: true, tight: true });
+    expect(f.rowPx).toBeGreaterThanOrEqual(22);
+  });
+  it('drops what it must, in order, as the panel shrinks', () => {
+    const rows = boardRows(M);
+    expect(boardFit(540, rows).legend).toBe(false);
+    expect(boardFit(400, rows).detail).toBe(false);
+    expect(boardFit(330, rows).headings).toBe(false);
+  });
+  it('does not stretch a short board', () => {
+    const f = boardFit(900, boardRows(boardFor('wx')!));
+    expect(f.rowPx).toBe(48);
+    expect(f.tight).toBe(false);
   });
 });

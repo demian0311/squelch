@@ -892,7 +892,7 @@
     const t = setInterval(load, FLIGHT_REFRESH_MS);
     return () => clearInterval(t);
   });
-  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', flights: 'Flights log', stations: 'Stations', hd: 'Traffic and weather', p25: 'Police and fire', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', flights: 'Flights log', stations: 'Stations', hd: 'Traffic and weather', p25: 'EMS', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
   const panelTitle = (id: PanelId) => (id === 'board' ? (board?.title ?? 'Channels') : PANEL_TITLE[id]);
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);

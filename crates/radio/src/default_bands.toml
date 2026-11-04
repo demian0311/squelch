@@ -156,7 +156,7 @@ start_mhz = 160.9
 [[band]]
 id = "ps700"
 group = "safety"
-name = "Police and fire 700"
+name = "EMS 700"
 icon = "siren"
 mode = "p25"
 low_mhz = 769.0
@@ -169,7 +169,7 @@ names = [
 [[band]]
 id = "ps800"
 group = "safety"
-name = "Police and fire 800"
+name = "EMS 800"
 icon = "siren"
 mode = "p25"
 low_mhz = 851.0

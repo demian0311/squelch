@@ -26,7 +26,7 @@ Plug in the dongle, then start Squelch from the app launcher (Super + Space) or 
 - **Bands and channels.** Ready-made bands for broadcast FM, aircraft, NOAA weather, marine, CB, walkie-talkies, railroad, the ham bands and more. CB, FRS, NOAA, marine and US rail channels show their names.
 - **FM station data (RDS).** Station name, RadioText, and song title and artist where the station sends them.
 - **HD Radio.** Plays the digital HD channels of FM stations, through [nrsc5](https://github.com/theori-io/nrsc5). This is optional: Squelch still starts without it.
-- **Police and fire.** Follows P25 trunked radio, the digital system most US public safety agencies use. Tune a site's control channel and Squelch plays each unencrypted Phase 1 call as the site assigns it. Optional: it needs [mbelib](https://github.com/szechyjs/mbelib).
+- **EMS.** Follows P25 trunked radio, the digital system most US public safety agencies use. Tune a site's control channel and Squelch plays each unencrypted Phase 1 call as the site assigns it. Optional: it needs [mbelib](https://github.com/szechyjs/mbelib).
 - **Weather balloons.** Decodes the radiosondes that weather services launch twice a day: Graw DFM-06, DFM-09 and DFM-17, and Vaisala RS41.
 - **Follows your Omarchy theme.** It recolors when you change the theme.
 
@@ -58,7 +58,7 @@ Then unplug the dongle and plug it back in.
 
 For HD Radio, install `nrsc5-git` from the AUR, or build nrsc5 and put `libnrsc5.so` in `~/.local/lib`.
 
-For police and fire voice, install mbelib:
+For EMS voice, install mbelib:
 
 ```sh
 sudo pacman -S mbelib
@@ -72,7 +72,7 @@ squelch --setup-wake
 
 If you built from source, the clock form under a bookmark shows the full command to paste. Squelch has to stay open for a plan to run, and whether the alarm wakes the computer depends on the hardware.
 
-## Police and fire
+## EMS
 
 Squelch follows a P25 site from its control channel: the one channel the site keeps on all the time to assign calls to voice channels.
 
@@ -86,9 +86,9 @@ To find a control channel near you:
    ```
 
    Lines with a duty near 100% are likely control channels. Frequencies are as the dongle reads them, so they can be off by a few tens of kHz.
-3. In Squelch, choose **Public safety → Police and fire 700** or **800**, and tune the frequency. Squelch searches nearby carriers if the dongle's frequency is a little off.
+3. In Squelch, choose **Public safety → EMS 700** or **800**, and tune the frequency. Squelch searches nearby carriers if the dongle's frequency is a little off.
 
-The **Police and fire** panel under the waterfall shows the site and every call it assigns. Encrypted calls and Phase 2 calls (the newer time-slot format) are listed but do not play. How many calls you can hear depends on your area: many cities encrypt.
+The **EMS** panel under the waterfall shows the site and every call it assigns. Encrypted calls and Phase 2 calls (the newer time-slot format) are listed but do not play. How many calls you can hear depends on your area: many cities encrypt.
 
 Squelch plays one call at a time.
 

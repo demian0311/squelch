@@ -1,4 +1,4 @@
-// Police and fire (P25 trunked radio): what the panel says about the receiver and each call.
+// EMS band (P25 trunked radio): what the panel says about the receiver and each call.
 import type { P25, P25Call } from './api';
 
 /** One line for the folded panel. */
