@@ -75,7 +75,7 @@
               {#if open}
                 <span class="text">
                   <span class="name">{band.name}</span>
-                  <span class="range mono">{marks[band.id]?.line ?? range(band)}</span>
+                  <span class="range mono">{marks[band.id]?.line ?? band.sub ?? range(band)}</span>
                 </span>
                 <span class="key mono">{key}</span>
               {/if}

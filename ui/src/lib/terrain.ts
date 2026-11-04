@@ -47,7 +47,7 @@ export function tilesFor(f: Frame, z: number): { x: number; y: number }[] {
 
 /** A file-name-safe key for a shaded map: place (to ~100 m), frame and colours. */
 export function groundKey(f: Frame, p: Palette): string {
-  const text = [SHADE_VERSION, f.site.lat.toFixed(3), f.site.lon.toFixed(3), f.halfWKm, f.halfHKm, p.plain, p.peak, p.shadow, p.light].join('|');
+  const text = [...(p.water ? [p.water] : []), SHADE_VERSION, f.site.lat.toFixed(3), f.site.lon.toFixed(3), f.halfWKm, f.halfHKm, p.plain, p.peak, p.shadow, p.light].join('|');
   // two FNV-1a passes with different seeds: 64 bits, as hex
   const fnv = (seed: number) => {
     let h = seed;
@@ -69,6 +69,8 @@ export interface Palette {
   shadow: string;
   /** slopes facing the light */
   light: string;
+  /** sea and lakes, flat; without it they shade like land */
+  water?: string;
 }
 
 function rgb(hex: string): [number, number, number] {
@@ -91,6 +93,7 @@ const HIGH_M = 4200;
  */
 export function shade(heights: Float32Array, w: number, h: number, kmPerPx: number, p: Palette): Uint8ClampedArray<ArrayBuffer> {
   const [plain, peak, dark, lite] = [p.plain, p.peak, p.shadow, p.light].map(rgb);
+  const water = p.water ? rgb(p.water) : null;
   const out = new Uint8ClampedArray(new ArrayBuffer(w * h * 4));
   const step = kmPerPx * 1000;
   const flat = Math.sin(ALTITUDE);
@@ -99,6 +102,10 @@ export function shade(heights: Float32Array, w: number, h: number, kmPerPx: numb
       const i = y * w + x;
       const e = heights[i];
       if (Number.isNaN(e)) continue;
+      if (water && e <= 0) {
+        out.set([water[0], water[1], water[2], 255], i * 4);
+        continue;
+      }
       const at = (xx: number, yy: number) => {
         const v = heights[Math.min(h - 1, Math.max(0, yy)) * w + Math.min(w - 1, Math.max(0, xx))];
         return Number.isNaN(v) ? e : v;

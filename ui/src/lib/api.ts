@@ -24,6 +24,8 @@ export interface Band {
   high_mhz: number;
   start_mhz: number;
   decoder?: string | null;
+  /** Shown in the rail instead of the frequency range. */
+  sub?: string;
   /** What frequencies are for, known to the app; nobody saved them. */
   names?: { mhz: number; name: string; mode?: Mode | null }[];
   bookmarks: Bookmark[];
@@ -376,6 +378,23 @@ export const readState = () => invoke<string>('read_state');
 export const saveState = (json: string) => invoke<void>('save_state', { json });
 export const bands = () => invoke<Bands>('bands');
 export const repeaters = (location: string) => invoke<Repeater[]>('repeaters', { location });
+export interface AirportChannel {
+  kind: string;
+  mhz: number;
+  name: string;
+}
+export interface Airport {
+  ident: string;
+  iata: string;
+  size: 'L' | 'M' | 'S';
+  lat: number;
+  lon: number;
+  name: string;
+  city: string;
+  channels: AirportChannel[];
+}
+export const airportsNear = (lat: number, lon: number) => invoke<Airport[]>('airports_near', { lat, lon });
+export const airportsByCode = (codes: string[]) => invoke<Airport[]>('airports_by_code', { codes });
 export const fmStations = (location: string) => invoke<FmStation[]>('fm_stations', { location });
 export const repeatersMap = (location: string) => invoke<Repeater[]>('repeaters_map', { location });
 export const theme = () => invoke<Theme>('theme');
@@ -400,6 +419,7 @@ export const setSondes = (on: boolean) => invoke('set_sondes', { on });
 export const setAcars = (on: boolean) => invoke('set_acars', { on });
 /** Decode aircraft broadcasts across the capture. */
 export const setAdsb = (on: boolean) => invoke('set_adsb', { on });
+export const setAirTurns = (turns: { planesS: number; messagesS: number } | null) => invoke('set_air_turns', { planesS: turns?.planesS ?? null, messagesS: turns?.messagesS ?? null });
 export const setSite = (lat: number | null, lon: number | null) => invoke('set_site', { lat, lon });
 export const airFlights = (days: number) => invoke<Flight[]>('air_flights', { days });
 export const airTrack = (icao: string, fromMs: number, toMs: number) => invoke<TrackPoint[]>('air_track', { icao, fromMs, toMs });
