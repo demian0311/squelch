@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { MAX_AGE_MS, TOUCH_MS, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, localStations, localName, localType, heardName, type Heard } from './stations';
+import { MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
 import type { FmStation } from './api';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
@@ -150,9 +150,30 @@ describe('sortDial', () => {
     expect(order('signal', false)).toEqual(['WFEZ', 'WKIS', 'WHYI', 'WDNA']);
   });
 
-  it('does not swap rows over a small change in signal', () => {
-    const a = [row(99.1, 'A', 'x', 20), row(99.9, 'B', 'x', 21)];
-    expect(sortDial(a, 'signal', true).map((r) => r.title)).toEqual(['A', 'B']);
+  it('keeps a row in place until its signal has moved HOLD_DB, then moves it once', () => {
+    const titles = (rows: ReturnType<typeof row>[], held: Map<number, number | null>) => sortDial(rows, 'signal', true, held).map((r) => r.title);
+    let held = holdSignals(new Map(), [row(99.1, 'A', 'x', 20), row(99.9, 'B', 'x', 19)]);
+    expect(held.get(99.1e6)).toBe(20);
+    // B reads above A, but by less than the hold: order stands
+    held = holdSignals(held, [row(99.1, 'A', 'x', 19), row(99.9, 'B', 'x', 21)]);
+    expect(titles([row(99.1, 'A', 'x', 19), row(99.9, 'B', 'x', 21)], held)).toEqual(['A', 'B']);
+    // B past the hold: it moves, and A's held reading is still its first
+    const late = [row(99.1, 'A', 'x', 19), row(99.9, 'B', 'x', 19 + HOLD_DB)];
+    held = holdSignals(held, late);
+    expect(held.get(99.9e6)).toBe(19 + HOLD_DB);
+    expect(held.get(99.1e6)).toBe(20);
+    expect(titles(late, held)).toEqual(['B', 'A']);
+  });
+
+  it('starts a held reading at the live one, and follows a reading that goes missing', () => {
+    let held = holdSignals(new Map(), [row(99.1, 'A', 'x', null)]);
+    expect(held.get(99.1e6)).toBeNull();
+    held = holdSignals(held, [row(99.1, 'A', 'x', 7)]);
+    expect(held.get(99.1e6)).toBe(7);
+    held = holdSignals(held, [row(99.1, 'A', 'x', null)]);
+    expect(held.get(99.1e6)).toBeNull();
+    // a station gone from the rows is forgotten
+    expect(holdSignals(held, []).size).toBe(0);
   });
 
   it('leaves its input alone', () => {

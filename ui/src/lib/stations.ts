@@ -142,18 +142,30 @@ export function dialRows(hasList: boolean, local: Map<number, FmStation>, heard:
 }
 
 export type DialSort = 'freq' | 'call' | 'city' | 'signal';
-/** Signals this close sort as equal, so a row doesn't jump with every status. */
-export const SORT_DB = 3;
+/** Sorting by signal uses a held reading per station: it follows the live one only once that has moved this far, so a row stays put while its reading wanders. */
+export const HOLD_DB = 3;
+
+/** The held readings for `rows`, from `held` (the last call's): a station's moves to its live reading only past `hold` dB, and a new station starts at it. */
+export function holdSignals(held: Map<number, number | null>, rows: DialRow[], hold = HOLD_DB): Map<number, number | null> {
+  const next = new Map<number, number | null>();
+  for (const r of rows) {
+    const was = held.get(r.hz);
+    const keep = was !== undefined && was !== null && r.snrDb !== null && Math.abs(r.snrDb - was) < hold;
+    next.set(r.hz, keep ? was : r.snrDb);
+  }
+  return next;
+}
 /** How a column sorts when first clicked: strongest first, everything else from the top of the alphabet or dial. */
 export const firstDesc = (key: DialSort) => key === 'signal';
 
-/** A copy of `rows` by that column. Rows with nothing in it stay last either way; ties go by frequency. */
-export function sortDial(rows: DialRow[], key: DialSort, desc: boolean): DialRow[] {
+/** A copy of `rows` by that column. Rows with nothing in it stay last either way; ties go by frequency. Signal goes by `held` (`holdSignals`), else the live reading. */
+export function sortDial(rows: DialRow[], key: DialSort, desc: boolean, held?: Map<number, number | null>): DialRow[] {
   const sign = desc ? -1 : 1;
-  const missing = (r: DialRow) => (key === 'signal' ? r.snrDb === null : key === 'city' ? !r.city : false);
+  const db = (r: DialRow) => held?.get(r.hz) ?? r.snrDb;
+  const missing = (r: DialRow) => (key === 'signal' ? db(r) === null : key === 'city' ? !r.city : false);
   const by = (a: DialRow, b: DialRow) => {
     if (key === 'freq') return a.hz - b.hz;
-    if (key === 'signal') return Math.round((a.snrDb ?? 0) / SORT_DB) - Math.round((b.snrDb ?? 0) / SORT_DB);
+    if (key === 'signal') return (db(a) ?? 0) - (db(b) ?? 0);
     return (key === 'city' ? (a.city ?? '') : a.title).localeCompare(key === 'city' ? (b.city ?? '') : b.title);
   };
   return [...rows].sort((a, b) => Number(missing(a)) - Number(missing(b)) || sign * by(a, b) || a.hz - b.hz);

@@ -2,7 +2,7 @@
   // The dial as a table, sorted by a column head. A blue edge marks stations in the waterfall's view; a grey bar is the last reading.
   import Level from './Level.svelte';
   import { fmChannel } from '../lib/radio';
-  import { firstDesc, sortDial, type DialRow, type DialSort } from '../lib/stations';
+  import { firstDesc, holdSignals, sortDial, type DialRow, type DialSort } from '../lib/stations';
   import * as store from '../lib/store';
 
   let { rows, hue, tuned, vs, ve, meterDb, onTune }: { rows: DialRow[]; hue: string; tuned: number; vs: number; ve: number; meterDb: number; onTune: (hz: number) => void } = $props();
@@ -10,7 +10,12 @@
   const saved = store.getState<{ key: DialSort; desc: boolean }>('stations.sort', { key: 'freq', desc: false });
   let sortKey = $state(saved.key);
   let desc = $state(saved.desc);
-  let sorted = $derived(sortDial(rows, sortKey, desc));
+  // held readings keep a row in place while its live one wanders; cleared whenever the order is not by signal
+  let held = new Map<number, number | null>();
+  let sorted = $derived.by(() => {
+    held = sortKey === 'signal' ? holdSignals(held, rows) : new Map();
+    return sortDial(rows, sortKey, desc, held);
+  });
   function sortBy(key: DialSort) {
     desc = key === sortKey ? !desc : firstDesc(key);
     sortKey = key;
