@@ -633,10 +633,12 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived((rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived(airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
+    airWatching ? `Watching planes and messages · ${adsb?.aircraft.length ?? 0} overhead` :
     muted ? 'Muted — signal is below the squelch level' :
+    airListen ? 'Every plane on this channel, not only one' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
     rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
@@ -988,8 +990,17 @@
   }
 
   function togglePlay() {
+    // pausing a tower is leaving it: the map and the messages come back
+    if (airListen && playing) return stopListening();
     playing = !playing;
     api.setPlaying(playing);
+  }
+
+  /** Back to watching planes; the radio goes quiet, since there is nothing to hear while it takes turns. */
+  function stopListening() {
+    airListen = null;
+    playing = false;
+    api.setPlaying(false);
   }
 
   function toggleRecord() {
@@ -1130,7 +1141,6 @@
   {/if}
 
   <div class="right">
-    {#if !planesScreen || bookmarksOpen}
     <header>
       <div class="freq">
         <button class="digits mono" onclick={showTuned} title="Show this frequency on the waterfall"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</button>
@@ -1144,8 +1154,8 @@
         </span>
         <span class="sub copy">{nowSub}</span>
       </div>
-      <button class="play" class:on={playing} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title="{playing ? 'Pause' : 'Play'} (space)">
-        <Icon name={playing ? 'pause' : 'play'} size={20} />
+      <button class="play" class:on={playing && !airWatching} disabled={airWatching} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title={airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
+        <Icon name={playing && !airWatching ? 'pause' : 'play'} size={20} />
       </button>
       <button class="rec" class:on={rec?.recording} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
         <Icon name="record" size={18} />
@@ -1197,9 +1207,14 @@
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
         <Icon name={full ? 'shrink' : 'expand'} size={18} />
       </button>
-      {#if band?.id === 'air'}<button class="chip backair" onclick={() => { seeRadio = false; airListen = null; bookmarksOpen = false; }}>Back to the map</button>{/if}
+      {#if band?.id === 'air' && !bookmarksOpen}
+        {#if planesScreen}
+          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and every aircraft frequency">See the radio</button>
+        {:else}
+          <button class="chip backair" onclick={() => { seeRadio = false; airListen = null; }}>Back to the map</button>
+        {/if}
+      {/if}
     </header>
-    {/if}
 
     {#if onPlan}
       <div class="planbar">
@@ -1558,7 +1573,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} simulated={!!status?.simulated} problem={status?.error ?? null} bind:volume palette={airPalette} onListen={listenTo} onStopListening={() => (airListen = null)} onSeeRadio={() => { seeRadio = true; airListen = null; }} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={airPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />

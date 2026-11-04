@@ -2,6 +2,8 @@
   // Everything about aircraft, for someone who has never heard of a band: a map, and each plane with what is known
   // about it from every source. Covers `main`; App owns the radio and tells this screen whether it is listening.
   import AircraftMap from './AircraftMap.svelte';
+  import Icon from './Icon.svelte';
+  import { untrack } from 'svelte';
   import * as api from '../lib/api';
   import type { Snippet } from 'svelte';
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
@@ -18,16 +20,15 @@
     trails: Trails;
     site: Site | null;
     listening: Talk | null;
-    simulated: boolean;
-    problem: string | null;
-    volume: number;
+    playing: boolean;
+    recording: boolean;
     palette: Palette;
     onListen: (t: Talk) => void;
     onStopListening: () => void;
-    onSeeRadio: () => void;
+    onRecord: () => void;
     onSettings: () => void;
   }
-  let { live, messages, waterfall, trails, site, listening, simulated, problem, volume = $bindable(), palette, onListen, onStopListening, onSeeRadio, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, playing, recording, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -40,10 +41,30 @@
   let pickedMessage = $state<number | null>(null);
   // while listening the map is what it was when the radio left: nothing here is passed off as live
   let frozen = $state<Aircraft[]>([]);
+  // after listening, the planes from before stay until heard again or `CARRY_MS` passes, so the screen is as it was
+  const CARRY_MS = 120_000;
+  let carried = $state<Aircraft[]>([]);
+  let wasListening = false;
   $effect(() => {
-    if (!listening) frozen = live;
+    const on = !!listening;
+    if (wasListening && !on) {
+      carried = untrack(() => frozen);
+      setTimeout(() => (carried = []), CARRY_MS);
+    }
+    wasListening = on;
+    if (!on) frozen = live;
   });
-  let list = $derived(listening ? frozen : live);
+  let carriedIds = $derived(new Set(carried.filter((c) => !live.some((a) => a.icao === c.icao)).map((c) => c.icao)));
+  // a plane heard again starts with no name until it says it; what it said before fills the gap
+  let list = $derived.by(() => {
+    if (listening) return frozen;
+    const before = new Map(carried.map((c) => [c.icao, c]));
+    const named = live.map((a) => {
+      const c = before.get(a.icao);
+      return c && (!a.callsign || !a.category) ? { ...a, callsign: a.callsign ?? c.callsign, category: a.category ?? c.category, registration: a.registration ?? c.registration } : a;
+    });
+    return [...named, ...carried.filter((c) => carriedIds.has(c.icao))];
+  });
   let rows = $derived(aircraftRows(list, site));
   let picked = $derived(rows.find((r) => r.a.icao === pickId) ?? null);
 
@@ -178,7 +199,6 @@
     return { x1, y1, x2, y2 };
   });
   let selected = $derived(flight?.icao ?? pickId);
-  let overhead = $derived(list.length === 1 ? '1 overhead' : `${list.length} overhead`);
 </script>
 
 {#snippet reading(m: AcarsMessage)}
@@ -191,32 +211,18 @@
 {/snippet}
 
 <div class="air">
-  <div class="status">
-    {#if listening}
-      <span class="pill listen">Listening to {listening.name}</span>
-      <span class="dim">Map paused while you listen</span>
-      <label class="vol"><span class="dim">Volume</span><input type="range" min="0" max="1.5" step="0.05" bind:value={volume} /></label>
-      <span class="grow"></span>
-      <button class="btn main" onclick={onStopListening}>Back to watching planes</button>
-    {:else}
-      <b class="ttl">Airplanes</b>
-      <span class="pill">Watching · {overhead}</span>
-      {#if simulated}<span class="chip warn">Simulated: no radio found</span>{/if}
-      {#if problem}<button class="chip err" onclick={onSettings}>{problem}</button>{/if}
-      <span class="grow"></span>
-      <button class="btn" onclick={onSeeRadio} title="Shows the radio's waterfall and every aircraft frequency">See the radio</button>
-    {/if}
-  </div>
   <div class="body">
     <div class="map" class:paused={!!listening}>
       {#if listening && waterfall}
         <div class="wf">{@render waterfall()}</div>
-      {:else if frame}
+      {/if}
+      <div class="mapbody">
+      {#if frame}
         <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
       {:else}
         <p class="empty">Waiting for the first plane. Planes appear here once the radio hears one.</p>
       {/if}
-      <div class="key" class:hidden={listening && waterfall}>
+      <div class="key">
         {#if frame}
           <span class="heights">Height, ft
             {#each HEIGHT_BANDS as b (b.label)}<i style="background:{b.color}"></i>{b.label}{/each}
@@ -225,7 +231,9 @@
         {#if talk}<span><i class="dash"></i>Probably talking to {talk.name}</span>{/if}
         {#if pins.length}<span class="pinkey">● Where its message said it was</span>{/if}
         {#if flight}<span>Path of {friendlyCallsign(flightName(flight))}</span>{/if}
+        {#if listening}<span>Map paused while you listen</span>{/if}
         {#if !site}<button class="linkish" onclick={onSettings}>Set your location to see distances</button>{/if}
+      </div>
       </div>
     </div>
     <div class="side">
@@ -240,13 +248,13 @@
               <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                 <b>{planeName(r.a)}</b>
                 {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
-                <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
+                <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', carriedIds.has(r.a.icao) ? 'from before you listened' : r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
               </button>
             {#if r.a.icao === pickId}
               {@const a = r.a}
               <div class="card">
 
-                <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter(Boolean).join(' · ')}</p>
+                <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter((x) => x && x !== planeName(a)).join(' · ')}</p>
               {#if info?.known}
                 <div class="about">
                   {#if info.photo}<img src={info.photo} alt="" />{/if}
@@ -264,20 +272,23 @@
               </div>
               {#if route}<p class="route">{routeText(route, routeAirports)}</p>{/if}
               {#if isAlarm(a)}<p class="alarm">{a.emergency ?? 'Alert from this plane'}</p>{/if}
-              {#if listening}
+              {#if listening || talk}
+                {@const t = (listening ?? talk)!}
                 <div class="talk">
-                  <span class="lbl">Now playing</span>
-                  <b>{listening.name}</b>
-                  <span class="mono dim small">{listening.channel.mhz.toFixed(3)} MHz</span>
-                  <span class="why">You will hear every plane on this channel, not only this one.</span>
-                  <button class="btn self" onclick={onStopListening}>Stop listening</button>
-                </div>
-              {:else if talk}
-                <div class="talk">
-                  <span class="lbl">Probably talking to</span>
-                  <b>{talk.name}</b>
-                  <span class="why">{talk.why}. Planes do not say who they talk to, so this is a guess.</span>
-                  <button class="btn main self" onclick={() => { frozen = live; onListen(talk!); }}>Listen</button>
+                  <span class="lbl">{listening ? 'Now playing' : 'Probably talking to'}</span>
+                  <b>{t.name} <span class="mono dim small">{t.channel.mhz.toFixed(3)} MHz</span></b>
+                  <span class="why">{listening ? 'Every plane on this channel, not only this one.' : `${t.why}. Planes do not say who they talk to, so this is a guess.`}</span>
+                  <div class="ctls">
+                    <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back' : 'Listen to this channel'}>
+                      <Icon name={listening && playing ? 'pause' : 'play'} size={20} />
+                    </button>
+                    {#if listening}
+                      <button class="rec" class:on={recording} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
+                        <Icon name="record" size={18} />
+                      </button>
+                    {/if}
+                    <span class="dim small">{listening ? (recording ? 'Recording' : 'Playing') : 'Listen'}</span>
+                  </div>
                 </div>
               {:else}
                 <div class="talk">
@@ -359,71 +370,6 @@
     flex-direction: column;
     background: var(--bg);
   }
-  .status {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--muted);
-  }
-  .ttl {
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .grow {
-    flex: 1;
-  }
-  .pill {
-    padding: 2px 10px;
-    border-radius: 99px;
-    font-size: 13px;
-    color: var(--green);
-    background: color-mix(in srgb, var(--green) 14%, transparent);
-  }
-  .pill.listen {
-    color: var(--yellow);
-    background: color-mix(in srgb, var(--yellow) 14%, transparent);
-  }
-  .chip {
-    padding: 2px 8px;
-    border-radius: 6px;
-    border: 0;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .chip.warn {
-    color: var(--yellow);
-    background: color-mix(in srgb, var(--yellow) 16%, transparent);
-  }
-  .chip.err {
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 16%, transparent);
-  }
-  .vol {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-  }
-  .btn {
-    padding: 5px 12px;
-    border: 1px solid var(--muted);
-    border-radius: 6px;
-    background: none;
-    color: var(--fg);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn.main {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--bg-darker);
-    font-weight: 600;
-  }
-  .btn.self {
-    justify-self: start;
-  }
   .body {
     flex: 1;
     min-height: 0;
@@ -441,25 +387,69 @@
     }
   }
   .map {
-    position: relative;
+    display: flex;
+    flex-direction: column;
     min-height: 0;
     min-width: 0;
     background: var(--bg-darker);
   }
+  .mapbody {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
   .map.paused :global(svg) {
     opacity: 0.45;
   }
+  /* the waterfall takes the top of the map's column; the paused map keeps the rest */
   .wf {
-    position: absolute;
-    inset: 0;
+    position: relative;
+    flex: 0 0 42%;
+    min-height: 160px;
+    border-bottom: 1px solid var(--muted);
   }
   /* the waterfall fills its box; left to size itself, the canvas would set its own height */
   .wf > :global(*) {
     position: absolute;
     inset: 0;
   }
-  .key.hidden {
-    display: none;
+  .ctls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .play,
+  .rec {
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+  }
+  .play {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+  .play.on {
+    background: var(--accent);
+    color: var(--bg-darker);
+  }
+  .rec {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--muted);
+    color: var(--red);
+  }
+  .rec.on {
+    border-color: var(--red);
+    background: var(--red);
+    color: var(--bg-darker);
+  }
+  .play :global(svg),
+  .rec :global(svg) {
+    fill: currentColor;
   }
   .about {
     display: flex;
