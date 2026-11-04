@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Band, BandPlan } from './api';
-import { compassWord, binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { compassWord, binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir, compassLetters } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -345,5 +345,14 @@ describe('compassWord', () => {
     expect(compassWord(44)).toBe('north-east');
     expect(compassWord(350)).toBe('north');
     expect(compassWord(-90)).toBe('west');
+  });
+});
+
+describe('compassLetters', () => {
+  it('prints the rose letters for a heading', () => {
+    expect(compassLetters(0)).toBe('N');
+    expect(compassLetters(135)).toBe('SE');
+    expect(compassLetters(359)).toBe('N');
+    expect(compassLetters(-90)).toBe('W');
   });
 });

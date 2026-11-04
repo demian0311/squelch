@@ -8,7 +8,7 @@
   import type { Snippet } from 'svelte';
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
-  import { compassWord } from '../lib/radio';
+  import { compassLetters, compassWord } from '../lib/radio';
   import { HEIGHT_BANDS, aircraftFacts, fmtClimb, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
   import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
@@ -40,6 +40,9 @@
   let pickId = $state<string | null>(null);
   let list_el = $state<HTMLElement | undefined>();
   let pickedMessage = $state<number | null>(null);
+  /** The open plane's message list and its facts, folded under the card's foot line. */
+  let msgsOpen = $state(false);
+  let moreOpen = $state(false);
   // while listening the map is what it was when the radio left: nothing here is passed off as live
   let frozen = $state<Aircraft[]>([]);
   // after listening, the planes from before stay until heard again or `CARRY_MS` passes, so the screen is as it was
@@ -97,16 +100,15 @@
     pickId = pickId === icao ? null : icao;
     list_el?.scrollTo(0, 0);
     pickedMessage = null;
+    msgsOpen = false;
+    moreOpen = false;
     flight = null;
     track = [];
     tab = 'now';
   }
-  function trend(a: Aircraft): string {
-    if (a.on_ground) return 'on the ground';
-    const v = a.vrate_fpm ?? 0;
-    return v > 200 ? 'climbing' : v < -200 ? 'coming down' : 'level';
-  }
   const height = (a: Aircraft) => (a.alt_ft === null ? '' : `${a.alt_ft.toLocaleString('en-US')} ft`);
+  const fpm = (v: number) => `${Math.abs(v).toLocaleString('en-US')} ft/min`;
+  const msgCount = (a: Aircraft) => messages.filter((m) => isFrom(m, a)).length;
 
   // ── messages, each leading to its plane ─────────
   let query = $state('');
@@ -250,81 +252,81 @@
                 <b>{planeName(r.a)}</b>
                 {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
                 <span class="chev"><Icon name={r.a.icao === pickId ? 'chevronDown' : 'chevronRight'} size={14} /></span>
-                <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', carriedIds.has(r.a.icao) ? 'from before you listened' : r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
+                <!-- one glyph line, open or not: height, climb, speed, heading, messages -->
+                <small class="line">
+                  {#if r.a.on_ground}<span><Icon name="level" size={13} />on the ground</span>
+                  {:else if r.a.alt_ft !== null}
+                    <span><Icon name="arrowUp" size={13} />{height(r.a)}</span>
+                    {#if (r.a.vrate_fpm ?? 0) > 200}<span class="up"><Icon name="climb" size={13} />{fpm(r.a.vrate_fpm!)}</span>
+                    {:else if (r.a.vrate_fpm ?? 0) < -200}<span class="down"><Icon name="descend" size={13} />{fpm(r.a.vrate_fpm!)}</span>
+                    {:else}<span><Icon name="level" size={13} />level</span>{/if}
+                  {/if}
+                  {#if r.a.speed_kt !== null}<span><Icon name="gauge" size={13} />{Math.round(r.a.speed_kt * MPH_PER_KT)} mph</span>{/if}
+                  {#if r.a.heading_deg !== null}<span title={compassWord(r.a.heading_deg)}><i class="arrow" style:transform={`rotate(${Math.round(r.a.heading_deg)}deg)`}><Icon name="arrowUp" size={13} /></i>{compassLetters(r.a.heading_deg)}</span>{/if}
+                  {#if msgCount(r.a)}<span><Icon name="msg" size={13} />{msgCount(r.a)}</span>{/if}
+                  {#if carriedIds.has(r.a.icao)}<span class="note">from before you listened</span>{:else if r.a.lat === null}<span class="note">no location yet</span>{/if}
+                </small>
               </button>
             {#if r.a.icao === pickId}
               {@const a = r.a}
               <div class="card">
-
-                <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter((x) => x && x !== planeName(a)).join(' · ')}</p>
-              {#if info?.known}
-                <div class="about">
-                  {#if info.photo}<img src={info.photo} alt="" />{/if}
-                  <div>
-                    <b>{[info.maker, info.model].filter(Boolean).join(' ')}</b>
-                    {#if info.owner}<span class="dim">{info.owner}</span>{/if}
-                  </div>
+              <div class="about">
+                {#if info?.photo}<img src={info.photo} alt="" />{/if}
+                <div class="what">
+                  {#if info?.known}<b>{[info.maker, info.model].filter(Boolean).join(' ')}</b>{/if}
+                  <span class="dim sub copy">{[info?.owner, a.callsign, a.registration, planeKind(a.category)].filter((x) => x && x !== planeName(a)).join(' · ')}</span>
                 </div>
-              {/if}
-              <div class="links">
-                {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
-                  <button class="linkish" onclick={() => api.openLink(l.url)} title="Opens in the browser">{l.label}<Icon name="external" size={12} /></button>
-                {/each}
+                <div class="links">
+                  {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
+                    <button class="linkish" onclick={() => api.openLink(l.url)} title="Opens in the browser">{l.label}<Icon name="external" size={12} /></button>
+                  {/each}
+                </div>
               </div>
               {#if route}<p class="route">{routeText(route, routeAirports)}</p>{/if}
               {#if isAlarm(a)}<p class="alarm">{a.emergency ?? 'Alert from this plane'}</p>{/if}
-              {#if listening || talk}
-                {@const t = (listening ?? talk)!}
-                <!-- one row: the channel is a guess, said by the help marker, not a paragraph -->
-                <div class="talk" class:live={!!listening}>
-                  <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back' : 'Listen to this channel'}>
-                    <Icon name={listening && playing ? 'pause' : 'play'} size={20} />
-                  </button>
-                  <span class="who"><b>{t.name}</b> <span class="mono dim small">{t.channel.mhz.toFixed(3)} MHz</span></span>
+              <!-- the foot line: the channel (a guess, as loud as a link), the messages, and the rest folded under "More" -->
+              <div class="foot">
+                {#if listening || talk}
+                  {@const t = (listening ?? talk)!}
+                  <span class="ch">
+                    <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back. Every plane on this channel, not only this one.' : `Listen. A guess: ${t.why.toLowerCase()}; planes do not say who they talk to.`}>
+                      <Icon name={listening && playing ? 'pause' : 'play'} size={12} />
+                    </button>
+                    {t.name} <span class="mono dim">{t.channel.mhz.toFixed(3)}</span>
+                  </span>
                   {#if listening}
                     <button class="rec" class:on={recording} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
-                      <Icon name="record" size={18} />
+                      <Icon name="record" size={14} />
                     </button>
-                    <span class="guess" title="Every plane on this channel, not only this one."><Icon name="help" size={15} /></span>
-                  {:else}
-                    <span class="guess" title={`A guess: ${t.why.toLowerCase()}. Planes do not say who they talk to.`}><Icon name="help" size={15} /></span>
                   {/if}
-                </div>
-              {:else}
-                <div class="talk none" title={(a.alt_ft ?? 0) > 18000 ? 'Planes this high talk to controllers this list does not cover' : 'No channel known for here'}>
-                  <span class="guess"><Icon name="tower" size={16} /></span>
-                  <span class="why">{(a.alt_ft ?? 0) > 18000 ? 'Too high to guess a channel' : 'No channel known for here'}</span>
-                </div>
-              {/if}
-              {#if a.speed_kt !== null || a.heading_deg !== null || fmtClimb(a.vrate_fpm)}
-              <div class="sec">
-                <span class="lbl">Right now</span>
-                <!-- the row above already says the height, the trend and the distance -->
-                <dl>
-                  {#if a.speed_kt !== null}<dt>Speed</dt><dd>{Math.round(a.speed_kt * MPH_PER_KT)} mph</dd>{/if}
-                  {#if a.heading_deg !== null}<dt>Going</dt><dd>{compassWord(a.heading_deg)}</dd>{/if}
-                  {#if fmtClimb(a.vrate_fpm)}<dt>Climb</dt><dd>{fmtClimb(a.vrate_fpm)}</dd>{/if}
-                </dl>
+                {:else}
+                  <span class="dim" title={(a.alt_ft ?? 0) > 18000 ? 'Planes this high talk to controllers this list does not cover' : 'No channel known for here'}><Icon name="tower" size={13} />{(a.alt_ft ?? 0) > 18000 ? 'too high for a channel' : 'no channel known'}</span>
+                {/if}
+                {#if itsMessages.length}
+                  <button class="fold" class:on={msgsOpen} onclick={() => (msgsOpen = !msgsOpen)}><Icon name="msg" size={13} />{itsMessages.length} {itsMessages.length === 1 ? 'message' : 'messages'}</button>
+                {:else}
+                  <span class="dim"><Icon name="msg" size={13} />no messages yet</span>
+                {/if}
+                <button class="fold more" class:on={moreOpen} onclick={() => (moreOpen = !moreOpen)}>More<Icon name={moreOpen ? 'chevronDown' : 'chevronRight'} size={13} /></button>
               </div>
-              {/if}
+              {#if msgsOpen && itsMessages.length}
               <div class="sec">
-                <span class="lbl"><Icon name="msg" size={13} /> Messages</span>
                 {#each itsMessages as m (m.at_ms + ':' + m.id)}
                   <button class="msg" class:on={pickedMessage === m.id} onclick={() => (pickedMessage = pickedMessage === m.id ? null : m.id)}>
                     <b>{messageTitle(m, knownAirports)}</b>
                     <small class="dim mono">{acarsTime(m.at_ms).slice(0, 5)}{positionsIn(m).length ? ` · ${positionsIn(m).length} on the map` : ''}</small>
                     {#if pickedMessage === m.id}{@render reading(m)}{/if}
                   </button>
-                {:else}
-                  <span class="why">Nothing heard from this plane yet.</span>
                 {/each}
               </div>
-              <details class="sec">
-                <summary class="lbl">More details</summary>
+              {/if}
+              {#if moreOpen}
+              <div class="sec">
                 <dl>
                   {#each aircraftFacts(a) as f (f.label)}<dt>{f.label}</dt><dd class="copy">{f.value}</dd>{/each}
                 </dl>
-              </details>
+              </div>
+              {/if}
             </div>
             {/if}
           {:else}
@@ -453,7 +455,8 @@
     fill: currentColor;
   }
   .about {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
   }
@@ -461,14 +464,15 @@
     width: 96px;
     border-radius: 4px;
   }
-  .about div {
+  .about .what {
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
   .links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px 12px;
+    display: grid;
+    gap: 5px;
+    justify-items: end;
     font-size: 12px;
   }
   .links .linkish {
@@ -580,6 +584,81 @@
     grid-column: 1 / -1;
     font-size: 12.5px;
   }
+  .line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 13px;
+    align-items: center;
+    margin-top: 3px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-dim);
+  }
+  .line span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .line .up {
+    color: var(--green);
+  }
+  .line .down {
+    color: var(--orange);
+  }
+  .line .arrow {
+    display: inline-grid;
+  }
+  .line .note {
+    font-family: inherit;
+    font-style: italic;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+    font-size: 12.5px;
+  }
+  .foot > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .foot .ch .play {
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+  }
+  .foot .ch .play.on {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .foot .rec {
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid var(--red);
+    color: var(--red);
+  }
+  .foot .rec.on {
+    background: var(--red);
+    color: var(--bg);
+  }
+  .fold {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--fg-dim);
+    font: inherit;
+    cursor: pointer;
+  }
+  .fold.on,
+  .fold:hover {
+    color: var(--fg);
+  }
+  .fold.more {
+    margin-left: auto;
+  }
   .r {
     font-size: 12px;
     color: var(--fg-dim);
@@ -625,56 +704,11 @@
     color: var(--red);
     font-weight: 600;
   }
-  .talk {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 5px 10px;
-    border: 1px dashed var(--yellow);
-    border-radius: 8px;
-  }
-  .talk.live {
-    border-style: solid;
-  }
-  .talk.none {
-    border-color: var(--muted);
-  }
-  .talk .who {
-    flex: 1;
-    min-width: 0;
-  }
-  .talk .who b {
-    font-weight: 500;
-  }
-  .guess {
-    display: grid;
-    color: var(--fg-dim);
-    cursor: help;
-  }
-  .lbl {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--fg-dim);
-  }
-  .why {
-    font-size: 13px;
-    color: var(--fg-dim);
-  }
-  .small {
-    font-size: 12px;
-  }
   .sec {
     display: grid;
     gap: 5px;
     padding-top: 10px;
     border-top: 1px solid var(--muted);
-  }
-  summary {
-    cursor: pointer;
   }
   dl {
     display: grid;

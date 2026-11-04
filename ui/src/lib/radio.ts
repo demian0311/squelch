@@ -229,6 +229,12 @@ export function compassWord(deg: number): string {
   return COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 }
 
+const COMPASS_LETTERS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+/** "SE" for 135°: the letters a compass rose prints. */
+export function compassLetters(deg: number): string {
+  return COMPASS_LETTERS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+
 /** "DFM-17 23038743", or the type alone until the serial arrives. */
 export function sondeName(s: Sonde): string {
   return s.serial ? `${s.kind} ${s.serial}` : `${s.kind} balloon`;
