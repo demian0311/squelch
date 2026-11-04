@@ -8,6 +8,7 @@ license = "GPL-3.0-or-later"
 [dependencies]
 anyhow = "1"
 cpal = "0.18"
+rtrb = "0.3"
 dirs = "7"
 libloading = "0.8"
 num-complex = "0.4"

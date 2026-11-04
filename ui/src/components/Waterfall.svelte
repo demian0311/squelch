@@ -158,6 +158,7 @@
   }
 
   /** Add one spectrum row. */
+  let frame: number | undefined;
   export function push(row: Row) {
     if (!renderer) return;
     const bins = row.bins;
@@ -169,8 +170,12 @@
       avg[i] = avg[i] * 0.6 + v * 0.4;
     }
     renderer.push(bins, row.centerHz, rate, vs, ve);
-    renderer.draw(vs, ve);
-    drawSpectrum();
+    // rows come in batches: one picture per batch, and none while the window is hidden
+    frame ??= requestAnimationFrame(() => {
+      frame = undefined;
+      renderer?.draw(vs, ve);
+      drawSpectrum();
+    });
   }
 
   function drawSpectrum() {

@@ -22,7 +22,7 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
-  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
+  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
@@ -61,12 +61,12 @@
   // keep the listened-to frequency off the tuner's centre
   const DC_OFFSET = 60_000;
 
-  let setup = $state<Setup>({ sample_rate: 2_400_000, fft_size: 2048, below_floor_db: 8, range_db: 60 });
-  let plan = $state<BandPlan>({ groups: [], bands: [] });
+  let setup = $state.raw<Setup>({ sample_rate: 2_400_000, fft_size: 2048, below_floor_db: 8, range_db: 60 });
+  let plan = $state.raw<BandPlan>({ groups: [], bands: [] });
   let bandsPath = $state<string | null>(null);
   let bandsError = $state<string | null>(null);
-  let theme = $state<Theme>(resolve({}));
-  let status = $state<Status | null>(null);
+  let theme = $state.raw<Theme>(resolve({}));
+  let status = $state.raw<Status | null>(null);
 
   let bandId = $state<string | null>(null);
   let vs = $state(100_200_000);
@@ -116,7 +116,7 @@
   /** Station data per FM channel, kept after tuning away. */
   let rdsHeard = $state(new Map<number, api.Rds>());
   /** Stations heard per band, across runs, for the band strip; `stations` in the state file. */
-  let heard = $state<Record<string, Heard[]>>(store.getState('stations', {}));
+  let heard = $state.raw<Record<string, Heard[]>>(store.getState('stations', {}));
   /** Ticks heard before this are from an earlier run, and the station may be gone. */
   const startedAt = Date.now();
   const persist = new Persistence();
@@ -254,7 +254,7 @@
   // ── signals ─────────────────────────────────────────
 
   // the FCC's stations near the location; with them, memory counts only where it agrees
-  let fmNearby = $state<api.FmStation[]>([]);
+  let fmNearby = $state.raw<api.FmStation[]>([]);
   $effect(() => {
     const at = location;
     api.fmStations(at).then((list) => {
@@ -378,7 +378,7 @@
     loadRepeaters();
   }
 
-  let repeaters = $state<api.Repeater[]>([]);
+  let repeaters = $state.raw<api.Repeater[]>([]);
   async function loadRepeaters() {
     mapFor = null;
     repeaters = await api.repeaters(location);
@@ -389,7 +389,7 @@
 
   // ── space station ───────────────────────────────
 
-  let iss = $state<Iss | null>(null);
+  let iss = $state.raw<Iss | null>(null);
   let nowS = $state(Date.now() / 1000);
   let issAge = $derived(ageDays(iss?.tle_epoch ?? null, nowS));
   let issUp = $derived(overhead(iss?.passes ?? [], nowS, issAge));
@@ -400,7 +400,7 @@
   );
 
   // Ground track for the map; it covers 100 min ahead, so it is reloaded well before it runs out.
-  let issTrack = $state<GroundPoint[]>([]);
+  let issTrack = $state.raw<GroundPoint[]>([]);
   let issHere = $derived(groundAt(issTrack, nowS));
   // Zoom the map to the listener only while a pass is under way and its channel has signal.
   let issLocal = $derived(issUp !== null && (status?.channel_snr_db ?? 0) >= RECEPTION_DB);
@@ -418,7 +418,7 @@
   // the repeater panel: only on bands with a reach estimate, centred on the location
   let repReachKm = $derived(band ? REACH_KM[band.id] : undefined);
   // the map's list: fetched the first time a band with a map opens, kept until the location or the file changes
-  let mapRepeaters = $state<api.Repeater[]>([]);
+  let mapRepeaters = $state.raw<api.Repeater[]>([]);
   let mapFor = $state<string | null>(null);
   let mapLoaded = $state(false);
   $effect(() => {
@@ -479,7 +479,7 @@
 
   let acarsOn = $derived(band?.decoder === 'acars');
   // the engine sends only the last few seconds; the list is kept here
-  let acarsList = $state<api.AcarsMessage[]>([]);
+  let acarsList = $state.raw<api.AcarsMessage[]>([]);
   let acarsQuery = $state('');
   let acarsShown = $derived(filterMessages(joinBlocks(acarsList), acarsQuery));
   $effect(() => {
@@ -512,7 +512,7 @@
     api.setSite(iss?.site?.lat ?? null, iss?.site?.lon ?? null);
   });
   // where each has been: from the log at first, then from each status
-  let trails = $state<Trails>({});
+  let trails = $state.raw<Trails>({});
   $effect(() => {
     const list = adsb?.aircraft;
     if (list) trails = extendTrails(untrack(() => trails), list, Date.now());
@@ -520,7 +520,7 @@
   let trailPaths = $derived.by(() => {
     if (!planeMap) return {};
     const c = planeMap.centre;
-    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, trackPath(v, c)]));
+    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, trailPath(v, c)]));
   });
   let planePick = $state<string | null>(null);
   let pickedPlane = $derived(planeRows.find((r) => r.a.icao === planePick)?.a ?? null);
@@ -535,11 +535,11 @@
   // the log: every flight heard, across runs
   const FLIGHT_LOG_DAYS = 60;
   const FLIGHT_REFRESH_MS = 60_000;
-  let flightList = $state<api.Flight[]>([]);
+  let flightList = $state.raw<api.Flight[]>([]);
   let flightQuery = $state('');
   let flightShown = $derived(flightDays(filterFlights(flightList, flightQuery), Date.now()));
-  let flightPick = $state<api.Flight | null>(null);
-  let flightTrack = $state<api.TrackPoint[]>([]);
+  let flightPick = $state.raw<api.Flight | null>(null);
+  let flightTrack = $state.raw<api.TrackPoint[]>([]);
   let flightMap = $derived(flightPick && flightTrack.length ? mapFrame([], iss?.site ?? null, flightTrack) : null);
   let flightPath = $derived(flightPick && flightMap ? { [flightPick.icao]: trackPath(flightTrack, flightMap.centre) } : {});
   function pickFlight(f: api.Flight) {
@@ -580,7 +580,7 @@
     api.setHd(hdProgram);
   });
   let hd = $derived(status?.hd && status.mode === 'wfm' ? status.hd : null);
-  let hdImages = $state<api.HdImage[]>([]);
+  let hdImages = $state.raw<api.HdImage[]>([]);
   let hdPicture = $derived(hdImages.find((i) => i.kind === 'art') ?? hdImages.find((i) => i.kind === 'logo'));
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));

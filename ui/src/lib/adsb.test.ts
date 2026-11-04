@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Aircraft, Flight } from './api';
-import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath } from './adsb';
+import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath, trailPath } from './adsb';
 
 const plane = (icao: string, o: Partial<Aircraft> = {}): Aircraft => ({
   icao,
@@ -134,5 +134,22 @@ describe('logged flights and trails', () => {
   it('holds a logged track in the frame', () => {
     const f = mapFrame([], { lat: 25.7, lon: -80.2 }, [{ t: 0, la: 27, lo: -80.2 }])!;
     expect(f.halfKm).toBe(200);
+  });
+});
+
+describe('trailPath', () => {
+  const pts = [{ t: 0, la: 25, lo: -80 }, { t: 1, la: 25.1, lo: -80.1 }];
+  it('draws what trackPath draws', () => {
+    expect(trailPath(pts, { lat: 25, lon: -80 })).toBe(trackPath(pts, { lat: 25, lon: -80 }));
+  });
+  it('redraws when the map centre moves', () => {
+    const a = trailPath(pts, { lat: 25, lon: -80 });
+    expect(trailPath(pts, { lat: 26, lon: -80 })).not.toBe(a);
+  });
+  it('redraws a new track and keeps the old one', () => {
+    const a = trailPath(pts, { lat: 25, lon: -80 });
+    const longer = [...pts, { t: 2, la: 25.2, lo: -80.2 }];
+    expect(trailPath(longer, { lat: 25, lon: -80 })).not.toBe(a);
+    expect(trailPath(pts, { lat: 25, lon: -80 })).toBe(a);
   });
 });

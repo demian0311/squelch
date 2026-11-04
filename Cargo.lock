@@ -2590,6 +2590,7 @@ dependencies = [
  "libloading 0.8.9",
  "num-complex",
  "ogg",
+ "rtrb",
  "rustfft",
  "serde",
  "serde_json",
@@ -2705,6 +2706,12 @@ dependencies = [
  "wasm-streams",
  "web-sys",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "342e1478a6e1c839e7405033eabfdc954d4d5dabd39f34e83420a43a95acfb04"
 
 [[package]]
 name = "rustc-hash"
