@@ -12,7 +12,7 @@ use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::hd::{Hd, HdImage, HdInfo};
 use crate::look::{BandLook, Hop};
 use crate::p25::P25;
-use crate::spectrum::{noise_floor, Spectrum};
+use crate::spectrum::{Floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
 use crate::squelch::Squelch;
 use serde::Serialize;
@@ -283,7 +283,7 @@ fn run(
     let mut iq: Vec<C32> = Vec::new();
     let mut pcm: Vec<f32> = Vec::new();
     let mut rows: Vec<Vec<f32>> = Vec::new();
-    let mut floor = -60.0f32;
+    let mut floor = Floor::new();
     let mut recent: Vec<Vec<f32>> = Vec::new();
     let mut signals: Vec<Detected> = Vec::new();
     let mut snr = 0.0f32;
@@ -342,6 +342,7 @@ fn run(
                             error = Some(e.to_string());
                         }
                         recent.clear();
+                        floor.retuned();
                     }
                     if center_moved || tuned_moved {
                         tuned = tuned_hz;
@@ -385,6 +386,7 @@ fn run(
                     if let Err(e) = src.set_gain(g) {
                         error = Some(e.to_string());
                     }
+                    floor.retuned();
                 }
                 Ok(Command::SetSquelch(t)) => {
                     squelch_db = t;
@@ -497,7 +499,7 @@ fn run(
                 if let Some(l) = &mut look {
                     l.abort();
                 }
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -542,24 +544,31 @@ fn run(
                         error = Some(e.to_string());
                     }
                     recent.clear();
+                    floor.retuned();
                 }
             }
             if last_status.elapsed() >= Duration::from_millis(200) {
                 last_status = Instant::now();
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
             }
             prof.report();
             continue;
         }
         for row in rows.drain(..) {
-            floor = 0.9 * floor + 0.1 * noise_floor(&row);
-            let lo = floor - BELOW_FLOOR_DB;
+            let settled = floor.update(&row);
+            let lo = floor.db - BELOW_FLOOR_DB;
             let bins = row.iter().map(|&db| (((db - lo) / RANGE_DB) * 255.0).clamp(0.0, 255.0) as u8).collect();
             on_row(Row { center_hz: center, bins });
-            let peak = channel_peak(&row, center, tuned, mode, rate) - floor;
-            // rise fast so the squelch opens on the first syllable, fall slower to ride out fades
-            snr += (peak - snr) * if peak > snr { 0.6 } else { 0.25 };
-            squelch.update(snr, 1.0 / ROWS_PER_SEC as f32);
+            let peak = channel_peak(&row, center, tuned, mode, rate) - floor.db;
+            if settled {
+                // rise fast so the squelch opens on the first syllable, fall slower to ride out fades
+                snr += (peak - snr) * if peak > snr { 0.6 } else { 0.25 };
+                squelch.update(snr, 1.0 / ROWS_PER_SEC as f32);
+            } else {
+                // another band's noise against a floor still finding it would read as a signal
+                snr = 0.0;
+                squelch.reset();
+            }
             recent.push(row);
         }
         prof.lap("rows");
@@ -571,12 +580,12 @@ fn run(
                     *a += v / recent.len() as f32;
                 }
             }
-            signals = detect(&avg, floor, DETECT_DB, center, rate as f64, 3);
+            signals = detect(&avg, floor.db, DETECT_DB, center, rate as f64, 3);
             if mode == Mode::Wfm {
                 crate::hd::drop_sidebands(&mut signals);
-                crate::hd::mark_sidebands(&mut signals, &avg, floor, center, rate as f64);
+                crate::hd::mark_sidebands(&mut signals, &avg, floor.db, center, rate as f64);
             }
-            hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor, center, tuned, rate as f64);
+            hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor.db, center, tuned, rate as f64);
             if let Some(sc) = &mut scanner {
                 sc.retarget(center, &signals);
             }
@@ -694,7 +703,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
         }
         prof.lap("status");
         prof.report();

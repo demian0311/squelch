@@ -82,9 +82,68 @@ pub fn noise_floor(row: &[f32]) -> f32 {
     v[k]
 }
 
+/// Rows after a retune or a gain change that are taken as the floor outright, with the squelch held shut:
+/// the tuner's gain is still settling on the new band, and a slow average would lag it by a second.
+pub const SETTLE_ROWS: u32 = 6;
+
+/// The capture's noise floor: each row's `noise_floor`, averaged slowly between retunes.
+pub struct Floor {
+    pub db: f32,
+    settle: u32,
+}
+
+impl Default for Floor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Floor {
+    pub fn new() -> Self {
+        Self { db: -60.0, settle: SETTLE_ROWS }
+    }
+
+    /// The capture moved or the gain changed: the next rows are another band's noise.
+    pub fn retuned(&mut self) {
+        self.settle = SETTLE_ROWS;
+    }
+
+    /// Feed a row. Returns false while settling, when the floor is not yet one to measure a signal against.
+    pub fn update(&mut self, row: &[f32]) -> bool {
+        let f = noise_floor(row);
+        if self.settle > 0 {
+            self.settle -= 1;
+            self.db = f;
+            false
+        } else {
+            self.db = 0.9 * self.db + 0.1 * f;
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_retune_takes_the_new_floor_at_once_and_settles_first() {
+        let row = |db: f32| vec![db; 64];
+        let mut f = Floor::new();
+        for _ in 0..SETTLE_ROWS + 10 {
+            f.update(&row(-60.0));
+        }
+        assert_eq!(f.db, -60.0);
+        f.retuned();
+        assert!(!f.update(&row(-40.0)), "the first row after a retune is still settling");
+        assert_eq!(f.db, -40.0, "and the floor is that row's, not an average with the old band");
+        for _ in 1..SETTLE_ROWS {
+            assert!(!f.update(&row(-40.0)));
+        }
+        assert!(f.update(&row(-40.0)), "settled after SETTLE_ROWS");
+        f.update(&row(-50.0));
+        assert!((f.db - -41.0).abs() < 1e-4, "then back to the slow average");
+    }
 
     #[test]
     fn a_tone_lands_in_the_right_bin() {
