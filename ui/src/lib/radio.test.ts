@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Band, BandPlan } from './api';
-import { binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { compassWord, binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -336,5 +336,14 @@ describe('binAt', () => {
     expect(binAt(1049, 1000, 100)).toBe(0);
     expect(binAt(1051, 1000, 100)).toBe(1);
     expect(binAt(1500, 1000, 100)).toBe(5);
+  });
+});
+
+describe('compassWord', () => {
+  it('names the eight directions, wrapping past 360', () => {
+    expect(compassWord(0)).toBe('north');
+    expect(compassWord(44)).toBe('north-east');
+    expect(compassWord(350)).toBe('north');
+    expect(compassWord(-90)).toBe('west');
   });
 });

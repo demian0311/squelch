@@ -8,7 +8,8 @@
   import type { Snippet } from 'svelte';
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
-  import { HEIGHT_BANDS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
+  import { compassWord } from '../lib/radio';
+  import { HEIGHT_BANDS, aircraftFacts, fmtClimb, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
   import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
@@ -296,14 +297,17 @@
                   <span class="why">{(a.alt_ft ?? 0) > 18000 ? 'Too high to guess. Planes up here talk to controllers this list does not cover.' : 'No channel known for here.'}</span>
                 </div>
               {/if}
+              {#if a.speed_kt !== null || a.heading_deg !== null || fmtClimb(a.vrate_fpm)}
               <div class="sec">
                 <span class="lbl">Right now</span>
+                <!-- the row above already says the height, the trend and the distance -->
                 <dl>
-                  {#if a.alt_ft !== null}<dt>Height</dt><dd>{height(a)}, {trend(a)}</dd>{/if}
                   {#if a.speed_kt !== null}<dt>Speed</dt><dd>{Math.round(a.speed_kt * MPH_PER_KT)} mph</dd>{/if}
-                  {#if r.km !== null}<dt>From you</dt><dd>{Math.round(r.km)} km</dd>{/if}
+                  {#if a.heading_deg !== null}<dt>Going</dt><dd>{compassWord(a.heading_deg)}</dd>{/if}
+                  {#if fmtClimb(a.vrate_fpm)}<dt>Climb</dt><dd>{fmtClimb(a.vrate_fpm)}</dd>{/if}
                 </dl>
               </div>
+              {/if}
               <div class="sec">
                 <span class="lbl">Messages</span>
                 {#each itsMessages as m (m.at_ms + ':' + m.id)}

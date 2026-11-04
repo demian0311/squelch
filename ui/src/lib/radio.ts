@@ -224,6 +224,11 @@ export function withRds<T extends Signal>(signals: T[], heard: Map<number, Rds>)
 
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 
+/** A direction in words: 0° is north, 90° east. */
+export function compassWord(deg: number): string {
+  return COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+
 /** "DFM-17 23038743", or the type alone until the serial arrives. */
 export function sondeName(s: Sonde): string {
   return s.serial ? `${s.kind} ${s.serial}` : `${s.kind} balloon`;
