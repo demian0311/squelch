@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Band, BandPlan } from './api';
-import { allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
+import { binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -327,5 +327,14 @@ describe('dead air', () => {
     const out = withoutDeadAir({ groups: [{ id: 'data', name: 'Data' }], bands: [band('adsb'), band('acars'), band('sonde')] } as BandPlan);
     expect(out.bands.map((x) => x.id)).toEqual(['adsb', 'acars']);
     expect(out.groups.map((g) => g.id)).toEqual(['data']);
+  });
+});
+
+describe('binAt', () => {
+  it('puts a frequency in the bin centred on it', () => {
+    expect(binAt(1000, 1000, 100)).toBe(0);
+    expect(binAt(1049, 1000, 100)).toBe(0);
+    expect(binAt(1051, 1000, 100)).toBe(1);
+    expect(binAt(1500, 1000, 100)).toBe(5);
   });
 });

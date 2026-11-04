@@ -19,7 +19,8 @@ pub struct Detected {
 pub fn detect(row: &[f32], floor: f32, threshold_db: f32, center_hz: f64, rate: f64, max_gap: usize) -> Vec<Detected> {
     let n = row.len();
     let bin_hz = rate / n as f64;
-    let hz_of = |i: f64| center_hz - rate / 2.0 + (i + 0.5) * bin_hz;
+    // Bin i is centred on its own frequency, not half a bin above it.
+    let hz_of = |i: f64| center_hz - rate / 2.0 + i * bin_hz;
     let mut out = Vec::new();
     let mut i = 0;
     while i < n {
@@ -63,6 +64,25 @@ pub fn detect(row: &[f32], floor: f32, threshold_db: f32, center_hz: f64, rate: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A carrier exactly on a known frequency, through the real transform, is reported on it.
+    #[test]
+    fn a_tone_is_reported_on_its_own_frequency() {
+        use crate::spectrum::Spectrum;
+        use num_complex::Complex32;
+        let (rate, n) = (2_400_000.0f64, 2048usize);
+        let centre = 27_000_000.0;
+        let offset = 65_000.0;
+        let mut sp = Spectrum::new(n, rate as u32, 10);
+        let iq: Vec<Complex32> = (0..rate as usize)
+            .map(|i| Complex32::from_polar(0.5, (std::f64::consts::TAU * offset * i as f64 / rate) as f32))
+            .collect();
+        let mut rows = Vec::new();
+        sp.process(&iq, &mut rows);
+        let d = detect(&rows[0], -90.0, 20.0, centre, rate, 2);
+        let got = d.iter().max_by(|a, b| a.snr_db.total_cmp(&b.snr_db)).unwrap().hz;
+        assert!((got - (centre + offset)).abs() < 100.0, "off by {} Hz", got - (centre + offset));
+    }
 
     #[test]
     fn finds_two_signals_and_ignores_noise() {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { channelTicks } from '../lib/channels';
-  import { fmtMHz, outOfBand } from '../lib/radio';
+  import { binAt, fmtMHz, outOfBand } from '../lib/radio';
   // Spectrum line on top, scrolling waterfall below. Rows arrive through push();
   // the visible frequency range (view) is owned by the parent.
   import { onMount } from 'svelte';
@@ -145,8 +145,8 @@
     const binHz = rate / n;
     const span = ve - vs;
     for (let i = 0; i < P; i++) {
-      const b0 = Math.floor((vs + ((i - 0.5) / (P - 1)) * span - lo) / binHz);
-      const b1 = Math.floor((vs + ((i + 0.5) / (P - 1)) * span - lo) / binHz);
+      const b0 = binAt(vs + ((i - 0.5) / (P - 1)) * span, lo, binHz);
+      const b1 = binAt(vs + ((i + 0.5) / (P - 1)) * span, lo, binHz);
       // b1 < 0 marks a point outside the capture
       if (b1 < 0 || b0 >= n) {
         b1s[i] = -1;

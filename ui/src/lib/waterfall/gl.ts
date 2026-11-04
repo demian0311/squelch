@@ -44,7 +44,7 @@ void main() {
   // the row's capture centre and this pixel's frequency, both in bins from the reference centre
   float off = floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5) - 32768.0;
   float fb = vsb + uv.x * spanb;
-  float u = (fb - off) / n + 0.5;
+  float u = (fb - off + 0.5) / n + 0.5; // bin k is centred on texel k + n/2
   if (u < 0.0 || u > 1.0) {
     gl_FragColor = vec4(bg, 1.0);
     return;

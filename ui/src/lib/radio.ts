@@ -326,3 +326,6 @@ export function snapTune(hz: number, signals: Detected[], named: Saved[], pxHz: 
   const step = mode === 'wfm' ? 10_000 : mode === 'usb' || mode === 'lsb' ? 10 : 500;
   return Math.round(hz / step) * step;
 }
+
+/** The FFT bin holding a frequency. Bin i is centred on lo + i * binHz (lo = capture's low edge). */
+export const binAt = (hz: number, lo: number, binHz: number) => Math.floor((hz - lo) / binHz + 0.5);

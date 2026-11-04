@@ -1,6 +1,7 @@
 // 2D-canvas waterfall, for a machine without WebGL. Rows are drawn in view coordinates, so a change of view stretches
 // and shifts the history to keep it lined up; each new row scrolls the whole picture down by one row.
 import type { Renderer } from './renderer';
+import { binAt } from '../radio';
 
 export class CpuWaterfall implements Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -60,8 +61,8 @@ export class CpuWaterfall implements Renderer {
     const binHz = rate / n;
     const span = ve - vs;
     for (let x = 0; x < W; x++) {
-      const b0 = Math.floor((vs + (x / W) * span - lo) / binHz);
-      const b1 = Math.floor((vs + ((x + 1) / W) * span - lo) / binHz);
+      const b0 = binAt(vs + (x / W) * span, lo, binHz);
+      const b1 = binAt(vs + ((x + 1) / W) * span, lo, binHz);
       // b1 < 0 marks a pixel outside the capture
       if (b1 < 0 || b0 >= n) {
         this.b1s[x] = -1;
