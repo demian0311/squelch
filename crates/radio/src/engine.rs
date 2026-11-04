@@ -281,7 +281,6 @@ fn run(
     let mut spectrum = Spectrum::new(FFT_SIZE, rate, ROWS_PER_SEC);
     let mut raw = vec![0u8; READ_BYTES];
     let mut iq: Vec<C32> = Vec::new();
-    let mut chan: Vec<C32> = Vec::new();
     let mut pcm: Vec<f32> = Vec::new();
     let mut rows: Vec<Vec<f32>> = Vec::new();
     let mut floor = -60.0f32;
@@ -625,11 +624,7 @@ fn run(
             }
             prof.lap("p25");
         } else {
-            chan.clear();
-            chan.extend_from_slice(&iq);
-            mixer.process(&mut chan);
-            prof.lap("mix");
-            demod.process(&chan, &mut pcm);
+            demod.process_mixed(&iq, &mut mixer, &mut pcm);
             prof.lap("demod");
             // a strong station on the FM grid shows how far off the crystal is: its carrier is the discriminator's mean
             let on_grid = mode == Mode::Wfm && ((tuned / FM_GRID_HZ).round() * FM_GRID_HZ - tuned).abs() < 1.0;

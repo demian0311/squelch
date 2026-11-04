@@ -11,7 +11,6 @@ pub struct Channel {
     stage1: Decimator<C32>,
     stage2: Decimator<C32>,
     last: C32,
-    buf: Vec<C32>,
     s1: Vec<C32>,
     s2: Vec<C32>,
 }
@@ -31,7 +30,6 @@ impl Channel {
             stage1: Decimator::new(lowpass(mid / 2.0 / fs, (mid - 2.0 * half) / fs), d1),
             stage2: Decimator::new(lowpass((half + 4_000.0) / mid, 8_000.0 / mid), (mid as u32 / RATE) as usize),
             last: C32::new(1.0, 0.0),
-            buf: Vec::new(),
             s1: Vec::new(),
             s2: Vec::new(),
         }
@@ -43,11 +41,8 @@ impl Channel {
 
     /// Appends the instantaneous frequency, in Hz from the channel centre, at `RATE`.
     pub fn process(&mut self, iq: &[C32], out: &mut Vec<f32>) {
-        self.buf.clear();
-        self.buf.extend_from_slice(iq);
-        self.mixer.process(&mut self.buf);
         self.s1.clear();
-        self.stage1.process(&self.buf, &mut self.s1);
+        self.stage1.process_mixed(iq, &mut self.mixer, &mut self.s1);
         self.s2.clear();
         self.stage2.process(&self.s1, &mut self.s2);
         let k = RATE as f32 / std::f32::consts::TAU;

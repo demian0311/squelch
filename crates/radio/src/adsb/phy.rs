@@ -55,6 +55,8 @@ pub struct Demod {
     mag: Vec<f32>,
     /// Running sum of `mag`; `cum[k]` is the sum of the first `k`.
     cum: Vec<f64>,
+    /// For each start in the block, the four preamble pulse samples summed.
+    pulse: Vec<f32>,
     /// First sample of `mag` not yet searched.
     next: usize,
     /// Samples dropped from the front of `mag` so far.
@@ -75,11 +77,12 @@ impl Demod {
                 (syndrome(&f), k)
             })
             .collect();
-        Demod { chip: rate as f64 / 2e6, mag: Vec::new(), cum: Vec::new(), next: 0, base: 0, syndromes, known: HashSet::new() }
+        Demod { chip: rate as f64 / 2e6, mag: Vec::new(), cum: Vec::new(), pulse: Vec::new(), next: 0, base: 0, syndromes, known: HashSet::new() }
     }
 
     pub fn process(&mut self, iq: &[C32], out: &mut Vec<Frame>) {
-        self.mag.extend(iq.iter().map(|c| c.norm()));
+        // not `norm`: hypot guards an overflow 8-bit samples never reach, at ten times the cost of a square root
+        self.mag.extend(iq.iter().map(|c| c.norm_sqr().sqrt()));
         // a candidate reads this far past its start; the extra covers the phase and the last chip's end sample
         let need = ((PREAMBLE_CHIPS + 2 * LONG_BITS) as f64 * self.chip).ceil() as usize + 3;
         if self.mag.len() < self.next + need {
@@ -99,17 +102,37 @@ impl Demod {
         // whatever the phase, each preamble pulse holds one of the two samples from where it would start at phase 0
         let at = |c: usize| (c as f64 * self.chip).ceil() as usize;
         let probe = [at(0), at(2), at(7), at(9)];
-        // samples inside chips 4–5 and 10–15 whatever the phase
+        // samples inside chips 4–5 and 10–15 whatever the phase, as runs `lo..hi` read off the running sum
         let is_quiet = |t: f64| t >= 0.0 && PREAMBLE_QUIET.contains(&((t / self.chip) as usize));
         let quiet: Vec<usize> = (1..(PREAMBLE_CHIPS as f64 * self.chip) as usize).filter(|&k| is_quiet(k as f64) && is_quiet(k as f64 - 0.999)).collect();
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        for &k in &quiet {
+            match runs.last_mut() {
+                Some((_, hi)) if *hi == k => *hi += 1,
+                _ => runs.push((k, k + 1)),
+            }
+        }
         let end = self.mag.len() - need;
-        let mut i = self.next;
+        let start = self.next;
+        // the pulse sum for every start in one pass per probe, over equal slices so it vectorises
+        self.pulse.clear();
+        self.pulse.resize(end.saturating_sub(start), 0.0);
+        for &k in &probe {
+            let (a, b) = (&self.mag[start + k..end + k], &self.mag[start + k + 1..end + k + 1]);
+            for ((p, &x), &y) in self.pulse.iter_mut().zip(a).zip(b) {
+                *p += x.max(y);
+            }
+        }
+        let mut i = start;
         while i < end {
-            let m = &self.mag;
-            let pulses = probe.iter().map(|&k| m[i + k].max(m[i + k + 1])).sum::<f32>();
+            let pulses = self.pulse[i - start];
+            if pulses < gate {
+                i += 1;
+                continue;
+            }
             // and the gaps that hold no pulse at any phase are well below them; a steady carrier fails here
-            let gaps = quiet.iter().map(|&k| m[i + k]).sum::<f32>() / quiet.len() as f32;
-            if pulses < gate || pulses < 4.0 * PREAMBLE_RATIO as f32 * gaps {
+            let gaps = runs.iter().map(|&(lo, hi)| self.cum[i + hi] - self.cum[i + lo]).sum::<f64>() as f32 / quiet.len() as f32;
+            if pulses < 4.0 * PREAMBLE_RATIO as f32 * gaps {
                 i += 1;
                 continue;
             }
@@ -137,47 +160,61 @@ impl Demod {
         self.next = 0;
     }
 
-    /// Area under the magnitude from sample position `x` to `x + w`, each sample standing for the half sample either side.
-    fn area(&self, x: f64, w: f64) -> f64 {
-        let s = |y: f64| {
-            let y = y + 0.5;
-            let k = y.floor() as usize;
-            self.cum[k] + (y - k as f64) * self.mag[k] as f64
-        };
-        s(x + w) - s(x)
+    /// Area under the magnitude up to sample position `y`, each sample standing for the half sample either side.
+    fn upto(&self, y: f64) -> f64 {
+        let y = y + 0.5;
+        let k = y.floor() as usize;
+        self.cum[k] + (y - k as f64) * self.mag[k] as f64
     }
 
-    fn chip(&self, x: f64, c: usize) -> f64 {
-        self.area(x + c as f64 * self.chip, self.chip)
+    /// Where chip `c` of a reply starting at `x` begins.
+    fn edge(&self, x: f64, c: usize) -> f64 {
+        self.upto(x + c as f64 * self.chip)
     }
 
     fn try_at(&self, i: usize, noise: f32) -> Option<Frame> {
-        let mut cands: Vec<(f64, f64, f32)> = Vec::with_capacity(PHASES);
+        let mut cands = [(0.0f64, 0.0f64, 0.0f32); PHASES];
+        let mut found = 0;
         for p in 0..PHASES {
             let x = i as f64 + p as f64 / PHASES as f64;
-            let e: [f64; PREAMBLE_CHIPS] = std::array::from_fn(|c| self.chip(x, c));
+            // chips are consecutive spans, so each boundary is read once; the chips past the last pulse only
+            // once the pulses have passed, since most phases fail there
+            let mut last = self.edge(x, 0);
+            let mut e = [0.0f64; PREAMBLE_CHIPS];
+            let mut fill = |e: &mut [f64; PREAMBLE_CHIPS], chips: std::ops::Range<usize>| {
+                for c in chips {
+                    let next = self.edge(x, c + 1);
+                    e[c] = next - last;
+                    last = next;
+                }
+            };
+            fill(&mut e, 0..11);
             let high = PREAMBLE_HIGH.map(|c| e[c]);
             let low = high.iter().cloned().fold(f64::MAX, f64::min);
             // each pulse stands above the chips beside it
             if [1, 3, 6, 8, 10].iter().any(|&c| e[c] >= low) {
                 continue;
             }
+            fill(&mut e, 11..PREAMBLE_CHIPS);
             let hi = high.iter().sum::<f64>() / 4.0;
             let quiet = PREAMBLE_QUIET.iter().map(|&c| e[c]).sum::<f64>() / PREAMBLE_QUIET.len() as f64;
             if hi < PREAMBLE_RATIO * quiet || hi < PREAMBLE_RATIO * noise as f64 * self.chip {
                 continue;
             }
-            cands.push((hi - quiet, x, 20.0 * (hi / quiet.max(1e-9)).log10() as f32));
+            cands[found] = (hi - quiet, x, 20.0 * (hi / quiet.max(1e-9)).log10() as f32);
+            found += 1;
         }
+        let cands = &mut cands[..found];
         cands.sort_by(|a, b| b.0.total_cmp(&a.0));
-        for (_, x, snr_db) in cands {
+        for &(_, x, snr_db) in cands.iter() {
             let mut bytes = [0u8; LONG_BYTES];
             let mut bits = LONG_BITS;
             let mut ok = true;
             let mut k = 0;
             while k < bits {
                 let c = PREAMBLE_CHIPS + 2 * k;
-                if self.chip(x, c) > self.chip(x, c + 1) {
+                let (a, b, z) = (self.edge(x, c), self.edge(x, c + 1), self.edge(x, c + 2));
+                if b - a > z - b {
                     bytes[k / 8] |= 0x80 >> (k % 8);
                 }
                 // anything this decoder cannot read is dropped as soon as its format shows

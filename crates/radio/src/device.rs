@@ -2,6 +2,8 @@
 //! synthetic source used by tests and when no dongle is plugged in.
 
 use anyhow::{bail, Result};
+use crate::dsp::C32;
+use num_complex::Complex;
 use std::ffi::{c_char, c_int, c_void, CStr};
 
 /// Tuner gain: hardware AGC, or a fixed value in tenths of a dB.
@@ -231,7 +233,10 @@ pub struct SimSource {
     center: f64,
     signals: Vec<SimSignal>,
     t: u64,
-    phases: Vec<f64>,
+    /// Each signal's oscillator, carrier and modulation together.
+    phasors: Vec<Complex<f64>>,
+    /// The signals summed for the block in hand, before noise.
+    sum: Vec<C32>,
     rng: u64,
     realtime: bool,
     started: Option<std::time::Instant>,
@@ -241,7 +246,7 @@ pub struct SimSource {
 impl SimSource {
     pub fn new(rate: u32, signals: Vec<SimSignal>, realtime: bool) -> Self {
         let n = signals.len();
-        SimSource { rate, center: 100e6, signals, t: 0, phases: vec![0.0; n], rng: 0x9e3779b97f4a7c15, realtime, started: None, produced: 0 }
+        SimSource { rate, center: 100e6, signals, t: 0, phasors: vec![Complex::new(1.0, 0.0); n], sum: Vec::new(), rng: 0x9e3779b97f4a7c15, realtime, started: None, produced: 0 }
     }
 
     fn noise(&mut self) -> f32 {
@@ -276,32 +281,59 @@ impl IqSource for SimSource {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let fs = self.rate as f64;
         let tau = std::f64::consts::TAU;
-        for chunk in buf.chunks_exact_mut(2) {
-            let tsec = self.t as f64 / fs;
-            let mut i = 0.02 * self.noise();
-            let mut q = 0.02 * self.noise();
-            for (k, s) in self.signals.iter().enumerate() {
-                let off = s.hz - self.center;
-                if off.abs() > fs / 2.0 {
-                    continue;
-                }
+        let n = buf.len() / 2;
+        self.sum.clear();
+        self.sum.resize(n, C32::default());
+        for (k, s) in self.signals.iter().enumerate() {
+            let off = s.hz - self.center;
+            if off.abs() > fs / 2.0 {
+                continue;
+            }
+            // Oscillators turn by a complex multiply a sample, not a sine and cosine of an angle: the carrier by a fixed
+            // step, the tone likewise, and the modulation by a small angle whose sine and cosine come from short series.
+            // Nothing drifts: the tone restarts from the clock each block, the carrier is normalised after it.
+            let carrier = Complex::from_polar(1.0, tau * off / fs);
+            let tone = Complex::from_polar(1.0, tau * s.tone_hz / fs);
+            let mut tone_ph = Complex::from_polar(1.0, tau * s.tone_hz * (self.t as f64 / fs));
+            let mut ph = self.phasors[k];
+            let dev = tau * s.fm_dev / fs;
+            let gain = s.amp / (1.0 + s.am_depth);
+            let per_sample = s.tone_hz / fs;
+            for (j, acc) in self.sum.iter_mut().enumerate() {
                 let m = match &s.symbols {
-                    Some(sym) => if sym[(tsec * s.tone_hz) as usize % sym.len()] { 1.0 } else { -1.0 },
-                    None => (tau * s.tone_hz * tsec).sin(),
+                    Some(sym) => {
+                        if sym[((self.t + j as u64) as f64 * per_sample) as usize % sym.len()] {
+                            1.0
+                        } else {
+                            -1.0
+                        }
+                    }
+                    None => {
+                        tone_ph *= tone;
+                        tone_ph.im
+                    }
                 };
                 // instantaneous frequency = off + dev * m
-                self.phases[k] += tau * (off + s.fm_dev * m) / fs;
-                let a = s.amp * (1.0 + s.am_depth * m as f32) / (1.0 + s.am_depth);
-                i += a * self.phases[k].cos() as f32;
-                q += a * self.phases[k].sin() as f32;
+                let x = dev * m;
+                let x2 = x * x;
+                let sin = x * (1.0 - x2 * (1.0 / 6.0 - x2 * (1.0 / 120.0 - x2 / 5040.0)));
+                let cos = 1.0 - x2 * (0.5 - x2 * (1.0 / 24.0 - x2 * (1.0 / 720.0 - x2 / 40320.0)));
+                ph *= carrier * Complex::new(cos, sin);
+                let a = gain * (1.0 + s.am_depth * m as f32);
+                acc.re += a * ph.re as f32;
+                acc.im += a * ph.im as f32;
             }
-            self.t += 1;
+            self.phasors[k] = ph / ph.norm();
+        }
+        let sum = std::mem::take(&mut self.sum);
+        for (chunk, s) in buf.chunks_exact_mut(2).zip(&sum) {
+            let i = s.re + 0.02 * self.noise();
+            let q = s.im + 0.02 * self.noise();
             chunk[0] = (i * 127.5 + 127.5).clamp(0.0, 255.0) as u8;
             chunk[1] = (q * 127.5 + 127.5).clamp(0.0, 255.0) as u8;
         }
-        for p in self.phases.iter_mut() {
-            *p %= tau;
-        }
+        self.sum = sum;
+        self.t += n as u64;
         if self.realtime {
             let start = *self.started.get_or_insert_with(std::time::Instant::now);
             self.produced += (buf.len() / 2) as u64;

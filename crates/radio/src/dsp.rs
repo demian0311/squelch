@@ -185,20 +185,25 @@ impl<T: Sample> Decimator<T> {
     }
 
     pub fn process(&mut self, input: &[T], out: &mut Vec<T>) {
-        let (n, l) = (self.n, T::LANES);
         T::extend(&mut self.buf, input);
+        self.filter(input.len(), out);
+    }
+
+    /// Filters the block of `len` samples just appended to `buf`, then keeps only what the next block's windows reach back to.
+    fn filter(&mut self, len: usize, out: &mut Vec<T>) {
+        let (n, l) = (self.n, T::LANES);
         // input sample p is kept when it is the `factor`-th since the last kept one; its window is the n samples ending at it
         let first = (self.factor - 1 - self.phase) % self.factor;
         #[cfg(target_arch = "x86_64")]
         if self.avx {
             // SAFETY: `avx` is only true when `has_avx` saw AVX2 and FMA on this CPU
-            unsafe { self.block_avx(first, input.len(), out) };
+            unsafe { self.block_avx(first, len, out) };
         } else {
-            self.block_plain(first, input.len(), out);
+            self.block_plain(first, len, out);
         }
         #[cfg(not(target_arch = "x86_64"))]
-        self.block_plain(first, input.len(), out);
-        self.phase = (self.phase + input.len()) % self.factor;
+        self.block_plain(first, len, out);
+        self.phase = (self.phase + len) % self.factor;
         let keep = (n - 1) * l;
         let total = self.buf.len();
         self.buf.copy_within(total - keep.., 0);
@@ -220,6 +225,20 @@ impl<T: Sample> Decimator<T> {
         for p in (first..len).step_by(self.factor) {
             out.push(T::from_lanes(&dot8_avx(&self.buf[p * l..(p + n) * l], &self.taps)));
         }
+    }
+}
+
+impl Decimator<C32> {
+    /// `process` of `input` after `mixer`, with the mixer writing straight into the filter's buffer: no copy of the
+    /// block and one pass over it less, which is most of a narrow channel's cost at the capture rate.
+    pub fn process_mixed(&mut self, input: &[C32], mixer: &mut Mixer, out: &mut Vec<C32>) {
+        let at = self.buf.len();
+        self.buf.resize(at + 2 * input.len(), 0.0);
+        // SAFETY: as in `Sample::extend`, a `#[repr(C)]` Complex<f32> is two f32 lanes with the same 4-byte alignment,
+        // and `buf[at..]` holds exactly `input.len()` of them
+        let dst = unsafe { std::slice::from_raw_parts_mut(self.buf[at..].as_mut_ptr() as *mut C32, input.len()) };
+        mixer.process_into(input, dst);
+        self.filter(input.len(), out);
     }
 }
 
@@ -263,6 +282,20 @@ impl<T: Sample> Decimate<T> {
     }
 }
 
+impl Decimate<C32> {
+    /// `process` of `input` after `mixer`, without a copy of the block (see `Decimator::process_mixed`).
+    pub fn process_mixed(&mut self, input: &[C32], mixer: &mut Mixer, out: &mut Vec<C32>) {
+        match &mut self.b {
+            None => self.a.process_mixed(input, mixer, out),
+            Some(b) => {
+                self.mid.clear();
+                self.a.process_mixed(input, mixer, &mut self.mid);
+                b.process(&self.mid, out);
+            }
+        }
+    }
+}
+
 /// Multiplies by e^{-j 2π f t}, moving `shift_hz` down to 0 Hz.
 pub struct Mixer {
     phase: f64,
@@ -280,20 +313,34 @@ impl Mixer {
     }
 
     pub fn process(&mut self, buf: &mut [C32]) {
+        let (p, n) = (buf.as_mut_ptr(), buf.len());
+        // SAFETY: one pointer for source and destination; each sample is read and then written, in turn
+        unsafe { self.mix(p, p, n) };
+    }
+
+    /// `dst` becomes `src` mixed; the two must be the same length. Saves a copy when the mixed block lands in another buffer.
+    pub fn process_into(&mut self, src: &[C32], dst: &mut [C32]) {
+        assert_eq!(src.len(), dst.len());
+        // SAFETY: both slices hold `len` samples
+        unsafe { self.mix(src.as_ptr(), dst.as_mut_ptr(), src.len()) };
+    }
+
+    /// `len` samples at `src`, mixed, written to `dst`; the two may be the same place.
+    unsafe fn mix(&mut self, src: *const C32, dst: *mut C32, len: usize) {
         #[cfg(target_arch = "x86_64")]
         if self.avx {
             // SAFETY: `avx` is only true when `has_avx` saw AVX2 and FMA on this CPU
-            unsafe { self.process_avx(buf) };
+            unsafe { self.mix_avx(src, dst, len) };
             return;
         }
-        self.process_plain(buf);
+        unsafe { self.mix_plain(src, dst, len) };
     }
 
     /// Four samples a vector: the oscillator for the first of them times a table of the next four steps, then the samples
     /// times that. Two complex multiplies a sample, but eight at a time and none waiting on the one before.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2,fma")]
-    unsafe fn process_avx(&mut self, buf: &mut [C32]) {
+    unsafe fn mix_avx(&mut self, src: *const C32, dst: *mut C32, len: usize) {
         use std::arch::x86_64::*;
         // (a + jb)(c + jd) for four pairs: re of a spread, times b; im of a spread, times b with re/im swapped; then add/sub
         #[inline]
@@ -308,34 +355,35 @@ impl Mixer {
         let table = _mm256_loadu_ps(table.as_ptr() as *const f32);
         let rot4 = step(4.0);
         let mut osc = C32::new(self.phase.cos() as f32, self.phase.sin() as f32);
-        let mut chunks = buf.chunks_exact_mut(4);
-        for (k, c) in (&mut chunks).enumerate() {
+        let quads = len / 4;
+        for k in 0..quads {
             let o = _mm256_set_ps(osc.im, osc.re, osc.im, osc.re, osc.im, osc.re, osc.im, osc.re);
-            let p = c.as_mut_ptr() as *mut f32;
-            _mm256_storeu_ps(p, cmul(_mm256_loadu_ps(p), cmul(o, table)));
+            let s = src.add(4 * k) as *const f32;
+            let d = dst.add(4 * k) as *mut f32;
+            _mm256_storeu_ps(d, cmul(_mm256_loadu_ps(s), cmul(o, table)));
             osc *= rot4;
             if k % 256 == 255 {
                 osc /= osc.norm();
             }
         }
         let rot = step(1.0);
-        for s in chunks.into_remainder() {
-            *s *= osc;
+        for i in 4 * quads..len {
+            *dst.add(i) = *src.add(i) * osc;
             osc *= rot;
         }
-        self.phase = (self.phase + self.step * buf.len() as f64) % std::f64::consts::TAU;
+        self.phase = (self.phase + self.step * len as f64) % std::f64::consts::TAU;
     }
 
-    fn process_plain(&mut self, buf: &mut [C32]) {
+    unsafe fn mix_plain(&mut self, src: *const C32, dst: *mut C32, len: usize) {
         // four oscillators a step apart, each advancing four steps, so the multiplies do not wait on one another
         let rot = C32::new(self.step.cos() as f32, self.step.sin() as f32);
         let rot4 = C32::new((4.0 * self.step).cos() as f32, (4.0 * self.step).sin() as f32);
         let o = C32::new(self.phase.cos() as f32, self.phase.sin() as f32);
         let mut osc = [o, o * rot, o * rot * rot, o * rot * rot * rot];
-        let mut chunks = buf.chunks_exact_mut(4);
-        for (k, c) in (&mut chunks).enumerate() {
+        let quads = len / 4;
+        for k in 0..quads {
             for i in 0..4 {
-                c[i] *= osc[i];
+                *dst.add(4 * k + i) = *src.add(4 * k + i) * osc[i];
                 osc[i] *= rot4;
             }
             if k % 256 == 255 {
@@ -345,11 +393,11 @@ impl Mixer {
             }
         }
         let mut o = osc[0];
-        for s in chunks.into_remainder() {
-            *s *= o;
+        for i in 4 * quads..len {
+            *dst.add(i) = *src.add(i) * o;
             o *= rot;
         }
-        self.phase = (self.phase + self.step * buf.len() as f64) % std::f64::consts::TAU;
+        self.phase = (self.phase + self.step * len as f64) % std::f64::consts::TAU;
     }
 }
 
@@ -524,5 +572,30 @@ mod tests {
         m.process(&mut plain);
         let worst = fast.iter().zip(&plain).map(|(a, b)| (a - b).norm()).fold(0.0f32, f32::max);
         assert!(worst < 1e-4, "paths differ by {worst}");
+    }
+
+    #[test]
+    fn mixing_into_the_decimator_matches_mixing_first() {
+        let rate = 2_400_000.0;
+        let mut rng = 0x9e3779b97f4a7c15u64;
+        let mut noise = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            (rng >> 40) as f32 / (1u64 << 23) as f32 - 1.0
+        };
+        let blocks: Vec<Vec<C32>> = [4_099, 777, 65_536].iter().map(|&n| (0..n).map(|_| C32::new(noise(), noise())).collect()).collect();
+        let (mut d1, mut d2) = (Decimate::<C32>::new(rate, 11_000.0, 14_000.0, 50), Decimate::<C32>::new(rate, 11_000.0, 14_000.0, 50));
+        let (mut m1, mut m2) = (Mixer::new(-475_000.0, rate as f64), Mixer::new(-475_000.0, rate as f64));
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for block in &blocks {
+            let mut mixed = block.clone();
+            m1.process(&mut mixed);
+            d1.process(&mixed, &mut a);
+            d2.process_mixed(block, &mut m2, &mut b);
+        }
+        assert_eq!(a.len(), b.len());
+        let worst = a.iter().zip(&b).map(|(x, y)| (x - y).norm()).fold(0.0f32, f32::max);
+        assert!(a.len() > 1_000 && worst < 1e-5, "{} samples, paths differ by {worst}", a.len());
     }
 }

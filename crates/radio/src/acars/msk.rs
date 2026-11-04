@@ -55,7 +55,6 @@ pub struct Channel {
     /// Audio samples processed, the clock of `recent`.
     t: u64,
     recent: Vec<(u64, Vec<u8>)>,
-    buf: Vec<C32>,
     ifb: Vec<C32>,
     env: Vec<f32>,
     aud: Vec<f32>,
@@ -86,7 +85,6 @@ impl Channel {
             clocks: (0..PHASES).map(|i| Clock { phase: i as f32 / PHASES as f32, bit: false, framer: Framer::new() }).collect(),
             t: 0,
             recent: Vec::new(),
-            buf: Vec::new(),
             ifb: Vec::new(),
             env: Vec::new(),
             aud: Vec::new(),
@@ -102,13 +100,10 @@ impl Channel {
 
     /// Feed capture samples; blocks that passed their CRC are appended to `out`.
     pub fn process(&mut self, iq: &[C32], out: &mut Vec<Vec<u8>>) {
-        self.buf.clear();
-        self.buf.extend_from_slice(iq);
-        self.mixer.process(&mut self.buf);
         self.ifb.clear();
-        self.filter.process(&self.buf, &mut self.ifb);
+        self.filter.process_mixed(iq, &mut self.mixer, &mut self.ifb);
         self.env.clear();
-        self.env.extend(self.ifb.iter().map(|s| s.norm()));
+        self.env.extend(self.ifb.iter().map(|s| s.norm_sqr().sqrt()));
         // the carrier is the envelope's DC
         self.dc.process(&mut self.env);
         self.aud.clear();

@@ -117,6 +117,15 @@ impl Demodulator {
     }
 
     pub fn process(&mut self, input: &[C32], audio: &mut Vec<f32>) {
+        self.run(audio, |stage1, s1| stage1.process(input, s1));
+    }
+
+    /// `process` of `input` after `mixer`, with no copy of the block (see `Decimator::process_mixed`).
+    pub fn process_mixed(&mut self, input: &[C32], mixer: &mut Mixer, audio: &mut Vec<f32>) {
+        self.run(audio, |stage1, s1| stage1.process_mixed(input, mixer, s1));
+    }
+
+    fn run(&mut self, audio: &mut Vec<f32>, stage1: impl FnOnce(&mut Decimate<C32>, &mut Vec<C32>)) {
         audio.clear();
         if matches!(self.mode, Mode::None | Mode::P25) {
             return;
@@ -124,7 +133,7 @@ impl Demodulator {
         let mid = self.in_rate / (self.in_rate / 240_000.0).round().max(1.0);
         self.s1.clear();
         let mut s1 = std::mem::take(&mut self.s1);
-        self.stage1.process(input, &mut s1);
+        stage1(&mut self.stage1, &mut s1);
         match self.mode {
             Mode::Wfm => {
                 self.level_db = crate::dsp::power_db(&s1);
@@ -169,7 +178,7 @@ impl Demodulator {
                         *v *= 0.5;
                     }
                 } else {
-                    audio.extend(s2.iter().map(|c| c.norm()));
+                    audio.extend(s2.iter().map(|c| c.norm_sqr().sqrt()));
                     self.dc.process(audio);
                     self.agc.process(audio);
                 }
