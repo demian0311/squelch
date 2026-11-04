@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AcarsMessage, Aircraft, Airport, BandPlan } from './api';
+import { planeKind } from './adsb';
 import { airportsFor, flightOf, friendlyCallsign, isFrom, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
 
 const plane = (o: Partial<Aircraft> = {}): Aircraft => ({ icao: 'A00001', callsign: null, alt_ft: null, speed_kt: null, heading_deg: null, airspeed: false, vrate_fpm: null, lat: null, lon: null, age_s: 0, pos_age_s: 0, messages: 1, snr_db: 10, registration: null, country: null, category: null, squawk: null, emergency: null, advisory: false, alert: false, spi: false, on_ground: null, gnss_alt_ft: null, selected_alt_ft: null, selected_alt_fms: false, selected_heading_deg: null, baro_hpa: null, modes: [], adsb_version: null, ...o } as Aircraft);
@@ -115,5 +116,14 @@ describe('the map', () => {
     const b = (id: string, decoder?: string) => ({ id, group: 'g', name: id, icon: 'x', mode: 'am', low_mhz: 1, high_mhz: 2, start_mhz: 1, decoder, bookmarks: [] });
     const plan = { groups: [{ id: 'g', name: 'G' }], bands: [b('air'), b('adsb', 'adsb'), b('acars', 'acars'), b('fm')] } as unknown as BandPlan;
     expect(oneAirplanes(plan).bands.map((x) => [x.id, x.name])).toEqual([['air', 'Airplanes'], ['fm', 'fm']]);
+  });
+});
+
+describe('planeKind', () => {
+  it('says what the plane is in everyday words', () => {
+    expect(planeKind('High vortex')).toBe('Large plane');
+    expect(planeKind('Medium')).toBe('Medium plane');
+    expect(planeKind('Helicopter')).toBe('Helicopter');
+    expect(planeKind(null)).toBe('');
   });
 });

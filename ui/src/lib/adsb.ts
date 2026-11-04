@@ -16,6 +16,19 @@ export interface AircraftRow {
 }
 
 /** Nearest first when the listener's location is set, then the rest by address so rows stay put. */
+const CATEGORY_WORDS: Record<string, string> = { 'High vortex': 'Large', 'High performance': 'Fast' };
+const PLANE_SIZES = /^(Light|Medium|Large|Heavy|Fast)$/;
+
+/** The broadcast's category in everyday words. A "high vortex" plane is one in the large class. */
+export function categoryText(category: string | null | undefined): string {
+  return category ? CATEGORY_WORDS[category] ?? category : '';
+}
+
+export function planeKind(category: string | null | undefined): string {
+  const text = categoryText(category);
+  return PLANE_SIZES.test(text) ? `${text} plane` : text;
+}
+
 export function aircraftRows(list: Aircraft[], site: Site | null): AircraftRow[] {
   return list
     .map((a) => ({ a, name: aircraftName(a), km: site && a.lat !== null && a.lon !== null ? kmBetween(site, { lat: a.lat, lon: a.lon }) : null }))
@@ -146,7 +159,7 @@ export function aircraftFacts(a: Aircraft): Fact[] {
     ['Alert', a.advisory ? 'Collision-avoidance advisory' : a.alert ? 'Transponder alert' : ''],
     ['Registration', a.registration ?? ''],
     ['Country', a.country ?? ''],
-    ['Type', a.category ?? ''],
+    ['Type', categoryText(a.category)],
     ['Address', a.icao],
     ['Squawk', a.squawk ?? ''],
     ['State', a.on_ground === null ? '' : a.on_ground ? 'On the ground' : 'In the air'],
@@ -172,7 +185,7 @@ export const flightName = (f: Flight) => f.callsign ?? f.registration ?? f.icao;
 export function flightLine(f: Flight): string {
   const mins = Math.round((f.last_ms - f.first_ms) / 60000);
   return [
-    f.category ?? '',
+    categoryText(f.category),
     f.emergency ?? '',
     f.max_alt_ft !== null ? `up to ${fmtAlt(f.max_alt_ft)}` : '',
     f.points ? `${mins} min` : 'no position',

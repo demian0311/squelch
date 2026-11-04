@@ -5,7 +5,7 @@
   import * as api from '../lib/api';
   import type { AcarsMessage, Aircraft, Airport, Flight, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
-  import { aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, trackPath, type Trails } from '../lib/adsb';
+  import { aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, planeKind, trackPath, type Trails } from '../lib/adsb';
   import { airportsFor, friendlyCallsign, isFrom, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
@@ -206,7 +206,7 @@
               <button class="linkish" onclick={() => pickPlane(a.icao)}>← All planes</button>
               <div>
                 <h3>{planeName(a)}</h3>
-                <p class="dim sub copy">{[a.callsign, a.registration, a.category ? `${a.category} plane` : ''].filter(Boolean).join(' · ')}</p>
+                <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter(Boolean).join(' · ')}</p>
               </div>
               {#if route}<p class="route">{routeText(route, routeAirports)}</p>{/if}
               {#if isAlarm(a)}<p class="alarm">{a.emergency ?? 'Alert from this plane'}</p>{/if}
