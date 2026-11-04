@@ -3,6 +3,7 @@
   // about it from every source. Covers `main`; App owns the radio and tells this screen whether it is listening.
   import AircraftMap from './AircraftMap.svelte';
   import * as api from '../lib/api';
+  import type { Snippet } from 'svelte';
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
   import { HEIGHT_BANDS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
@@ -11,6 +12,8 @@
 
   interface Props {
     live: Aircraft[];
+    /** the radio's waterfall, shown in the map's place while listening */
+    waterfall?: Snippet;
     messages: AcarsMessage[];
     trails: Trails;
     site: Site | null;
@@ -24,7 +27,7 @@
     onSeeRadio: () => void;
     onSettings: () => void;
   }
-  let { live, messages, trails, site, listening, simulated, problem, volume = $bindable(), palette, onListen, onStopListening, onSeeRadio, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, simulated, problem, volume = $bindable(), palette, onListen, onStopListening, onSeeRadio, onSettings }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -191,7 +194,7 @@
   <div class="status">
     {#if listening}
       <span class="pill listen">Listening to {listening.name}</span>
-      <span class="dim">Map paused</span>
+      <span class="dim">Map paused while you listen</span>
       <label class="vol"><span class="dim">Volume</span><input type="range" min="0" max="1.5" step="0.05" bind:value={volume} /></label>
       <span class="grow"></span>
       <button class="btn main" onclick={onStopListening}>Back to watching planes</button>
@@ -206,12 +209,14 @@
   </div>
   <div class="body">
     <div class="map" class:paused={!!listening}>
-      {#if frame}
+      {#if listening && waterfall}
+        <div class="wf">{@render waterfall()}</div>
+      {:else if frame}
         <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
       {:else}
         <p class="empty">Waiting for the first plane. Planes appear here once the radio hears one.</p>
       {/if}
-      <div class="key">
+      <div class="key" class:hidden={listening && waterfall}>
         {#if frame}
           <span class="heights">Height, ft
             {#each HEIGHT_BANDS as b (b.label)}<i style="background:{b.color}"></i>{b.label}{/each}
@@ -443,6 +448,18 @@
   }
   .map.paused :global(svg) {
     opacity: 0.45;
+  }
+  .wf {
+    position: absolute;
+    inset: 0;
+  }
+  /* the waterfall fills its box; left to size itself, the canvas would set its own height */
+  .wf > :global(*) {
+    position: absolute;
+    inset: 0;
+  }
+  .key.hidden {
+    display: none;
   }
   .about {
     display: flex;

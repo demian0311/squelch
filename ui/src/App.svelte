@@ -1215,6 +1215,27 @@
       </div>
     {/if}
 
+    <!-- one waterfall: in the Spectrum pane, or in the Airplanes screen while it listens to a tower -->
+    {#snippet wfView()}
+      <Waterfall
+        bind:this={waterfall}
+        {vs}
+        {ve}
+        {rate}
+        {stops}
+        {tuned}
+        bandwidth={BANDWIDTH[mode]}
+        specH={maxPane === 'panel' ? STRIP_SPEC_H : fit.spec}
+        colors={wfColors}
+        onTune={(hz, pxHz) => tuneClick(snapTune(hz, status?.signals ?? [], named, pxHz, mode, band?.id))}
+        onView={(a, b) => {
+          cancelAnimationFrame(slideFrame);
+          setView(a, b);
+        }}
+        bandId={band?.id}
+        band={band ? { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, name: band.name } : undefined}
+      />
+    {/snippet}
     <main bind:this={mainEl} bind:clientWidth={null, (w) => (stacked = (w ?? 0) < 1000)} class:stacked class:has-panel={panel} class:max-wf={maxPane === 'wf'} class:max-panel={maxPane === 'panel'} style:--share="{panelShare}%">
       <Pane title="Spectrum" summary={wfSummary} maxed={maxPane === 'wf'} onMax={panel ? () => toggleMax('wf') : undefined}>
         {#snippet tools()}
@@ -1267,24 +1288,7 @@
             </div>
           {/if}
           <div class="wf">
-            <Waterfall
-              bind:this={waterfall}
-              {vs}
-              {ve}
-              {rate}
-              {stops}
-              {tuned}
-              bandwidth={BANDWIDTH[mode]}
-              specH={maxPane === 'panel' ? STRIP_SPEC_H : fit.spec}
-              colors={wfColors}
-              onTune={(hz, pxHz) => tuneClick(snapTune(hz, status?.signals ?? [], named, pxHz, mode, band?.id))}
-              onView={(a, b) => {
-                cancelAnimationFrame(slideFrame);
-                setView(a, b);
-              }}
-              bandId={band?.id}
-              band={band ? { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, name: band.name } : undefined}
-            />
+            {#if !airListen}{@render wfView()}{/if}
           </div>
           {#if maxPane !== 'panel'}
             {#if !hintSeen}
@@ -1554,7 +1558,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen}
-        <AirplanesScreen live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} simulated={!!status?.simulated} problem={status?.error ?? null} bind:volume palette={airPalette} onListen={listenTo} onStopListening={() => (airListen = null)} onSeeRadio={() => { seeRadio = true; airListen = null; }} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} simulated={!!status?.simulated} problem={status?.error ?? null} bind:volume palette={airPalette} onListen={listenTo} onStopListening={() => (airListen = null)} onSeeRadio={() => { seeRadio = true; airListen = null; }} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
