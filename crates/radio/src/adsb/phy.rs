@@ -130,6 +130,13 @@ impl Demod {
         self.next -= drop;
     }
 
+    /// Samples that went by unheard. What is waiting here cannot join what comes after them.
+    pub fn skip(&mut self, samples: usize) {
+        self.base += (self.mag.len() + samples) as u64;
+        self.mag.clear();
+        self.next = 0;
+    }
+
     /// Area under the magnitude from sample position `x` to `x + w`, each sample standing for the half sample either side.
     fn area(&self, x: f64, w: f64) -> f64 {
         let s = |y: f64| {

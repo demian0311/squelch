@@ -200,6 +200,7 @@ impl Adsb {
     /// Time passing with the dongle elsewhere.
     pub fn skip(&mut self, samples: usize) {
         self.clock += samples as u64;
+        self.demod.skip(samples);
         self.age();
     }
 
@@ -397,6 +398,23 @@ fn km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
 mod tests {
     use super::phy::testutil::{hex, synth};
     use super::*;
+
+    #[test]
+    fn time_away_is_not_time_lost() {
+        let rate = 2_400_000;
+        let iq = synth(&[hex("8D4840D6202CC371C32CE0576098")], rate, 1_000.0, 0.3, 0.03, -200_000.0);
+        let mut a = Adsb::new(rate);
+        // more time away in total than a plane is kept, with the plane heard between each
+        for _ in 0..8 {
+            a.process(&iq);
+            a.skip(10 * rate as usize);
+        }
+        a.process(&iq);
+        let info = a.info();
+        assert_eq!(info.aircraft.len(), 1);
+        assert!(info.aircraft[0].age_s < 1.0, "{}", info.aircraft[0].age_s);
+        assert!(info.frames_per_sec > 0.0);
+    }
 
     #[test]
     fn table_from_iq() {
