@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AcarsMessage, Aircraft, Airport, BandPlan } from './api';
 import { planeKind } from './adsb';
-import { airportLabel, airportsFor, lookupLinks, flightOf, friendlyCallsign, isFrom, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
+import { airportLabel, airportsFor, lookupLinks, flightOf, friendlyCallsign, isFrom, messageReading, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
 
 const plane = (o: Partial<Aircraft> = {}): Aircraft => ({ icao: 'A00001', callsign: null, alt_ft: null, speed_kt: null, heading_deg: null, airspeed: false, vrate_fpm: null, lat: null, lon: null, age_s: 0, pos_age_s: 0, messages: 1, snr_db: 10, registration: null, country: null, category: null, squawk: null, emergency: null, advisory: false, alert: false, spi: false, on_ground: null, gnss_alt_ft: null, selected_alt_ft: null, selected_alt_fms: false, selected_heading_deg: null, baro_hpa: null, modes: [], adsb_version: null, ...o } as Aircraft);
 const msg = (o: Partial<AcarsMessage>): AcarsMessage => ({ id: 1, at_ms: 1, hz: 1, mode: '2', registration: 'N1', ack: null, label: 'H1', block_id: '1', more: false, msn: 'M01A', flight: 'XX1', text: '', ...o });
@@ -59,8 +59,8 @@ describe('reading messages', () => {
   it('says what a message is only where the text spells it out', () => {
     expect(messageTitle({ label: '21', text: 'POSN 26.082W 80.075, 229' })).toBe('Reported where it was');
     expect(messageTitle({ label: 'H1', text: '#CFBWRN/WN26110313590022000006AUTO FLT AP OFF' })).toBe('Autopilot off');
-    expect(messageTitle({ label: 'H1', text: '#DFB2 0002' })).toBe('Data from the plane');
-    expect(messageTitle({ label: 'ZZ', text: 'x' })).toBe('Data from the plane');
+    expect(messageTitle({ label: 'H1', text: '#DFB2 0002' })).toBe('Aircraft system numbers');
+    expect(messageTitle({ label: 'ZZ', text: 'x' })).toBe('Airline message');
   });
 });
 
@@ -141,5 +141,56 @@ describe('airportLabel', () => {
   it('names a big airport by its city', () => {
     expect(airportLabel(a)).toBe('Miami · MIA');
     expect(airportLabel({ ...a, iata: 'OPF', size: 'M' })).toBe('OPF');
+  });
+});
+
+describe('messageReading, on messages heard 2026-11-03', () => {
+  const read = (label: string, text: string, known: Airport[] = []) => messageReading({ label, text }, known);
+  const fll = { ident: 'KFLL', iata: 'FLL', city: 'Fort Lauderdale' } as Airport;
+
+  it('says what went wrong in a fault report', () => {
+    const r = read('H1', '#CFBFLR/FR26110313560030310005SDAC1:NO DATA FROM  PHC2\n/IDECAM 2');
+    expect(r.title).toBe('Fault: No data from PHC2');
+    expect(r.facts).toEqual([{ label: 'When', value: '13:56 UTC' }, { label: 'System', value: 'SDAC1' }]);
+  });
+
+  it('reads a cockpit warning and the autopilot going off', () => {
+    expect(read('H1', '#CFBWRN/WN26110313590022000006AUTO FLT AP OFF').title).toBe('Autopilot off');
+    expect(read('H1', '#CFBWRN/WN26110313590022000006ENG 1 FIRE').title).toMatch(/^Cockpit warning: /);
+  });
+
+  it('reads a radio link report by the published layout', () => {
+    const r = read('SA', '0EV135433VS');
+    expect(r.title).toBe('Radio link connected: VHF radio');
+    expect(r.facts).toEqual([{ label: 'When', value: '13:54 UTC' }, { label: 'Links working', value: 'VHF radio, satellite' }]);
+  });
+
+  it('reads where a plane is heading to land', () => {
+    expect(read('H1', '#M1BPRG/DTKFLL,10R,119,143130,048/FNAAL518TB72F', [fll]).title).toBe('Heading for Fort Lauderdale, runway 10R');
+  });
+
+  it('lists route points without the coordinates', () => {
+    const r = read('H1', '#M1BREQPWI/WQ240.210.180:N26156W080228.ALNZO.FLMGO.PRESK.PRESK/DQ200/WRKMCO.KTPAFCAA');
+    expect(r.facts).toEqual([{ label: 'Route points', value: 'ALNZO FLMGO PRESK' }]);
+  });
+
+  it('finds the route in airline data and says the rest has no key', () => {
+    const r = read('H1', '#10BSS0340F_343\nA6-EWH  UAE213OMDBKMIA031126141948AP\n146  574223');
+    expect(r.title).toBe('Aircraft system numbers');
+    expect(r.facts).toEqual([{ label: 'Route', value: 'OMDB → KMIA' }]);
+    expect(r.note).toBeTruthy();
+  });
+
+  it('reads a departure message and how late a flight is', () => {
+    const d = read('10', '10KF DEPMSG 0840/04 KMIA/PANC .N485MC\n/POS N25558W080066/FOB 0720\nTOF/ 0712\nSOB/ 003');
+    expect(d.title).toBe('Departure message');
+    expect(d.facts).toContainEqual({ label: 'People aboard', value: '3' });
+    expect(d.facts).toContainEqual({ label: 'Route', value: 'KMIA → PANC' });
+    expect(read('HX', '40 IV3 FPR\n. FLT 1018 MIA-MCO SKD ARR 0931L\n A PLUS 14 0945L').title).toBe('Flight schedule: 14 min late');
+  });
+
+  it('owns up to what cannot be read', () => {
+    expect(read('48', "0141_l~b_~EE'(nl(lAE(bll?bd*1CbHy1yb#@CsSAllsALl(Alb#@CsyH_s52Gsl'LbL?").title).toBe('Coded data');
+    expect(read('H1', '#DFB19458,16725,08713,D3/N101,00,00').note).toBeTruthy();
   });
 });

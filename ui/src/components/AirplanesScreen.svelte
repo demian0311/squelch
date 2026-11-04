@@ -6,7 +6,7 @@
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
   import { HEIGHT_BANDS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
-  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
+  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -61,6 +61,7 @@
   let itsMessages = $derived(picked ? messages.filter((m) => isFrom(m, picked!.a)).slice(0, MY_MESSAGES) : []);
   let route = $derived(routeOf(itsMessages));
   let routeAirports = $state<Airport[]>([]);
+  let knownAirports = $derived([...airports, ...routeAirports]);
   $effect(() => {
     if (route) api.airportsByCode([route.from, route.to]).then((a) => (routeAirports = a));
   });
@@ -177,6 +178,15 @@
   let overhead = $derived(list.length === 1 ? '1 overhead' : `${list.length} overhead`);
 </script>
 
+{#snippet reading(m: AcarsMessage)}
+  {@const r = messageReading(m, knownAirports)}
+  <span class="read">
+    {#each r.facts as f (f.label)}<span class="fact"><span class="dim">{f.label}</span> {f.value}</span>{/each}
+    {#if r.note}<span class="dim note">{r.note}</span>{/if}
+    {#if m.text}<pre class="copy">{m.text}</pre>{/if}
+  </span>
+{/snippet}
+
 <div class="air">
   <div class="status">
     {#if listening}
@@ -282,9 +292,9 @@
                 <span class="lbl">Messages</span>
                 {#each itsMessages as m (m.at_ms + ':' + m.id)}
                   <button class="msg" class:on={pickedMessage === m.id} onclick={() => (pickedMessage = pickedMessage === m.id ? null : m.id)}>
-                    <b>{messageTitle(m)}</b>
+                    <b>{messageTitle(m, knownAirports)}</b>
                     <small class="dim mono">{acarsTime(m.at_ms).slice(0, 5)}{positionsIn(m).length ? ` · ${positionsIn(m).length} on the map` : ''}</small>
-                    {#if pickedMessage === m.id && m.text}<pre class="copy">{m.text}</pre>{/if}
+                    {#if pickedMessage === m.id}{@render reading(m)}{/if}
                   </button>
                 {:else}
                   <span class="why">Nothing heard from this plane yet.</span>
@@ -308,8 +318,8 @@
             <button class="row" onclick={() => pickRow(m, i)}>
               <b>{messageSender(m)}</b>
               <span class="r mono">{acarsTime(m.at_ms).slice(0, 5)}</span>
-              <small class="dim">{messageTitle(m)}{onMap ? ' · on the map' : ''}</small>
-              {#if openMessage === i}<pre class="copy">{m.text}</pre>{/if}
+              <small class="dim">{messageTitle(m, knownAirports)}{onMap ? ' · on the map' : ''}</small>
+              {#if openMessage === i}{@render reading(m)}{/if}
             </button>
           {:else}
             <p class="empty">{query ? 'Nothing matches.' : 'No messages yet. Planes send them every few minutes at busy times, far fewer at night.'}</p>
@@ -544,6 +554,17 @@
     font-size: 12px;
     color: var(--fg-dim);
     white-space: nowrap;
+  }
+  .read {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+    font-size: 12.5px;
+  }
+  .note {
+    font-style: italic;
   }
   .row pre,
   .msg pre {
