@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Aircraft, Flight } from './api';
-import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, TRAIL_FADE_MS, extendTrails, heightColor, trailPieces, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath, trailPath } from './adsb';
+import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, TRAIL_FADE_MS, extendTrails, heightColor, tracksToDraw, trailPieces, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath, trailPath } from './adsb';
 
 const plane = (icao: string, o: Partial<Aircraft> = {}): Aircraft => ({
   icao,
@@ -181,5 +181,22 @@ describe('trailPieces', () => {
 
   it('lifts the pen over a stretch not heard', () => {
     expect(trailPieces([at(2, 1000, 26), at(1, 1000, 28)], centre, now)).toEqual([]);
+  });
+});
+
+describe('tracksToDraw', () => {
+  const centre = { lat: 26, lon: -80 };
+  const now = 100_000_000;
+  const line = (minsAgo: number) => [{ t: now - minsAgo * 60_000 - 1000, la: 26, lo: -80, a: 1000 }, { t: now - minsAgo * 60_000, la: 26.01, lo: -80, a: 1000 }];
+
+  it('draws a line only for a plane on the map', () => {
+    const d = tracksToDraw({ A00001: line(1), A00002: line(1) }, [{ icao: 'A00001' }], null, centre, now);
+    expect(Object.keys(d)).toEqual(['A00001']);
+  });
+
+  it('keeps the picked plane past the fade', () => {
+    const t = { A00001: line(TRAIL_FADE_MS / 60000 + 5) };
+    expect(tracksToDraw(t, [{ icao: 'A00001' }], null, centre, now).A00001).toEqual([]);
+    expect(tracksToDraw(t, [{ icao: 'A00001' }], 'A00001', centre, now).A00001).toHaveLength(1);
   });
 });

@@ -32,6 +32,7 @@
   const ARROW_PX = 10;
   const LABEL_PX = 11;
   const SITE_PX = 4;
+  const PICKED_SCALE = 1.6;
   // seen from above, nose up, about one unit from the middle to the nose
   const PLANE = 'M0 -1C.07 -1 .12 -.88 .12 -.72L.12 -.28 .95 .24 .95 .42 .12 .16 .1 .62 .38 .84 .38 .97 0 .86 -.38 .97 -.38 .84 -.1 .62 -.12 .16 -.95 .42 -.95 .24 -.12 -.28 -.12 -.72C-.12 -.88 -.07 -1 0 -1Z';
   let box = $state<DOMRectReadOnly | undefined>();
@@ -49,6 +50,8 @@
     const spots = airports.map((a) => ({ id: `@${a.id}`, x: a.x, y: a.y, text: a.label }));
     return placeLabels([...spots, ...order.map((p) => ({ id: p.icao, x: p.x, y: p.y, text: p.name }))], kmPerPx, LABEL_PX * 0.56, LABEL_PX * 1.15, ARROW_PX * 1.1);
   });
+  // the picked plane last, so it lies over the rest
+  let drawn = $derived(selected ? [...planes].sort((a, b) => Number(a.icao === selected) - Number(b.icao === selected)) : planes);
   // these props come from one object made anew with each status; a derived number changes only when the number does,
   // so the lines are drawn again only when the map has moved
   let lat = $derived(centre.lat);
@@ -109,10 +112,12 @@
       {#if l}<text x={l.x} y={l.y} font-size={LABEL_PX * 0.9 * kmPerPx}>{a.label}</text>{/if}
     </g>
   {/each}
-  {#each Object.entries(tracks) as [icao, pieces] (icao)}
-    {#each pieces as t, k (k)}
-      <path d={t.d} class="track" class:picked={icao === selected} style="stroke:{t.color};opacity:{t.opacity}" />
-    {/each}
+  {#each Object.entries(tracks).sort(([a], [b]) => Number(a === selected) - Number(b === selected)) as [icao, pieces] (icao)}
+    <g class:dim={selected && icao !== selected}>
+      {#each pieces as t, k (k)}
+        <path d={t.d} class="track" class:picked={icao === selected} style="stroke:{t.color};opacity:{t.opacity}" />
+      {/each}
+    </g>
   {/each}
   {#each Object.entries(trails) as [icao, d] (icao)}
     <path {d} class="trail" class:picked={icao === selected} />
@@ -121,13 +126,13 @@
   {#each pins as p (`${p.x},${p.y}`)}
     <circle cx={p.x} cy={p.y} r={4 * kmPerPx} class="pin" />
   {/each}
-  {#each planes as p (p.icao)}
+  {#each drawn as p (p.icao)}
     {@const l = labels.get(p.icao)}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale} class:alarm={p.alarm} class:picked={p.icao === selected} style="--height:{heightColor(p.alt_ft)}" onclick={() => onpick?.(p.icao)}>
+    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale} class:alarm={p.alarm} class:picked={p.icao === selected} class:dim={selected && p.icao !== selected} style="--height:{heightColor(p.alt_ft)}" onclick={() => onpick?.(p.icao)}>
       <title>{p.name}</title>
       {#if p.heading !== null}
-        <path d={PLANE} transform="rotate({p.heading}) scale({ARROW_PX * kmPerPx})" class="arrow" />
+        <path d={PLANE} transform="rotate({p.heading}) scale({(p.icao === selected ? PICKED_SCALE : 1) * ARROW_PX * kmPerPx})" class="arrow" />
       {:else}
         <circle r={ARROW_PX * 0.5 * kmPerPx} class="arrow" />
       {/if}
@@ -265,6 +270,13 @@
   }
   .picked .arrow {
     fill: var(--yellow);
+    stroke: var(--fg-bright);
+  }
+  .picked .label {
+    font-weight: 700;
+  }
+  .dim {
+    opacity: 0.25;
   }
   .label {
     fill: var(--fg-bright);
@@ -274,7 +286,7 @@
     stroke-linejoin: round;
     vector-effect: non-scaling-stroke;
   }
-  .stale {
+  .stale:not(.picked):not(.dim) {
     opacity: 0.45;
   }
   .attrib {

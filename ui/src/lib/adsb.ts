@@ -219,6 +219,16 @@ export function trailPiecesKept(pts: TrackPoint[], centre: Site, nowMs: number, 
   return pieces;
 }
 
+/** Lines for the planes on the map only: when a plane goes, so does its line. The picked plane keeps its whole track. */
+export function tracksToDraw(trails: Trails, planes: { icao: string }[], selected: string | null, centre: Site, nowMs: number): Record<string, TrailPiece[]> {
+  const out: Record<string, TrailPiece[]> = {};
+  for (const { icao } of planes) {
+    const pts = trails[icao];
+    if (pts) out[icao] = trailPiecesKept(pts, centre, nowMs, icao === selected ? TRAIL_KEEP_MS : TRAIL_FADE_MS);
+  }
+  return out;
+}
+
 export interface Fact {
   label: string;
   value: string;

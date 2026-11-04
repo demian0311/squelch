@@ -5,7 +5,7 @@
   import * as api from '../lib/api';
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
-  import { HEIGHT_BANDS, TRAIL_KEEP_MS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, planeKind, trailPiecesKept, type Trails } from '../lib/adsb';
+  import { HEIGHT_BANDS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
   import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
@@ -33,6 +33,7 @@
 
   let tab = $state<'now' | 'messages' | 'earlier'>('now');
   let pickId = $state<string | null>(null);
+  let list_el = $state<HTMLElement | undefined>();
   let pickedMessage = $state<number | null>(null);
   // while listening the map is what it was when the radio left: nothing here is passed off as live
   let frozen = $state<Aircraft[]>([]);
@@ -68,6 +69,7 @@
   let pins = $derived(pinned ? positionsIn(pinned) : []);
   function pickPlane(icao: string) {
     pickId = pickId === icao ? null : icao;
+    list_el?.scrollTo(0, 0);
     pickedMessage = null;
     flight = null;
     track = [];
@@ -137,7 +139,7 @@
     const c = frame.centre;
     const now = Date.now();
     if (flight) return { [flight.icao]: trailPiecesKept(track, c, now, Infinity) };
-    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, k === selected ? trailPiecesKept(v, c, now, TRAIL_KEEP_MS) : trailPiecesKept(v, c, now)]));
+    return tracksToDraw(trails, frame.planes, selected, c, now);
   });
   // a public database's answer for the plane opened, asked once per opening
   let pickedIcao = $derived(picked?.a.icao ?? null);
@@ -217,16 +219,19 @@
         <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')}>Messages</button>
         <button role="tab" aria-selected={tab === 'earlier'} onclick={() => goTab('earlier')}>Earlier</button>
       </div>
-      <div class="scroll">
+      <div class="scroll" bind:this={list_el}>
         {#if tab === 'now'}
-          {#if picked}
-            {@const a = picked.a}
-            <div class="card">
-              <button class="linkish" onclick={() => pickPlane(a.icao)}>← All planes</button>
-              <div>
-                <h3>{planeName(a)}</h3>
+          {#each pickedFirst(rows, pickId) as r (r.a.icao)}
+              <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
+                <b>{planeName(r.a)}</b>
+                {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
+                <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
+              </button>
+            {#if r.a.icao === pickId}
+              {@const a = r.a}
+              <div class="card">
+
                 <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter(Boolean).join(' · ')}</p>
-              </div>
               {#if info?.known}
                 <div class="about">
                   {#if info.photo}<img src={info.photo} alt="" />{/if}
@@ -270,7 +275,7 @@
                 <dl>
                   {#if a.alt_ft !== null}<dt>Height</dt><dd>{height(a)}, {trend(a)}</dd>{/if}
                   {#if a.speed_kt !== null}<dt>Speed</dt><dd>{Math.round(a.speed_kt * MPH_PER_KT)} mph</dd>{/if}
-                  {#if picked.km !== null}<dt>From you</dt><dd>{Math.round(picked.km)} km</dd>{/if}
+                  {#if r.km !== null}<dt>From you</dt><dd>{Math.round(r.km)} km</dd>{/if}
                 </dl>
               </div>
               <div class="sec">
@@ -292,17 +297,10 @@
                 </dl>
               </details>
             </div>
+            {/if}
           {:else}
-            {#each rows as r (r.a.icao)}
-              <button class="row" class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
-                <b>{planeName(r.a)}</b>
-                {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
-                <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
-              </button>
-            {:else}
               <p class="empty">None heard yet. A line of sight to the sky matters most, so try the antenna by a window.</p>
-            {/each}
-          {/if}
+          {/each}
         {:else if tab === 'messages'}
           <input class="find" bind:value={query} placeholder="Find a flight or a word" aria-label="Find a message" />
           {#each shownMessages as m, i (m.at_ms + ':' + m.id + ':' + m.registration)}
@@ -559,13 +557,9 @@
   .card {
     display: grid;
     gap: 12px;
-    padding: 12px 14px;
-  }
-  .card h3 {
-    margin: 0;
-    font-size: 19px;
-    font-weight: 600;
-    line-height: 1.25;
+    padding: 4px 14px 14px;
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--bg-light);
   }
   .sub {
     margin: 0;
