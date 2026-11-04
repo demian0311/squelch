@@ -239,9 +239,9 @@
     </div>
     <div class="side" class:watching={!listening}>
       <div class="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')}>Overhead now</button>
-        <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')}>Messages</button>
-        <button role="tab" aria-selected={tab === 'earlier'} onclick={() => goTab('earlier')}>Earlier</button>
+        <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')} aria-label="Overhead now" title="Overhead now"><Icon name="plane" size={18} /></button>
+        <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')} aria-label="Messages" title="Messages"><Icon name="msg" size={18} /></button>
+        <button role="tab" aria-selected={tab === 'earlier'} onclick={() => goTab('earlier')} aria-label="Earlier" title="Earlier flights"><Icon name="clock" size={18} /></button>
       </div>
       <div class="scroll" bind:this={list_el}>
         {#if tab === 'now'}
@@ -249,6 +249,7 @@
               <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                 <b>{planeName(r.a)}</b>
                 {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
+                <span class="chev"><Icon name={r.a.icao === pickId ? 'chevronDown' : 'chevronRight'} size={14} /></span>
                 <small class="dim">{[height(r.a), r.a.alt_ft !== null ? trend(r.a) : '', carriedIds.has(r.a.icao) ? 'from before you listened' : r.a.lat === null ? 'no location yet' : ''].filter(Boolean).join(' · ')}{messages.some((m) => isFrom(m, r.a)) ? ' · has messages' : ''}</small>
               </button>
             {#if r.a.icao === pickId}
@@ -266,35 +267,33 @@
                 </div>
               {/if}
               <div class="links">
-                <span class="dim">Look it up:</span>
                 {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
-                  <button class="linkish" onclick={() => api.openLink(l.url)}>{l.label}</button>
+                  <button class="linkish" onclick={() => api.openLink(l.url)} title="Opens in the browser">{l.label}<Icon name="external" size={12} /></button>
                 {/each}
               </div>
               {#if route}<p class="route">{routeText(route, routeAirports)}</p>{/if}
               {#if isAlarm(a)}<p class="alarm">{a.emergency ?? 'Alert from this plane'}</p>{/if}
               {#if listening || talk}
                 {@const t = (listening ?? talk)!}
-                <div class="talk">
-                  <span class="lbl">{listening ? 'Now playing' : 'Probably talking to'}</span>
-                  <b>{t.name} <span class="mono dim small">{t.channel.mhz.toFixed(3)} MHz</span></b>
-                  <span class="why">{listening ? 'Every plane on this channel, not only this one.' : `${t.why}. Planes do not say who they talk to, so this is a guess.`}</span>
-                  <div class="ctls">
-                    <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back' : 'Listen to this channel'}>
-                      <Icon name={listening && playing ? 'pause' : 'play'} size={20} />
+                <!-- one row: the channel is a guess, said by the help marker, not a paragraph -->
+                <div class="talk" class:live={!!listening}>
+                  <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back' : 'Listen to this channel'}>
+                    <Icon name={listening && playing ? 'pause' : 'play'} size={20} />
+                  </button>
+                  <span class="who"><b>{t.name}</b> <span class="mono dim small">{t.channel.mhz.toFixed(3)} MHz</span></span>
+                  {#if listening}
+                    <button class="rec" class:on={recording} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
+                      <Icon name="record" size={18} />
                     </button>
-                    {#if listening}
-                      <button class="rec" class:on={recording} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
-                        <Icon name="record" size={18} />
-                      </button>
-                    {/if}
-                    <span class="dim small">{listening ? (recording ? 'Recording' : 'Playing') : 'Listen'}</span>
-                  </div>
+                    <span class="guess" title="Every plane on this channel, not only this one."><Icon name="help" size={15} /></span>
+                  {:else}
+                    <span class="guess" title={`A guess: ${t.why.toLowerCase()}. Planes do not say who they talk to.`}><Icon name="help" size={15} /></span>
+                  {/if}
                 </div>
               {:else}
-                <div class="talk">
-                  <span class="lbl">Talking to</span>
-                  <span class="why">{(a.alt_ft ?? 0) > 18000 ? 'Too high to guess. Planes up here talk to controllers this list does not cover.' : 'No channel known for here.'}</span>
+                <div class="talk none" title={(a.alt_ft ?? 0) > 18000 ? 'Planes this high talk to controllers this list does not cover' : 'No channel known for here'}>
+                  <span class="guess"><Icon name="tower" size={16} /></span>
+                  <span class="why">{(a.alt_ft ?? 0) > 18000 ? 'Too high to guess a channel' : 'No channel known for here'}</span>
                 </div>
               {/if}
               {#if a.speed_kt !== null || a.heading_deg !== null || fmtClimb(a.vrate_fpm)}
@@ -309,7 +308,7 @@
               </div>
               {/if}
               <div class="sec">
-                <span class="lbl">Messages</span>
+                <span class="lbl"><Icon name="msg" size={13} /> Messages</span>
                 {#each itsMessages as m (m.at_ms + ':' + m.id)}
                   <button class="msg" class:on={pickedMessage === m.id} onclick={() => (pickedMessage = pickedMessage === m.id ? null : m.id)}>
                     <b>{messageTitle(m, knownAirports)}</b>
@@ -420,11 +419,6 @@
     position: absolute;
     inset: 0;
   }
-  .ctls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
   .play,
   .rec {
     display: grid;
@@ -474,8 +468,13 @@
   .links {
     display: flex;
     flex-wrap: wrap;
-    gap: 2px 10px;
+    gap: 2px 12px;
     font-size: 12px;
+  }
+  .links .linkish {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
   .heights i {
     display: inline-block;
@@ -518,7 +517,9 @@
     border-bottom: 1px solid var(--muted);
   }
   .tabs button {
-    padding: 4px 10px;
+    display: grid;
+    place-items: center;
+    padding: 5px 12px;
     border: 0;
     border-radius: 6px;
     background: none;
@@ -548,7 +549,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0 10px;
     width: 100%;
     padding: 8px 14px;
@@ -569,6 +570,11 @@
   }
   .row b {
     font-weight: 500;
+  }
+  .row .chev {
+    display: grid;
+    align-self: center;
+    color: var(--fg-dim);
   }
   .row small {
     grid-column: 1 / -1;
@@ -620,13 +626,35 @@
     font-weight: 600;
   }
   .talk {
-    display: grid;
-    gap: 6px;
-    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 10px;
     border: 1px dashed var(--yellow);
     border-radius: 8px;
   }
+  .talk.live {
+    border-style: solid;
+  }
+  .talk.none {
+    border-color: var(--muted);
+  }
+  .talk .who {
+    flex: 1;
+    min-width: 0;
+  }
+  .talk .who b {
+    font-weight: 500;
+  }
+  .guess {
+    display: grid;
+    color: var(--fg-dim);
+    cursor: help;
+  }
   .lbl {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;

@@ -39,6 +39,8 @@
     restore: ['M4 10h10v10H4z', 'M8 10V5h12v12h-6'],
     chevronRight: ['M9 6l6 6-6 6'],
     chevronDown: ['M6 9l6 6 6-6'],
+    external: ['M15 3h6v6', 'M10 14 21 3', 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'],
+    help: ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3', 'M12 17h.01'],
     shrink: ['M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3'],
   };
   let paths = $derived(PATHS[name] ?? PATHS.radio);
