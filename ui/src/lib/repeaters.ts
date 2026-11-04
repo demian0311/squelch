@@ -77,10 +77,14 @@ export function repeaterPoints(list: Repeater[], band: Band, site: { lat: number
     .sort((a, b) => a.km - b.km);
 }
 
-/** Output frequencies with a signal on them now, with the strongest signal's dB above the noise. */
-export function liveOutputs(points: RepeaterPoint[], signals: { hz: number; snr_db: number }[]): Map<number, number> {
+/**
+ * Output frequencies with a signal on them now, with the strongest signal's dB above the noise.
+ * A signal under the squelch level (dB above the noise, 0 = off) would be muted, so it does not ring.
+ */
+export function liveOutputs(points: RepeaterPoint[], signals: { hz: number; snr_db: number }[], squelchDb = 0): Map<number, number> {
   const live = new Map<number, number>();
   for (const s of signals) {
+    if (s.snr_db < squelchDb) continue;
     let best: number | null = null;
     for (const p of points) if (Math.abs(p.hz - s.hz) <= ON_AIR_HZ && (best === null || Math.abs(p.hz - s.hz) < Math.abs(best - s.hz))) best = p.hz;
     if (best !== null) live.set(best, Math.max(live.get(best) ?? -Infinity, s.snr_db));

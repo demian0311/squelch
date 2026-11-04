@@ -466,7 +466,7 @@
   let repTuned = $derived(repPoints.find((p) => Math.abs(p.hz - tuned) < 2_500) ?? null);
   let repHeard = $state(new Map<number, HeardOutput>());
   $effect(() => {
-    const live = liveOutputs(repPoints, status?.signals ?? []);
+    const live = liveOutputs(repPoints, status?.signals ?? [], squelch);
     repHeard = heldOutputs(untrack(() => repHeard), live, Date.now());
   });
   let repLive = $derived(new Map([...repHeard].map(([hz, h]) => [hz, h.snr])));

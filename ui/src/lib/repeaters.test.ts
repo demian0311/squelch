@@ -49,6 +49,12 @@ describe('liveOutputs', () => {
   it('ignores a signal away from any output', () => {
     expect(liveOutputs(points, [{ hz: 146_900_000, snr_db: 30 }]).size).toBe(0);
   });
+  it('leaves out a signal the squelch would mute', () => {
+    const signals = [{ hz: 146_760_000, snr_db: 10 }, { hz: 146_767_500, snr_db: 22 }];
+    expect([...liveOutputs(points, signals, 12)]).toEqual([[146_767_500, 22]]);
+    expect([...liveOutputs(points, signals, 10)]).toEqual([[146_760_000, 10], [146_767_500, 22]]);
+    expect(liveOutputs(points, signals, 0).size).toBe(2);
+  });
 });
 
 describe('heldOutputs', () => {
