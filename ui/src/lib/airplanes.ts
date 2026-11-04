@@ -113,7 +113,8 @@ const clock = (hhmm: string) => `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
  * patterns read off air 2026-11-03, so only what the text spells out is claimed. Text is kept for the reader either way.
  */
 export function messageReading(m: { label: string; text: string }, known: Airport[] = []): MessageReading {
-  const text = m.text;
+  // a joined message whose first block was not heard opens with an ellipsis
+  const text = m.text.replace(/^…\s*/, '');
   const place = (code: string) => {
     const a = known.find((x) => x.ident === code || x.iata === code);
     return a?.city || code;
@@ -145,6 +146,7 @@ export function messageReading(m: { label: string; text: string }, known: Airpor
     const points = text.match(/:([^/]+)\//)?.[1].split('.').filter((p) => /^[A-Z]{3,5}$/.test(p));
     return { title: 'Asked for data along its route', facts: points?.length ? [{ label: 'Route points', value: [...new Set(points)].join(' ') }] : [] };
   }
+  if (text.startsWith('#M1BFLOW')) return { title: 'Engine readings', facts };
   if (text.startsWith('#M1B')) return { title: 'Flight plan data', facts, note: NO_KEY };
   if (text.startsWith('#')) return { title: 'Aircraft system numbers', facts, note: NO_KEY };
 
@@ -164,7 +166,7 @@ export function messageReading(m: { label: string; text: string }, known: Airpor
   if (about) return { title: `Airline message about ${place(about[1])}`, facts };
   // the share of punctuation tells compressed or coded text from words
   if ((text.match(/[^A-Za-z0-9\s,./:-]/g)?.length ?? 0) > text.length / 10) return { title: 'Coded data', facts, note: 'Compressed or coded by the airline. Nothing here can be read.' };
-  return { title: labelName(m.label) || 'Airline message', facts, note: NO_KEY };
+  return { title: (m.label === 'H1' ? '' : labelName(m.label)) || 'Airline message', facts, note: NO_KEY };
 }
 
 export function messageTitle(m: { label: string; text: string }, known: Airport[] = []): string {

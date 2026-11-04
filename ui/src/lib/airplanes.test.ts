@@ -189,6 +189,11 @@ describe('messageReading, on messages heard 2026-11-03', () => {
     expect(read('HX', '40 IV3 FPR\n. FLT 1018 MIA-MCO SKD ARR 0931L\n A PLUS 14 0945L').title).toBe('Flight schedule: 14 min late');
   });
 
+  it('reads a message whose first block was missed', () => {
+    expect(read('H1', '… #M1BFLOW ENG 2\n6101  PPH\nP30 BURNER PRESSURE ENG 2').title).toBe('Engine readings');
+    expect(read('H1', '…\n298929762927 21 21 2111').title).toBe('Airline message');
+  });
+
   it('owns up to what cannot be read', () => {
     expect(read('48', "0141_l~b_~EE'(nl(lAE(bll?bd*1CbHy1yb#@CsSAllsALl(Alb#@CsyH_s52Gsl'LbL?").title).toBe('Coded data');
     expect(read('H1', '#DFB19458,16725,08713,D3/N101,00,00').note).toBeTruthy();
