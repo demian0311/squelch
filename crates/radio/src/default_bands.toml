@@ -174,7 +174,8 @@ icon = "siren"
 mode = "p25"
 low_mhz = 851.0
 high_mhz = 869.0
-start_mhz = 853.9375
+# Enters where a 2.4 MHz capture holds most of a site's channels (Miami-Dade's downtown site: 851.11-853.86).
+start_mhz = 852.5
 
 # ── Ham ────────────────────────────────────────────────
 

@@ -21,10 +21,8 @@ use tsbk::Message;
 
 /// Audio out, matching the other demodulators.
 const AUDIO_RATE: f64 = 48_000.0;
-/// Seconds without a control frame before trying the next nearby carrier.
+/// Seconds without a control frame before trying the next carrier.
 const SEARCH_SECS: f64 = 1.5;
-/// How far from the tuned frequency a control channel may sit: crystal error, ppm.
-const SEARCH_PPM: f64 = 150.0;
 /// A call ends after this long without a voice frame.
 const HANG_SECS: f64 = 1.0;
 /// Voice channels closer than this to the capture edge need the dongle moved.
@@ -412,13 +410,14 @@ impl P25 {
         self.home_center.take()
     }
 
-    /// Try the next carrier near the tuned frequency, nearest first, then the tuned one again.
+    /// Try every carrier in the capture, nearest the tuned frequency first, then the tuned one again.
+    /// A site's control channel is any one of its channels (Miami-Dade's downtown site spreads 20
+    /// across 2.75 MHz), so the whole capture is searched, not only around the tuned frequency.
     fn next_candidate(&mut self, signals: &[Detected]) {
         self.locked = false;
         self.last_control = self.now;
         if self.candidates.is_empty() {
-            let reach = self.tuned_hz * SEARCH_PPM * 1e-6;
-            let mut c: Vec<f64> = signals.iter().map(|s| s.hz).filter(|hz| (hz - self.tuned_hz).abs() <= reach).collect();
+            let mut c: Vec<f64> = signals.iter().map(|s| s.hz).collect();
             c.sort_by(|a, b| (b - self.tuned_hz).abs().total_cmp(&(a - self.tuned_hz).abs()));
             c.insert(0, self.tuned_hz);
             self.candidates = c;
@@ -443,5 +442,26 @@ impl P25 {
         self.audio8k.clear();
         self.up.process(&stuffed, pcm);
         self.agc.process(pcm);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seen(hz: f64) -> Detected {
+        Detected { hz, width_hz: 12_500.0, snr_db: 20.0, hd: None }
+    }
+
+    #[test]
+    fn every_carrier_in_the_capture_is_tried_nearest_first() {
+        let mut p = P25::new(2_400_000, 852.5e6);
+        let signals = [seen(853.8625e6), seen(851.1125e6), seen(852.6e6)];
+        let mut tried = Vec::new();
+        for _ in 0..4 {
+            p.next_candidate(&signals);
+            tried.push(p.control_raw);
+        }
+        assert_eq!(tried, vec![852.6e6, 853.8625e6, 851.1125e6, 852.5e6]);
     }
 }
