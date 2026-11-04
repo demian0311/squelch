@@ -53,10 +53,10 @@ pub enum Hop {
     Home,
 }
 
-struct Slice {
-    center: f64,
-    lo: f64,
-    hi: f64,
+pub(crate) struct Slice {
+    pub(crate) center: f64,
+    pub(crate) lo: f64,
+    pub(crate) hi: f64,
     part: usize,
 }
 
@@ -77,7 +77,7 @@ pub struct BandLook {
     send_for: i64,
 }
 
-fn slices_of(ranges: &[(f64, f64)]) -> Vec<Slice> {
+pub(crate) fn slices_of(ranges: &[(f64, f64)]) -> Vec<Slice> {
     let mut out = Vec::new();
     for (part, &(lo, hi)) in ranges.iter().enumerate() {
         let n = ((hi - lo) / HOP_HZ).ceil().max(1.0) as usize;

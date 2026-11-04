@@ -304,7 +304,15 @@ fn run(
     let hd_for = |program: Option<u32>, mode: Mode, center: f64, tuned: f64| -> Option<Hd> {
         program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p, true))
     };
-    let p25_for = |mode: Mode, tuned: f64| (mode == Mode::P25).then(|| P25::new(rate, tuned));
+    let p25_for = |mode: Mode, tuned: f64, ranges: Option<&[(f64, f64)]>| {
+        (mode == Mode::P25).then(|| {
+            let mut p = P25::new(rate, tuned);
+            if let Some(r) = ranges {
+                p.set_ranges(r);
+            }
+            p
+        })
+    };
     let mut p25: Option<P25> = None;
     let mut last_status = Instant::now() - Duration::from_secs(1);
     let mut recorder: Option<Recorder> = None;
@@ -354,7 +362,14 @@ fn run(
                         }
                         demod.offset_sum = 0.0;
                         demod.offset_n = 0;
-                        p25 = p25_for(mode, tuned);
+                        // the page tunes the control channel a scan found, so the site stays
+                        p25 = match p25.take() {
+                            Some(mut p) if p.on_control(tuned) => {
+                                p.set_tuned(tuned);
+                                Some(p)
+                            }
+                            _ => p25_for(mode, tuned, look.as_ref().map(BandLook::ranges)),
+                        };
                         hd = hd_for(hd_program, mode, center, tuned);
                         hd_sidebands = false;
                     }
@@ -362,7 +377,7 @@ fn run(
                 Ok(Command::SetMode(m)) => {
                     mode = m;
                     demod = Demodulator::new(mode, rate);
-                    p25 = p25_for(mode, tuned);
+                    p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges));
                     hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
@@ -417,6 +432,9 @@ fn run(
                             }
                         }
                         look = ranges.map(|r| BandLook::new(r, rate, BELOW_FLOOR_DB, RANGE_DB));
+                        if let Some(p) = &mut p25 {
+                            p.set_ranges(look.as_ref().map(BandLook::ranges).unwrap_or(&[]));
+                        }
                     }
                 }
                 Ok(Command::SetSite(s)) => {
@@ -447,7 +465,7 @@ fn run(
                         demod.offset_n = 0;
                         // its own measurement was against the old correction
                         if p25.is_some() {
-                            p25 = p25_for(mode, tuned);
+                            p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges));
                         }
                     }
                 }
@@ -657,7 +675,7 @@ fn run(
         if let Some(l) = &mut look {
             // a call in progress, or a plain channel someone is listening to, holds a look off
             let busy = match &p25 {
-                Some(p) => p.in_call(),
+                Some(p) => p.in_call() || p.scanning(),
                 None => squelch.is_open(),
             };
             if let Some(hz) = l.tick(iq.len() as i64, busy) {
@@ -834,6 +852,34 @@ pub fn demo_signals() -> Vec<SimSignal> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn a_p25_band_with_no_control_channel_in_the_capture_is_scanned_hop_by_hop() {
+        let signals = vec![SimSignal { hz: 853.9375e6, amp: 0.2, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: 440.0, symbols: None }];
+        let source = Box::new(SimSource::new(SAMPLE_RATE, signals, true));
+        let seen = Arc::new(Mutex::new(Vec::<(f64, Option<crate::p25::Info>)>::new()));
+        let log = seen.clone();
+        let engine = Engine::start(source, None, |_| {}, move |s| log.lock().unwrap().push((s.center_hz, s.p25)));
+        engine.send(Command::Tune { center_hz: 771e6, tuned_hz: 771e6 });
+        engine.send(Command::SetMode(Mode::P25));
+        engine.send(Command::BandLook(Some(vec![(769e6, 775e6), (851e6, 869e6)])));
+        let until = Instant::now() + Duration::from_secs(25);
+        let centres = loop {
+            std::thread::sleep(Duration::from_millis(100));
+            let mut centres: Vec<f64> = seen.lock().unwrap().iter().filter(|(_, p)| p.as_ref().is_some_and(|p| p.scan.is_some())).map(|(c, _)| *c).collect();
+            centres.dedup();
+            let tried = seen.lock().unwrap().iter().any(|(_, p)| p.as_ref().is_some_and(|p| p.scan.is_some() && !p.tried.is_empty()));
+            if (centres.len() >= 3 && tried) || Instant::now() > until {
+                break centres;
+            }
+        };
+        assert!(centres.len() >= 3, "scan hops seen: {centres:?}");
+        assert!(centres.iter().all(|c| (769e6..=869e6).contains(c)), "{centres:?}");
+        let log = seen.lock().unwrap();
+        let scans: Vec<_> = log.iter().filter_map(|(_, p)| p.as_ref().and_then(|p| p.scan.clone())).collect();
+        assert!(scans.iter().all(|s| s.hops == 14), "{:?}", scans.last());
+        assert!(log.iter().any(|(_, p)| p.as_ref().is_some_and(|p| p.scan.is_some() && p.tried.iter().any(|t| (t - 853.9375e6).abs() < 5_000.0))), "the simulator's carrier at 853.9375 gets tried on its hop");
+    }
 
     #[test]
     fn a_band_look_reports_both_ranges_and_returns_to_the_channel() {

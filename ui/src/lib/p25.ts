@@ -1,10 +1,16 @@
 // EMS band (P25 trunked radio): what the panel says about the receiver and each call.
 import type { P25, P25Call } from './api';
+import { fmtMHz } from './radio';
+
+/** The top bar's chip while the radio hops across the band: where it is and how far along. */
+export function scanSay(s: NonNullable<P25['scan']>): string {
+  return `Scanning for a control channel · hop ${s.hop} of ${s.hops} · ${fmtMHz(s.lo_hz)}–${fmtMHz(s.hi_hz)} MHz`;
+}
 
 /** One line for the folded panel. */
 export function p25Summary(p: P25): string {
   if (p.call) return `Playing talkgroup ${p.call.group}`;
-  if (p.state === 'searching') return 'Looking for a control channel…';
+  if (p.state === 'searching') return p.scan ? scanSay(p.scan) : 'Looking for a control channel in this capture…';
   const site = p25Site(p);
   return site ? `${site} · waiting for a call` : 'Control channel found · reading the site';
 }

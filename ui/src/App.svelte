@@ -7,7 +7,7 @@
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { callAge, callGlyph, p25Site, p25Summary } from './lib/p25';
+  import { callAge, callGlyph, p25Site, p25Summary, scanSay } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
@@ -177,9 +177,31 @@
     const half = rate * 0.45;
     // ACARS listens on channels, not on what is in view: stay where the most of them fit while the view allows it
     const fitsAcars = [vs, ve, tuned].every((f) => Math.abs(f - ACARS_CENTRE_HZ) <= half);
-    center = band?.decoder === 'acars' && fitsAcars ? ACARS_CENTRE_HZ : captureCenter(center, vs, ve, tuned, half, DC_OFFSET);
+    // a control-channel scan owns the dongle until a hand tune (the engine's tuned frequency still matches)
+    const scanning = !!p25?.scan && status !== null && Math.abs(status.tuned_hz - tuned) < 1;
+    center = scanning ? status!.center_hz : band?.decoder === 'acars' && fitsAcars ? ACARS_CENTRE_HZ : captureCenter(center, vs, ve, tuned, half, DC_OFFSET);
     send();
   }
+
+  // the scan hops the dongle across the band: the waterfall follows each hop
+  $effect(() => {
+    const c = status?.center_hz;
+    if (!p25?.scan || c === undefined || Math.abs(c - untrack(() => center)) < 1) return;
+    untrack(() => {
+      center = c;
+      setView(c - span / 2, c + span / 2);
+    });
+  });
+
+  // the control channel a scan found becomes the tuned frequency, so the band remembers it; the engine keeps the site
+  $effect(() => {
+    const hz = p25?.control_hz;
+    if (hz === null || hz === undefined || p25?.state === 'searching' || airWatching || Math.abs(hz - untrack(() => tuned)) < 5_000) return;
+    untrack(() => {
+      if (status) center = status.center_hz;
+      tuneCentered(hz);
+    });
+  });
 
   function setView(nvs: number, nve: number) {
     let s = Math.min(Math.max(nve - nvs, MIN_SPAN), maxSpan);
@@ -1237,6 +1259,7 @@
           <button onclick={() => (dismissed = new Set(dismissed).add(r.key))} aria-label="Dismiss" title="Dismiss">×</button>
         </span>
       {/each}
+      {#if p25?.scan}<span class="chip" title="The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.">{scanSay(p25.scan)}</span>{/if}
       {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
       {#if status?.error || bandsError || fileError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? fileError ?? ''}>Problem · details</button>{/if}
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
@@ -1318,7 +1341,7 @@
             />
           {/if}
           {#if emsLook && maxPane !== 'panel'}
-            <EmsStrip ranges={emsLook} lines={emsLines} looking={!!status?.look?.looking} agoS={emsLineAt === null ? null : Math.max(0, nowS - emsLineAt)} {vs} {ve} {tuned} palette={stripPalette} {hue} onTune={tuneCentered} />
+            <EmsStrip ranges={emsLook} lines={emsLines} looking={!!status?.look?.looking} agoS={emsLineAt === null ? null : Math.max(0, nowS - emsLineAt)} {vs} {ve} {tuned} scan={p25?.scan ?? null} tried={p25?.tried ?? []} palette={stripPalette} {hue} onTune={tuneCentered} />
           {/if}
           {#if maxPane !== 'panel'}
             <div class="lane l{fit.level}" style:height="{fit.lane}px">

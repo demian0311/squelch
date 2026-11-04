@@ -147,6 +147,12 @@ export interface P25 {
   /** Why voice cannot play (mbelib missing). */
   voice_error: string | null;
   voice_errors_pct: number;
+  /** Hopping across the band for a control channel: which hop, of how many, and its edges. */
+  scan: { hop: number; hops: number; lo_hz: number; hi_hz: number } | null;
+  /** Carrier under test while searching. */
+  trying_hz: number | null;
+  /** Carriers tested since the search started. */
+  tried: number[];
 }
 /** HD Radio decoder state. `program` 0 is HD1. */
 export interface Hd {

@@ -12,6 +12,8 @@
     vs,
     ve,
     tuned,
+    scan = null,
+    tried = [],
     palette,
     hue,
     onTune,
@@ -23,6 +25,10 @@
     vs: number;
     ve: number;
     tuned: number;
+    /** The hop a control-channel scan is on, outlined. */
+    scan?: { lo_hz: number; hi_hz: number } | null;
+    /** Carriers the scan has tested, ticked under the picture. */
+    tried?: number[];
     palette: Uint8ClampedArray;
     hue: string;
     onTune: (hz: number) => void;
@@ -89,6 +95,9 @@
   let viewA = $derived(stripX(sections, Math.max(vs, ranges.find(([lo, hi]) => (vs + ve) / 2 >= lo && (vs + ve) / 2 <= hi)?.[0] ?? vs)));
   let viewB = $derived(stripX(sections, Math.min(ve, ranges.find(([lo, hi]) => (vs + ve) / 2 >= lo && (vs + ve) / 2 <= hi)?.[1] ?? ve)));
   let tunedX = $derived(stripX(sections, tuned));
+  let hopA = $derived(scan ? stripX(sections, scan.lo_hz) : null);
+  let hopB = $derived(scan ? stripX(sections, scan.hi_hz) : null);
+  let triedX = $derived(tried.map((hz) => stripX(sections, hz)).filter((x): x is number => x !== null));
   let say = $derived(stripSay(looking, lines.length, agoS));
 </script>
 
@@ -112,6 +121,8 @@
     {#each sections.slice(1) as s}<span class="gap" style:left="{s.x - 10}px"></span>{/each}
     {#if viewA !== null && viewB !== null}<span class="view" style:left="{viewA}px" style:width="{Math.max(viewB - viewA, 4)}px"></span>{/if}
     {#if tunedX !== null}<span class="tuned" style:left="{tunedX}px"></span>{/if}
+    {#if hopA !== null && hopB !== null}<span class="hop" style:left="{hopA}px" style:width="{Math.max(hopB - hopA, 4)}px"></span>{/if}
+    {#each triedX as x (x)}<span class="tried" style:left="{x}px"></span>{/each}
   </div>
   <div class="say">{say}</div>
 </div>
@@ -168,6 +179,22 @@
     bottom: 0;
     width: 1px;
     background: var(--hue);
+    pointer-events: none;
+  }
+  .hop {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border: 1px dashed var(--hue);
+    pointer-events: none;
+  }
+  .tried {
+    position: absolute;
+    bottom: 0;
+    height: 40%;
+    width: 1px;
+    background: var(--fg-dim);
+    opacity: 0.7;
     pointer-events: none;
   }
   .say {

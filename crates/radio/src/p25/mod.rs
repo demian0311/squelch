@@ -21,8 +21,14 @@ use tsbk::Message;
 
 /// Audio out, matching the other demodulators.
 const AUDIO_RATE: f64 = 48_000.0;
-/// Seconds without a control frame before trying the next carrier.
+/// Seconds without a control frame before trying the next carrier in the capture the user tuned.
 const SEARCH_SECS: f64 = 1.5;
+/// Seconds a carrier gets on a scan hop; a control channel syncs within a few frames.
+const SCAN_TRY_SECS: f64 = 0.6;
+/// After a hop: the tuner settling and the detector's averaged rows refilling.
+const SCAN_SETTLE_SECS: f64 = 0.35;
+/// A frequency this close to the control channel is the control channel.
+const SAME_CHANNEL_HZ: f64 = 5_000.0;
 /// A call ends after this long without a voice frame.
 const HANG_SECS: f64 = 1.0;
 /// Voice channels closer than this to the capture edge need the dongle moved.
@@ -56,6 +62,16 @@ pub struct Call {
     pub at_secs: f64,
 }
 
+/// One hop of a scan across the band for a control channel.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Scan {
+    /// 1-based.
+    pub hop: usize,
+    pub hops: usize,
+    pub lo_hz: f64,
+    pub hi_hz: f64,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Info {
     /// "searching", "control" or "voice".
@@ -80,6 +96,21 @@ pub struct Info {
     pub voice_error: Option<String>,
     /// Voice frames the codec found badly damaged, percent, this call.
     pub voice_errors_pct: f32,
+    /// Hopping across the band for a control channel.
+    pub scan: Option<Scan>,
+    /// Carrier under test while searching, dongle frequency.
+    pub trying_hz: Option<f64>,
+    /// Carriers tested since the search started, dongle frequencies.
+    pub tried: Vec<f64>,
+}
+
+/// Where the search for a control channel is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Search {
+    /// The capture the user tuned; `refilled` once its carriers are listed.
+    Home { refilled: bool },
+    /// Hop `at` of the band's hops; `filled` once its carriers are listed.
+    Hop { at: usize, filled: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -119,6 +150,12 @@ pub struct P25 {
     candidates: Vec<f64>,
     last_control: f64,
     locked: bool,
+    search: Search,
+    /// Centre, low and high edge of each scan hop; empty without band ranges.
+    hops: Vec<(f64, f64, f64)>,
+    /// Dongle centre to go back to after a scan finds nothing.
+    scan_home: f64,
+    tried: Vec<f64>,
     idens: [Option<Iden>; 16],
     control_channel: Option<u16>,
     info: Info,
@@ -160,6 +197,10 @@ impl P25 {
             control_raw: tuned_hz,
             candidates: Vec::new(),
             last_control: 0.0,
+            search: Search::Home { refilled: false },
+            hops: Vec::new(),
+            scan_home: tuned_hz,
+            tried: Vec::new(),
             locked: false,
             idens: [None; 16],
             control_channel: None,
@@ -178,9 +219,37 @@ impl P25 {
         }
     }
 
+    /// The band's frequency ranges: when the capture holds no control channel, the search hops across them.
+    pub fn set_ranges(&mut self, ranges: &[(f64, f64)]) {
+        self.hops = crate::look::slices_of(ranges).iter().map(|s| (s.center, s.lo, s.hi)).collect();
+    }
+
+    /// Hopping across the band now: the dongle is not where the user left it.
+    pub fn scanning(&self) -> bool {
+        matches!(self.search, Search::Hop { .. })
+    }
+
+    /// `hz` is the control channel being followed, so tuning it changes nothing.
+    pub fn on_control(&self, hz: f64) -> bool {
+        self.locked && (hz - self.info.control_hz.unwrap_or(self.control_raw)).abs() < SAME_CHANNEL_HZ
+    }
+
+    pub fn set_tuned(&mut self, hz: f64) {
+        self.tuned_hz = hz;
+    }
+
+    fn try_secs(&self) -> f64 {
+        match self.search {
+            Search::Home { .. } => SEARCH_SECS,
+            Search::Hop { .. } => SCAN_TRY_SECS,
+        }
+    }
+
     pub fn info(&self) -> Info {
         let mut i = self.info.clone();
         i.now_secs = self.now;
+        i.tried = self.tried.clone();
+        i.trying_hz = (self.voice.is_none() && !self.locked).then_some(self.control_raw);
         i.recent = self.recent.iter().cloned().collect();
         i.call = self.voice.as_ref().map(|v| v.call.clone());
         i.state = match (&self.voice, self.locked) {
@@ -232,7 +301,11 @@ impl P25 {
 
         match &self.voice {
             Some(v) if self.now - v.last_frame > HANG_SECS => retune = self.end_call(),
-            None if self.now - self.last_control > SEARCH_SECS => self.next_candidate(signals),
+            None if self.now - self.last_control > self.try_secs() => {
+                if let Some(c) = self.next_candidate(signals, center) {
+                    retune = Some(c);
+                }
+            }
             _ => {}
         }
         if self.now - self.rate_since >= 2.0 {
@@ -265,6 +338,9 @@ impl P25 {
         }
         if any && self.voice.is_none() {
             self.last_control = self.now;
+            if !self.locked {
+                self.found();
+            }
             self.locked = true;
             *self.nacs.entry(f.nac).or_default() += 1;
             self.info.nac = self.nacs.iter().max_by_key(|(_, &n)| n).map(|(&nac, _)| nac);
@@ -410,22 +486,72 @@ impl P25 {
         self.home_center.take()
     }
 
-    /// Try every carrier in the capture, nearest the tuned frequency first, then the tuned one again.
-    /// A site's control channel is any one of its channels (Miami-Dade's downtown site spreads 20
-    /// across 2.75 MHz), so the whole capture is searched, not only around the tuned frequency.
-    fn next_candidate(&mut self, signals: &[Detected]) {
+    /// A control channel locked: the search is over.
+    fn found(&mut self) {
+        self.search = Search::Home { refilled: false };
+        self.candidates.clear();
+        self.tried.clear();
+        self.info.scan = None;
+    }
+
+    /// Start a hop, or the way home: the first try comes right when the tuner has settled.
+    fn enter(&mut self, s: Search) {
+        self.search = s;
+        self.last_control = self.now + SCAN_SETTLE_SECS - self.try_secs();
+    }
+
+    /// The next carrier to try. In the capture the user tuned: every carrier, nearest the tuned
+    /// frequency first, then the tuned frequency again (a site's control channel is any one of its
+    /// channels; Miami-Dade's downtown site spreads 20 across 2.75 MHz). When that finds nothing and
+    /// the band's ranges are known: each hop across them, strongest carrier first, then home again.
+    /// Returns a dongle centre to move to.
+    fn next_candidate(&mut self, signals: &[Detected], center: f64) -> Option<f64> {
         self.locked = false;
         self.last_control = self.now;
-        if self.candidates.is_empty() {
-            let mut c: Vec<f64> = signals.iter().map(|s| s.hz).collect();
-            c.sort_by(|a, b| (b - self.tuned_hz).abs().total_cmp(&(a - self.tuned_hz).abs()));
-            c.insert(0, self.tuned_hz);
-            self.candidates = c;
+        match &mut self.search {
+            Search::Home { refilled } if !*refilled => {
+                *refilled = true;
+                let mut c: Vec<f64> = signals.iter().map(|s| s.hz).collect();
+                c.sort_by(|a, b| (b - self.tuned_hz).abs().total_cmp(&(a - self.tuned_hz).abs()));
+                c.insert(0, self.tuned_hz);
+                self.candidates = c;
+            }
+            Search::Hop { filled, .. } if !*filled => {
+                *filled = true;
+                let usable = self.rate * 0.4;
+                let mut c: Vec<&Detected> = signals.iter().filter(|s| (s.hz - center).abs() <= usable).collect();
+                c.sort_by(|a, b| a.snr_db.total_cmp(&b.snr_db));
+                self.candidates = c.iter().map(|s| s.hz).collect();
+            }
+            _ => {}
         }
         if let Some(hz) = self.candidates.pop() {
             self.control_raw = hz;
             self.control_channel = None;
             self.phy.reset();
+            self.tried.push(hz);
+            return None;
+        }
+        if self.hops.is_empty() {
+            self.search = Search::Home { refilled: false };
+            return None;
+        }
+        let next = match self.search {
+            Search::Home { .. } => {
+                self.scan_home = center;
+                self.tried.clear();
+                0
+            }
+            Search::Hop { at, .. } => at + 1,
+        };
+        if let Some(&(c, lo, hi)) = self.hops.get(next) {
+            self.enter(Search::Hop { at: next, filled: false });
+            self.info.scan = Some(Scan { hop: next + 1, hops: self.hops.len(), lo_hz: lo, hi_hz: hi });
+            Some(c)
+        } else {
+            self.enter(Search::Home { refilled: false });
+            self.info.scan = None;
+            Some(self.scan_home)
         }
     }
 
@@ -459,9 +585,53 @@ mod tests {
         let signals = [seen(853.8625e6), seen(851.1125e6), seen(852.6e6)];
         let mut tried = Vec::new();
         for _ in 0..4 {
-            p.next_candidate(&signals);
+            assert_eq!(p.next_candidate(&signals, 852.5e6), None);
             tried.push(p.control_raw);
         }
         assert_eq!(tried, vec![852.6e6, 853.8625e6, 851.1125e6, 852.5e6]);
+        // without band ranges the capture is searched again, never left
+        assert_eq!(p.next_candidate(&signals, 852.5e6), None);
+        assert!(!p.scanning());
+    }
+
+    #[test]
+    fn an_empty_capture_sends_the_dongle_across_the_band_and_home() {
+        let mut p = P25::new(2_400_000, 852.5e6);
+        p.set_ranges(&[(851e6, 869e6)]);
+        let mut centre = 852.5e6;
+        let mut moves = Vec::new();
+        for _ in 0..30 {
+            p.now += 2.0;
+            if let Some(c) = p.next_candidate(&[], centre) {
+                centre = c;
+                moves.push(c);
+            }
+        }
+        let hops = 10;
+        assert!(moves[..hops].windows(2).all(|w| w[0] < w[1]), "{moves:?}");
+        assert!(moves[0] > 851e6 && moves[hops - 1] < 869e6);
+        assert_eq!(moves[hops], 852.5e6, "home after the last hop");
+        assert_eq!(moves[hops + 1], moves[0], "then round again");
+        assert!(p.info().scan.is_some_and(|s| (1..=hops).contains(&s.hop) && s.hops == hops));
+    }
+
+    #[test]
+    fn the_scan_strongest_carrier_first_and_the_found_channel_is_tuned_without_a_restart() {
+        let mut p = P25::new(2_400_000, 864e6);
+        p.set_ranges(&[(851e6, 869e6)]);
+        p.now = 10.0;
+        p.next_candidate(&[], 864e6);
+        let hop = p.next_candidate(&[], 864e6).unwrap();
+        assert!(p.scanning());
+        p.now += 1.0;
+        let mut weak = seen(hop + 0.2e6);
+        weak.snr_db = 8.0;
+        let strong = seen(hop - 0.3e6);
+        assert_eq!(p.next_candidate(&[weak, strong.clone()], hop), None);
+        assert_eq!(p.control_raw, strong.hz);
+        assert_eq!(p.info().tried, vec![strong.hz]);
+        p.locked = true;
+        assert!(p.on_control(strong.hz + 1_000.0));
+        assert!(!p.on_control(strong.hz + 12_500.0));
     }
 }
