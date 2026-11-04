@@ -117,18 +117,22 @@ export function dialRows(hasList: boolean, local: Map<number, FmStation>, heard:
   const channels = new Set<number>(local.keys());
   for (const [ch, s] of live) if (isChannel(ch) && (s.snr_db >= LISTED_SNR_DB || names.has(ch))) channels.add(ch);
   if (!hasList) for (const h of heard) if (isChannel(h.hz) && (h.name || h.snrDb >= LISTED_SNR_DB)) channels.add(h.hz);
+  // runs on every status, across every station: one lookup each, not a search of the list
+  const memory = new Map(heard.map((h) => [h.hz, h]));
   const rows = [...channels].map((hz): DialRow => {
     const st = local.get(hz);
     const r = names.get(hz);
-    const h = heard.find((x) => x.hz === hz);
+    const h = memory.get(hz);
     const s = live.get(hz);
     const mine = !!h && (!hasList || h.at >= since || (!!st && h.name === st.call));
-    const name = (r && rdsName(r)) ?? localName(hasList, local, heard, hz);
+    const name = (r && rdsName(r)) ?? (hasList ? st?.call : h?.name);
+    // what it plays, from memory only when memory is of this station; same rule as `localType`
+    const memoryType = !hasList || (h?.name && h.name === st?.call) ? h?.type : undefined;
     return {
       hz,
       title: name ?? `FM ${(hz / 1e6).toFixed(1)}`,
       city: st?.city,
-      type: r?.pty ?? localType(hasList, local, heard, hz),
+      type: r?.pty ?? memoryType,
       hd: s?.hd ?? (mine ? h!.hd : undefined) ?? false,
       snrDb: s ? Math.round(s.snr_db) : mine ? h!.snrDb : null,
       onAir: !!s,

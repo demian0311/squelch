@@ -5,5 +5,9 @@ resolver = "2"
 [profile.dev.package."*"]
 opt-level = 3
 
+# the receiver has real-time deadlines, also while developing
+[profile.dev.package.radio]
+opt-level = 3
+
 [profile.dev]
 opt-level = 1

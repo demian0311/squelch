@@ -34,7 +34,7 @@
   let kmPerPx = $derived(box?.width && box.height ? (2 * halfKm) / Math.min(box.width, box.height) : 1);
 
   // state lines and highways ship with the app; loaded on first use, then kept
-  let lines = $state<Lines | null>(cachedLines);
+  let lines = $state.raw<Lines | null>(cachedLines);
   $effect(() => {
     if (!lines) loadLines().then((l) => (lines = l));
   });
@@ -45,12 +45,17 @@
     const spots = airports.map((a) => ({ id: `@${a.id}`, x: a.x, y: a.y, text: a.label }));
     return placeLabels([...spots, ...order.map((p) => ({ id: p.icao, x: p.x, y: p.y, text: p.name }))], kmPerPx, LABEL_PX * 0.56, LABEL_PX * 1.15, ARROW_PX * 1.1);
   });
-  let paths = $derived(lines ? linePaths(lines, { site: centre, halfWKm: halfKm * 2, halfHKm: halfKm * 2 }) : null);
+  // these props come from one object made anew with each status; a derived number changes only when the number does,
+  // so the lines are drawn again only when the map has moved
+  let lat = $derived(centre.lat);
+  let lon = $derived(centre.lon);
+  let half = $derived(halfKm * 2);
+  let paths = $derived(lines ? linePaths(lines, { site: { lat, lon }, halfWKm: half, halfHKm: half }) : null);
 
   // wider than tall, like the repeater map's, so a wide panel has ground to its edges
   const GROUND_RATIO = 8 / 3;
   let level = $derived(GROUNDS.find((g) => g.halfHKm >= halfKm) ?? GROUNDS[GROUNDS.length - 1]);
-  let groundFrame = $derived<Frame>({ site: { lat: centre.lat, lon: centre.lon }, halfWKm: level.halfHKm * GROUND_RATIO, halfHKm: level.halfHKm });
+  let groundFrame = $derived<Frame>({ site: { lat, lon }, halfWKm: level.halfHKm * GROUND_RATIO, halfHKm: level.halfHKm });
   let ground = $state<{ url: string; frame: Frame } | null>(null);
   $effect(() => {
     if (!palette) return;

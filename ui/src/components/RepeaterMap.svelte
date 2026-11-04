@@ -41,7 +41,7 @@
   let frame = $derived<Frame>({ site: { lat: site.lat, lon: site.lon }, halfWKm: level.halfHKm * WIDTH_RATIO, halfHKm: level.halfHKm });
 
   // state lines and highways ship with the app; loaded on first use, then kept
-  let lines = $state<Lines | null>(cachedLines);
+  let lines = $state.raw<Lines | null>(cachedLines);
   let paths = $derived(lines ? linePaths(lines, frame) : null);
   $effect(() => {
     if (!lines) loadLines().then((l) => (lines = l));

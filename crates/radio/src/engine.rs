@@ -408,11 +408,8 @@ fn run(
                             h.set_program(p);
                             h.set_play(true);
                         }
-                        // back to analog; keep decoding for the panel
-                        (Some(h), None) => h.set_play(false),
-                        _ => {
-                            hd = hd_for(p, mode, center, tuned);
-                        }
+                        // the decoder costs about a fifth of a core, so it runs only while digital audio is asked for
+                        _ => hd = hd_for(p, mode, center, tuned),
                     }
                     hd_program = p;
                 }
@@ -511,9 +508,6 @@ fn run(
                 crate::hd::mark_sidebands(&mut signals, &avg, floor, center, rate as f64);
             }
             hd_sidebands = mode == Mode::Wfm && crate::hd::sidebands(&avg, floor, center, tuned, rate as f64);
-            if hd_sidebands && hd.is_none() {
-                hd = Some(Hd::new(tuned - center, rate, 0, false));
-            }
             if let Some(sc) = &mut scanner {
                 sc.retarget(center, &signals);
             }

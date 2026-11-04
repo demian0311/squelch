@@ -133,6 +133,16 @@ export function extendTrails(trails: Trails, list: Aircraft[], nowMs: number): T
   return out;
 }
 
+const pathMemo = new WeakMap<TrackPoint[], { lat: number; lon: number; d: string }>();
+/** `trackPath`, kept per track: every status asks for all of them and almost none have changed. */
+export function trailPath(pts: TrackPoint[], centre: Site): string {
+  const old = pathMemo.get(pts);
+  if (old && old.lat === centre.lat && old.lon === centre.lon) return old.d;
+  const d = trackPath(pts, centre);
+  pathMemo.set(pts, { lat: centre.lat, lon: centre.lon, d });
+  return d;
+}
+
 /** An SVG path along a track, in the map's km; a jump of over `gapKm` (a stretch not heard) lifts the pen. */
 export function trackPath(pts: TrackPoint[], centre: Site, gapKm = 40): string {
   let d = '';
