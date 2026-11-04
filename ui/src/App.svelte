@@ -5,7 +5,7 @@
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
-  import { apply as applyTheme, groupHue, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
+  import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
@@ -13,6 +13,8 @@
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
+  import EmsStrip from './components/EmsStrip.svelte';
+  import { addLine, emsRanges, isEms, oneEms, railId, type LookLine } from './lib/ems';
   import StationList from './components/StationList.svelte';
   import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
@@ -53,6 +55,8 @@
   const WF_AXIS = 22;
   const WF_MIN = 60;
   const BAND_STRIP_H = 31;
+  // EmsStrip.svelte: scale, picture and words, with its border
+  const EMS_STRIP_H = 80;
   // the waterfall's spectrum line while the panel has the screen
   const STRIP_SPEC_H = 24;
   const MIN_SPAN = 25_000;
@@ -96,7 +100,9 @@
   store.onProblem((m) => (settingsError = m));
   // bands that rarely give us anything stay off the rail until someone wants to investigate them
   let showDeadAir = $state(store.getSettings().show_dead_air ?? false);
-  let railPlan = $derived(oneAirplanes(showDeadAir ? plan : withoutDeadAir(plan)));
+  // bookmarks keep the two EMS bands apart; the rail and its shortcuts show one entry
+  let bookmarkPlan = $derived(oneAirplanes(showDeadAir ? plan : withoutDeadAir(plan)));
+  let railPlan = $derived(oneEms(bookmarkPlan));
   function toggleDeadAir() {
     showDeadAir = !showDeadAir;
     store.setSetting('show_dead_air', showDeadAir);
@@ -129,6 +135,19 @@
   let saved = $derived<Saved[]>(allBookmarks(plan));
   let named = $derived(namedFrequencies(plan, saved));
   let band = $derived(plan.bands.find((b) => b.id === bandId));
+  // All of EMS above the waterfall: the engine hops across it now and then, and a line comes back in the status
+  let emsLook = $derived(emsRanges(plan, band));
+  let emsLookKey = $derived(JSON.stringify(emsLook));
+  let emsLines = $state.raw<LookLine[]>([]);
+  let emsLineAt = $state<number | null>(null);
+  let emsSide = $state<string | null>(null);
+  $effect(() => {
+    if (isEms(band)) emsSide = band!.id;
+  });
+  $effect(() => {
+    void emsLookKey;
+    api.setBandLook(untrack(() => emsLook));
+  });
   let rate = $derived(setup.sample_rate);
   let maxSpan = $derived(rate * 0.8);
   let span = $derived(ve - vs);
@@ -136,7 +155,7 @@
   let fit = $derived.by(() => {
     const lanes = band?.id === 'fm' ? FM_LANES : LANES;
     if (!boxH) return { level: 0, lane: lanes[0], spec: SPEC_H };
-    const room = boxH - (band?.id === 'fm' ? BAND_STRIP_H : 0) - WF_AXIS - WF_MIN;
+    const room = boxH - (band?.id === 'fm' ? BAND_STRIP_H : emsLook ? EMS_STRIP_H : 0) - WF_AXIS - WF_MIN;
     const at = lanes.findIndex((h) => room - h >= SPEC_MIN);
     const level = at < 0 ? lanes.length - 1 : at;
     return { level, lane: lanes[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - lanes[level])) };
@@ -179,8 +198,10 @@
     if (airWatching) seeRadio = true;
     tuned = Math.round(hz);
     if (tuned < vs || tuned > ve) {
-      vs = tuned - span / 2;
-      ve = tuned + span / 2;
+      // `span` follows `vs`: read once, or a long jump turns the view backwards
+      const s = span;
+      vs = tuned - s / 2;
+      ve = tuned + s / 2;
     }
     if (!keepMode) {
       const m = modeAt(plan, named, tuned, mode);
@@ -235,7 +256,9 @@
 
   let outside = $derived(!!band && (tuned < band.low_mhz * 1e6 || tuned > band.high_mhz * 1e6));
 
-  function pickBand(b: Band) {
+  function pickBand(picked: Band) {
+    // the one EMS entry goes back to the side of EMS last tuned
+    const b = isEms(picked) ? (plan.bands.find((x) => x.id === emsSide) ?? picked) : picked;
     bookmarksOpen = false;
     seeRadio = false;
     airListen = null;
@@ -656,6 +679,7 @@
   let hues = $derived(Object.fromEntries(plan.groups.map((g) => [g.id, groupHue(theme, g.id, plan.groups.map((x) => x.id))])));
   let hue = $derived((band && hues[band.group]) ?? theme.accent);
   let stops = $derived(waterfallStops(theme));
+  let stripPalette = $derived(lut(stops));
   // every strength bar in the page wears the waterfall's ramp on the meter's dB scale
   let ramp = $derived(rampGradient(stops, METER_DB, setup.below_floor_db, setup.range_db));
   // the local map's shaded terrain, in theme colours
@@ -1081,6 +1105,10 @@
           if (s.hd?.digital) hdAudioAt = Date.now();
           recordBoards(s.signals);
           status = s;
+          if (s.look?.line && s.look.line.seq !== emsLines[0]?.seq) {
+            emsLines = addLine(emsLines, s.look.line);
+            emsLineAt = Date.now() / 1000;
+          }
         },
       );
       const fm = plan.bands.find((x) => x.id === 'fm') ?? plan.bands[0];
@@ -1144,7 +1172,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bookmarksOpen ? null : bandId} {bookmarksOpen} bookmarkCount={saved.filter((m) => railPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen ? null : railId(railPlan, bandId)} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -1288,6 +1316,9 @@
               }}
               onGlide={slideView}
             />
+          {/if}
+          {#if emsLook && maxPane !== 'panel'}
+            <EmsStrip ranges={emsLook} lines={emsLines} looking={!!status?.look?.looking} agoS={emsLineAt === null ? null : Math.max(0, nowS - emsLineAt)} {vs} {ve} {tuned} palette={stripPalette} {hue} onTune={tuneCentered} />
           {/if}
           {#if maxPane !== 'panel'}
             <div class="lane l{fit.level}" style:height="{fit.lane}px">
@@ -1584,7 +1615,7 @@
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={airPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if bookmarksOpen}
-        <BookmarksScreen plan={railPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
+        <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
       {/if}
     </main>
   </div>

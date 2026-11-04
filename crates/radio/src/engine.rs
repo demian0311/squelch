@@ -10,6 +10,7 @@ use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::hd::{Hd, HdImage, HdInfo};
+use crate::look::{BandLook, Hop};
 use crate::p25::P25;
 use crate::spectrum::{noise_floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
@@ -55,6 +56,8 @@ pub enum Command {
     SetAdsb(bool),
     /// Share the dongle between aircraft broadcasts and aircraft messages, this many seconds on each, or stop.
     AirTurns(Option<(f64, f64)>),
+    /// Hop across these ranges (Hz) now and then and report them; `None` stops. Repeating the same ranges changes nothing.
+    BandLook(Option<Vec<(f64, f64)>>),
     /// Where the listener is; surface positions need it.
     SetSite(Option<(f64, f64)>),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
@@ -111,6 +114,8 @@ pub struct Status {
     pub hd_images: Option<Vec<HdImage>>,
     /// Trunked radio state, in P25 mode.
     pub p25: Option<crate::p25::Info>,
+    /// The whole band, while `Command::BandLook` is on.
+    pub look: Option<crate::look::Info>,
     /// Aircraft messages, while ACARS decoding is on.
     pub acars: Option<crate::acars::Info>,
     /// Correction applied now.
@@ -289,6 +294,7 @@ fn run(
     let mut acars: Option<Acars> = None;
     let mut adsb: Option<Adsb> = None;
     let mut turns: Option<Turns> = None;
+    let mut look: Option<BandLook> = None;
     // kept across a decoder switching off; nothing from the simulator goes in it
     let mut airlog: Option<crate::airlog::Writer> = None;
     let mut air_lines: Vec<crate::airlog::Line> = Vec::new();
@@ -315,6 +321,14 @@ fn run(
                     // the view moves the dongle but not what is playing: only a new frequency restarts the audio
                     let center_moved = (center_hz - center).abs() > 1.0;
                     let tuned_moved = (tuned_hz - tuned).abs() > 1.0;
+                    // the listener comes first: a look in progress gives the dongle straight back
+                    if center_moved || tuned_moved {
+                        if look.as_mut().is_some_and(BandLook::abort) && !center_moved {
+                            if let Err(e) = src.set_center(center as u32) {
+                                error = Some(e.to_string());
+                            }
+                        }
+                    }
                     if center_moved {
                         center = center_hz;
                         if let Err(e) = src.set_center(center as u32) {
@@ -396,6 +410,16 @@ fn run(
                         }
                     }
                 }
+                Ok(Command::BandLook(ranges)) => {
+                    if look.as_ref().map(BandLook::ranges) != ranges.as_deref() {
+                        if look.as_mut().is_some_and(BandLook::abort) {
+                            if let Err(e) = src.set_center(center as u32) {
+                                error = Some(e.to_string());
+                            }
+                        }
+                        look = ranges.map(|r| BandLook::new(r, rate, BELOW_FLOOR_DB, RANGE_DB));
+                    }
+                }
                 Ok(Command::SetSite(s)) => {
                     site = s;
                     if let Some(a) = &mut adsb {
@@ -453,7 +477,10 @@ fn run(
             Ok(n) => n,
             Err(e) => {
                 error = Some(e.to_string());
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, ppm, crystal);
+                if let Some(l) = &mut look {
+                    l.abort();
+                }
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal);
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -482,6 +509,31 @@ fn run(
         rows.clear();
         spectrum.process(&iq, &mut rows);
         prof.lap("spectrum");
+        // hopping: this block is another frequency, so it goes nowhere else
+        if let Some(l) = look.as_mut().filter(|l| l.sweeping()) {
+            let hop = l.sweep(&rows, iq.len() as i64);
+            rows.clear();
+            match hop {
+                Hop::Stay => {}
+                Hop::To(hz) => {
+                    if let Err(e) = src.set_center(hz as u32) {
+                        error = Some(e.to_string());
+                    }
+                }
+                Hop::Home => {
+                    if let Err(e) = src.set_center(center as u32) {
+                        error = Some(e.to_string());
+                    }
+                    recent.clear();
+                }
+            }
+            if last_status.elapsed() >= Duration::from_millis(200) {
+                last_status = Instant::now();
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
+            }
+            prof.report();
+            continue;
+        }
         for row in rows.drain(..) {
             floor = 0.9 * floor + 0.1 * noise_floor(&row);
             let lo = floor - BELOW_FLOOR_DB;
@@ -607,6 +659,18 @@ fn run(
             r.push(&pcm);
         }
         prof.lap("audio");
+        if let Some(l) = &mut look {
+            // a call in progress, or a plain channel someone is listening to, holds a look off
+            let busy = match &p25 {
+                Some(p) => p.in_call(),
+                None => squelch.is_open(),
+            };
+            if let Some(hz) = l.tick(iq.len() as i64, busy) {
+                if let Err(e) = src.set_center(hz as u32) {
+                    error = Some(e.to_string());
+                }
+            }
+        }
 
         if last_status.elapsed() >= Duration::from_millis(200) {
             last_status = Instant::now();
@@ -617,7 +681,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, acars.as_ref().map(Acars::info), ppm, crystal);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
         }
         prof.lap("status");
         prof.report();
@@ -711,6 +775,7 @@ fn send_status(
     hd: Option<HdInfo>,
     hd_images: Option<Vec<HdImage>>,
     p25: Option<crate::p25::Info>,
+    look: Option<crate::look::Info>,
     acars: Option<crate::acars::Info>,
     ppm: i32,
     crystal: Option<Crystal>,
@@ -738,6 +803,7 @@ fn send_status(
         hd,
         hd_images,
         p25,
+        look,
         acars,
         ppm,
         crystal,
@@ -758,6 +824,12 @@ pub fn demo_signals() -> Vec<SimSignal> {
         nfm(146.94, 0.3, 800.0),
         nfm(162.55, 0.3, 1_000.0),
         SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0, symbols: None },
+        // EMS: both bands, for the whole-band strip
+        nfm(770.26875, 0.2, 600.0),
+        nfm(773.05625, 0.1, 500.0),
+        nfm(853.9375, 0.2, 800.0),
+        nfm(860.2125, 0.15, 900.0),
+        nfm(866.5875, 0.1, 700.0),
         // a weather balloon, so the decoders have something to find
         SimSignal { hz: 403.3e6, amp: 0.3, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: crate::sonde::dfm::BAUD as f64, symbols: Some(crate::sonde::dfm::simulate(23_038_743, 39.7392, -104.9903, 10_000.0).into()) },
     ]
@@ -767,6 +839,35 @@ pub fn demo_signals() -> Vec<SimSignal> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn a_band_look_reports_both_ranges_and_returns_to_the_channel() {
+        let signals = vec![SimSignal { hz: 853.9375e6, amp: 0.2, fm_dev: 3_000.0, am_depth: 0.0, tone_hz: 440.0, symbols: None }];
+        let source = Box::new(SimSource::new(SAMPLE_RATE, signals, true));
+        let seen = Arc::new(Mutex::new(Vec::<(f64, Option<crate::look::Info>)>::new()));
+        let log = seen.clone();
+        let engine = Engine::start(source, None, |_| {}, move |s| log.lock().unwrap().push((s.center_hz, s.look)));
+        engine.send(Command::Tune { center_hz: 771e6, tuned_hz: 771e6 });
+        engine.send(Command::SetSquelch(Some(100.0)));
+        engine.send(Command::BandLook(Some(vec![(769e6, 775e6), (851e6, 869e6)])));
+        let until = Instant::now() + Duration::from_secs(20);
+        let line = loop {
+            std::thread::sleep(Duration::from_millis(50));
+            let got = seen.lock().unwrap().iter().find_map(|(_, l)| l.as_ref().and_then(|l| l.line.clone()));
+            if let Some(l) = got {
+                break l;
+            }
+            assert!(Instant::now() < until, "no line");
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        let p = &line.parts[1];
+        let strongest = (0..p.cells.len()).max_by_key(|&i| p.cells[i]).unwrap();
+        assert!(strongest.abs_diff(((853.9375e6 - 851e6) / crate::look::CELL_HZ) as usize) <= 2, "cell {strongest}");
+        assert!(seen.lock().unwrap().iter().any(|(_, l)| l.as_ref().is_some_and(|l| l.looking)));
+        // the page is never told the dongle moved
+        assert!(seen.lock().unwrap().iter().skip(2).all(|(c, _)| *c == 771e6));
+        engine.send(Command::BandLook(None));
+    }
 
     #[test]
     fn air_turns_alternate_and_own_the_dongle() {

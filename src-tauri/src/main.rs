@@ -340,6 +340,12 @@ fn set_air_turns(app: State<App>, planes_s: Option<f64>, messages_s: Option<f64>
     send(&app, Command::AirTurns(planes_s.zip(messages_s)));
 }
 
+/// Ranges of the band to check now and then, `[low Hz, high Hz]` each, or null to stop.
+#[tauri::command]
+fn set_band_look(app: State<App>, ranges: Option<Vec<(f64, f64)>>) {
+    send(&app, Command::BandLook(ranges));
+}
+
 /// The listener's position, for decoding aircraft on the ground.
 #[tauri::command]
 fn set_site(app: State<App>, lat: Option<f64>, lon: Option<f64>) {
@@ -540,7 +546,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, plane_info, open_link, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, plane_info, open_link, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_band_look, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

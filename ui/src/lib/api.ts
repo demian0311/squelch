@@ -107,6 +107,8 @@ export interface Status {
   hd_images: HdImage[] | null;
   /** Trunked radio receiver, in P25 mode. */
   p25: P25 | null;
+  /** All of a wide band in one line per check, while an EMS band is open. `line` rides in the statuses just after a check. */
+  look: { looking: boolean; line: { seq: number; parts: { lo_hz: number; hi_hz: number; cells: number[] }[] } | null } | null;
   /** Aircraft messages, while a band with the ACARS decoder is selected. */
   acars: Acars | null;
   /** Crystal correction applied now, ppm; positive means the crystal runs fast. */
@@ -420,6 +422,7 @@ export const setAcars = (on: boolean) => invoke('set_acars', { on });
 /** Decode aircraft broadcasts across the capture. */
 export const setAdsb = (on: boolean) => invoke('set_adsb', { on });
 export const setAirTurns = (turns: { planesS: number; messagesS: number } | null) => invoke('set_air_turns', { planesS: turns?.planesS ?? null, messagesS: turns?.messagesS ?? null });
+export const setBandLook = (ranges: [number, number][] | null) => invoke('set_band_look', { ranges });
 export const setSite = (lat: number | null, lon: number | null) => invoke('set_site', { lat, lon });
 export const airFlights = (days: number) => invoke<Flight[]>('air_flights', { days });
 export const airTrack = (icao: string, fromMs: number, toMs: number) => invoke<TrackPoint[]>('air_track', { icao, fromMs, toMs });

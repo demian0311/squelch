@@ -199,6 +199,11 @@ impl P25 {
     /// Feed one block of capture I/Q at dongle centre `center`; voice goes into `pcm` at 48 kHz.
     /// Returns a new dongle centre when a voice channel lies outside the capture, and the old
     /// one when that call ends.
+    /// Following a call now.
+    pub fn in_call(&self) -> bool {
+        self.voice.is_some()
+    }
+
     pub fn process(&mut self, iq: &[C32], center: f64, signals: &[Detected], pcm: &mut Vec<f32>) -> Option<f64> {
         pcm.clear();
         self.now += iq.len() as f64 / self.rate;
