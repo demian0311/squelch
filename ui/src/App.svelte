@@ -7,7 +7,7 @@
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { callAge, callBlock, p25Site, p25Summary } from './lib/p25';
+  import { callAge, callGlyph, p25Site, p25Summary } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
@@ -1537,12 +1537,25 @@
               <div class="col">
                 <h2>Calls</h2>
                 {#each p25.recent as c (c.at_secs + ':' + c.hz)}
-                  {@const block = callBlock(c, p25.voice_error)}
+                  {@const quiet = callGlyph(c)}
                   {@const live = p25.call?.group === c.group && p25.call?.hz === c.hz}
-                  <div class="item" class:sel={live}>
-                    <span class="name">Talkgroup {c.group}{c.emergency ? ' · EMERGENCY' : ''}</span>
-                    <span class="dim">{live ? `Playing${p25.voice_errors_pct > 20 ? ` · ${p25.voice_errors_pct.toFixed(0)}% damaged` : ''}` : (block ?? 'Ended')}</span>
-                    <span class="mono dim">{fmtMHz(c.hz)} MHz{c.source ? ` · radio ${c.source}` : ''} · {callAge(c, p25.now_secs)}</span>
+                  <!-- a call this receiver will never play gets one dim line: its glyph, the talkgroup, the age -->
+                  <div class="item" class:sel={live} class:quiet={!!quiet}>
+                    <span class="name gl">
+                      {#if quiet}<span class="ic" title={quiet.say}><Icon name={quiet.icon} size={14} /></span>
+                      {:else if live}<span class="ic" title="Playing"><Icon name="speaker" size={14} /></span>{/if}
+                      <span>Talkgroup {c.group}</span>
+                      {#if c.emergency}<span class="ic alarm" title="Emergency"><Icon name="siren" size={14} /></span>{/if}
+                      {#if quiet}<span class="dim age">{callAge(c, p25.now_secs)}</span>{/if}
+                    </span>
+                    {#if !quiet}
+                      <small class="line">
+                        <span>{fmtMHz(c.hz)} MHz</span>
+                        {#if c.source}<span>radio {c.source}</span>{/if}
+                        <span>{live ? 'playing' : callAge(c, p25.now_secs)}</span>
+                        {#if live && p25.voice_errors_pct > 20}<span class="alarm">{p25.voice_errors_pct.toFixed(0)}% damaged</span>{/if}
+                      </small>
+                    {/if}
                   </div>
                 {:else}
                   <p class="empty">No calls yet. Busy sites assign several a minute; quiet ones can go minutes between.</p>
@@ -2199,6 +2212,34 @@
   }
   .item .dim,
   .empty {
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .item.quiet {
+    opacity: 0.55;
+    padding: 6px 12px;
+  }
+  .item .gl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .item .gl .ic {
+    display: inline-flex;
+  }
+  .item .gl .age {
+    margin-left: auto;
+    font-weight: 400;
+  }
+  .item .alarm {
+    color: var(--red);
+  }
+  .item .line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 13px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-size: 12px;
     color: var(--fg-dim);
   }

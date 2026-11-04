@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callAge, callBlock, p25Site, p25Summary } from './p25';
+import { callAge, callGlyph, p25Site, p25Summary } from './p25';
 import type { P25, P25Call } from './api';
 
 const call: P25Call = { group: 9100, source: 352783, hz: 769_418_750, encrypted: false, tdma: false, emergency: false, at_secs: 100 };
@@ -26,12 +26,11 @@ describe('p25Site', () => {
   });
 });
 
-describe('callBlock', () => {
-  it('explains calls that cannot play', () => {
-    expect(callBlock({ ...call, encrypted: true }, null)).toBe('Encrypted');
-    expect(callBlock({ ...call, tdma: true }, null)).toBe('Phase 2, not supported yet');
-    expect(callBlock(call, 'P25 voice needs mbelib')).toBe('Voice decoder missing');
-    expect(callBlock(call, null)).toBe(null);
+describe('callGlyph', () => {
+  it('marks calls that will never play with a padlock or a muted speaker', () => {
+    expect(callGlyph({ ...call, encrypted: true })?.icon).toBe('lock');
+    expect(callGlyph({ ...call, tdma: true })?.icon).toBe('mute');
+    expect(callGlyph(call)).toBe(null);
   });
 });
 

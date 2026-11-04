@@ -16,11 +16,11 @@ export function p25Site(p: P25): string | null {
   return `Site ${p.rfss}-${p.site}${sys}`;
 }
 
-/** Why a call is not playing, or null when it can. */
-export function callBlock(c: P25Call, voiceError: string | null): string | null {
-  if (c.encrypted) return 'Encrypted';
-  if (c.tdma) return 'Phase 2, not supported yet';
-  return voiceError ? 'Voice decoder missing' : null;
+/** The glyph for a call this receiver will never play, with its tooltip; null when it can play. */
+export function callGlyph(c: P25Call): { icon: 'lock' | 'mute'; say: string } | null {
+  if (c.encrypted) return { icon: 'lock', say: 'Encrypted: no scanner can hear it' };
+  if (c.tdma) return { icon: 'mute', say: 'Phase 2: two calls share one channel in turns, which this receiver cannot play yet' };
+  return null;
 }
 
 /** "12 s ago", "3 min ago". */
