@@ -65,7 +65,7 @@
     });
     return [...named, ...carried.filter((c) => carriedIds.has(c.icao))];
   });
-  let rows = $derived(aircraftRows(list, site));
+  let rows = $derived(aircraftRows(list, site, true));
   let picked = $derived(rows.find((r) => r.a.icao === pickId) ?? null);
 
   // ── airports ────────────────────────────────────
@@ -236,7 +236,7 @@
       </div>
       </div>
     </div>
-    <div class="side">
+    <div class="side" class:watching={!listening}>
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')}>Overhead now</button>
         <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')}>Messages</button>
@@ -356,6 +356,9 @@
           {/each}
         {/if}
       </div>
+      {#if !listening && waterfall}
+        <div class="sidewf">{@render waterfall()}</div>
+      {/if}
     </div>
   </div>
 </div>
@@ -528,6 +531,16 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+  }
+  /* while watching, the radio's waterfall takes what the list leaves and never shrinks past about two rows */
+  .watching .scroll {
+    flex: 0 1 auto;
+  }
+  .sidewf {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 118px;
+    border-top: 1px solid var(--muted);
   }
   .row {
     display: grid;

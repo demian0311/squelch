@@ -24,7 +24,7 @@
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
   import AircraftMap from './components/AircraftMap.svelte';
-  import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
+  import { ADSB_CENTRE_HZ, TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
@@ -489,6 +489,13 @@
   let airListen = $state<Talk | null>(null);
   let planesScreen = $derived(band?.id === 'air' && !seeRadio);
   let airWatching = $derived(planesScreen && !airListen);
+  // while watching, the waterfall shows the whole capture wherever the turns have put the dongle
+  let airCentre = $derived(status?.center_hz ?? ACARS_CENTRE_HZ);
+  let airVs = $derived(airCentre - rate * 0.4);
+  let airVe = $derived(airCentre + rate * 0.4);
+  // the big digits say where the radio is, which while watching is wherever the turn has put it
+  let shownHz = $derived(airWatching ? airCentre : tuned);
+  let onPlanesTurn = $derived(Math.abs(airCentre - ADSB_CENTRE_HZ) < rate / 2);
   $effect(() => {
     api.setAirTurns(airWatching ? AIR_TURNS : null);
   });
@@ -636,7 +643,7 @@
   let nowTitle = $derived(airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
-    airWatching ? `Watching planes and messages · ${adsb?.aircraft.length ?? 0} overhead` :
+    airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
     muted ? 'Muted — signal is below the squelch level' :
     airListen ? 'Every plane on this channel, not only one' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
@@ -1143,7 +1150,7 @@
   <div class="right">
     <header>
       <div class="freq">
-        <button class="digits mono" onclick={showTuned} title="Show this frequency on the waterfall"><em>{fmtHz(tuned).split('.')[0]}</em>.{fmtHz(tuned).split('.').slice(1).join('.')}</button>
+        <button class="digits mono" onclick={showTuned} title={airWatching ? 'Where the radio is now; it takes turns between planes and messages' : 'Show this frequency on the waterfall'}><em>{fmtHz(shownHz).split('.')[0]}</em>.{fmtHz(shownHz).split('.').slice(1).join('.')}</button>
         <span class="unit mono">MHz</span>
         {#if outside}<span class="outside mono">outside {band?.name}</span>{/if}
       </div>
@@ -1234,16 +1241,17 @@
     {#snippet wfView()}
       <Waterfall
         bind:this={waterfall}
-        {vs}
-        {ve}
+        vs={airWatching ? airVs : vs}
+        ve={airWatching ? airVe : ve}
         {rate}
         {stops}
         {tuned}
         bandwidth={BANDWIDTH[mode]}
-        specH={maxPane === 'panel' ? STRIP_SPEC_H : fit.spec}
+        specH={maxPane === 'panel' || airWatching ? STRIP_SPEC_H : fit.spec}
         colors={wfColors}
         onTune={(hz, pxHz) => tuneClick(snapTune(hz, status?.signals ?? [], named, pxHz, mode, band?.id))}
         onView={(a, b) => {
+          if (airWatching) return;
           cancelAnimationFrame(slideFrame);
           setView(a, b);
         }}
@@ -1303,7 +1311,7 @@
             </div>
           {/if}
           <div class="wf">
-            {#if !airListen}{@render wfView()}{/if}
+            {#if !planesScreen}{@render wfView()}{/if}
           </div>
           {#if maxPane !== 'panel'}
             {#if !hintSeen}

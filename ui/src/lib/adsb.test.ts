@@ -51,6 +51,10 @@ describe('aircraft list', () => {
     expect(rows[1].km).toBeCloseTo(84.5, 0);
     expect(rows[2].km).toBeNull();
   });
+  it('freshest position first, by the minute, then nearest', () => {
+    const l = [plane('A00001', { lat: 40.5, lon: -104.99, pos_age_s: 70 }), plane('A00002', { lat: 40.5, lon: -104.99, pos_age_s: 5 }), plane('A00003'), plane('A00004', { lat: 39.8, lon: -105.0, pos_age_s: 50 })];
+    expect(aircraftRows(l, home, true).map((r) => r.a.icao)).toEqual(['A00004', 'A00002', 'A00001', 'A00003']);
+  });
   it('without a location, only by address', () => {
     expect(aircraftRows(list, null).map((r) => r.a.icao)).toEqual(['A00001', 'A00002', 'B00003', 'C00001']);
   });

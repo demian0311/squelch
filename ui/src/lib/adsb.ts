@@ -1,4 +1,5 @@
 // Aircraft heard on 1090 MHz: list rows, labels and the map's frame.
+export const ADSB_CENTRE_HZ = 1_090_000_000;
 import type { Adsb, Aircraft, Flight, TrackPoint } from './api';
 import { kmBetween } from './repeaters';
 import { toKm, type Site } from './terrain';
@@ -29,10 +30,12 @@ export function planeKind(category: string | null | undefined): string {
   return PLANE_SIZES.test(text) ? `${text} plane` : text;
 }
 
-export function aircraftRows(list: Aircraft[], site: Site | null): AircraftRow[] {
+export function aircraftRows(list: Aircraft[], site: Site | null, freshFirst = false): AircraftRow[] {
+  // by the minute, so an order by freshness does not reshuffle with every status
+  const minute = (a: Aircraft) => (freshFirst ? Math.floor((a.pos_age_s ?? Infinity) / 60) : 0);
   return list
     .map((a) => ({ a, name: aircraftName(a), km: site && a.lat !== null && a.lon !== null ? kmBetween(site, { lat: a.lat, lon: a.lon }) : null }))
-    .sort((x, y) => (x.km ?? Infinity) - (y.km ?? Infinity) || x.a.icao.localeCompare(y.a.icao));
+    .sort((x, y) => minute(x.a) - minute(y.a) || (x.km ?? Infinity) - (y.km ?? Infinity) || x.a.icao.localeCompare(y.a.icao));
 }
 
 /** The picked row on top, so its details stay in view however the distances change. */
