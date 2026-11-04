@@ -44,11 +44,15 @@
     if (!lines) loadLines().then((l) => (lines = l));
   });
   // lines a little past the square, since `meet` leaves the wider side of the panel showing
-  // the picked plane's name first, then the nearest: what has no room goes without
+  // the picked plane's name first, then the nearest: what has no room goes without. Symbols, the ring distances and
+  // the attribution are in the way; with `meet` the visible top right corner is half the box out from the middle
   let labels = $derived.by(() => {
     const order = [...planes].sort((a, b) => Number(b.icao === selected) - Number(a.icao === selected) || Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y));
-    const spots = airports.map((a) => ({ id: `@${a.id}`, x: a.x, y: a.y, text: a.label }));
-    return placeLabels([...spots, ...order.map((p) => ({ id: p.icao, x: p.x, y: p.y, text: p.name }))], kmPerPx, LABEL_PX * 0.56, LABEL_PX * 1.15, ARROW_PX * 1.1);
+    const spots = airports.map((a) => ({ id: `@${a.id}`, x: a.x, y: a.y, text: a.label, r: (a.big ? 6 : 4.5) + 1 }));
+    const rings = here ? [halfKm / 2, halfKm].map((d) => ({ id: `#${d}`, x: d * 0.71 + 2 * kmPerPx, y: -d * 0.71 - (2 + LABEL_PX) * kmPerPx, text: `${d} km`, fixed: true })) : [];
+    const corner = box ? [{ id: '#attrib', x: (box.width / 2 - 6) * kmPerPx - attrib.length * 5.4 * kmPerPx, y: (4 - box.height / 2) * kmPerPx, text: attrib, fixed: true }] : [];
+    const names = order.map((p) => ({ id: p.icao, x: p.x, y: p.y, text: p.name, r: (p.icao === selected ? PICKED_SCALE : 1) * ARROW_PX }));
+    return placeLabels([...rings, ...corner, ...spots, ...names], kmPerPx, LABEL_PX * 0.56, LABEL_PX * 1.15);
   });
   // the picked plane last, so it lies over the rest
   let drawn = $derived(selected ? [...planes].sort((a, b) => Number(a.icao === selected) - Number(b.icao === selected)) : planes);
@@ -64,6 +68,7 @@
   let level = $derived(GROUNDS.find((g) => g.halfHKm >= halfKm) ?? GROUNDS[GROUNDS.length - 1]);
   let groundFrame = $derived<Frame>({ site: { lat, lon }, halfWKm: level.halfHKm * GROUND_RATIO, halfHKm: level.halfHKm });
   let ground = $state<{ url: string; frame: Frame } | null>(null);
+  let attrib = $derived(`${ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census${airports.length ? ' · OurAirports' : ''}`);
   $effect(() => {
     if (!palette) return;
     const f = groundFrame;
@@ -100,18 +105,6 @@
     {/each}
     <circle r={SITE_PX * kmPerPx} class="site" />
   {/if}
-  {#each airports as a (a.id)}
-    {@const l = labels.get(`@${a.id}`)}
-    <g class="airport" class:hit={a.hit} class:big={a.big}>
-      <title>{a.name}</title>
-      <!-- a ring crossed by a runway, the way aviation charts draw an airport -->
-      <g transform="translate({a.x} {a.y}) scale({(a.big ? 6 : 4.5) * kmPerPx})">
-        <circle r="1" />
-        <line x1="-0.7" y1="0.7" x2="0.7" y2="-0.7" />
-      </g>
-      {#if l}<text x={l.x} y={l.y} font-size={LABEL_PX * 0.9 * kmPerPx}>{a.label}</text>{/if}
-    </g>
-  {/each}
   {#each Object.entries(tracks).sort(([a], [b]) => Number(a === selected) - Number(b === selected)) as [icao, pieces] (icao)}
     <g class:dim={selected && icao !== selected}>
       {#each pieces as t, k (k)}
@@ -125,6 +118,18 @@
   {#if link}<line {...link} class="link" />{/if}
   {#each pins as p (`${p.x},${p.y}`)}
     <circle cx={p.x} cy={p.y} r={4 * kmPerPx} class="pin" />
+  {/each}
+  {#each airports as a (a.id)}
+    {@const l = labels.get(`@${a.id}`)}
+    <g class="airport" class:hit={a.hit} class:big={a.big}>
+      <title>{a.name}</title>
+      <!-- a ring crossed by a runway, the way aviation charts draw an airport -->
+      <g transform="translate({a.x} {a.y}) scale({(a.big ? 6 : 4.5) * kmPerPx})">
+        <circle r="1" />
+        <line x1="-0.7" y1="0.7" x2="0.7" y2="-0.7" />
+      </g>
+      {#if l}<text x={l.x} y={l.y} font-size={LABEL_PX * 0.9 * kmPerPx}>{a.label}</text>{/if}
+    </g>
   {/each}
   {#each drawn as p (p.icao)}
     {@const l = labels.get(p.icao)}
@@ -140,7 +145,7 @@
     </g>
   {/each}
 </svg>
-<span class="attrib">{ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census{#if airports.length} · OurAirports{/if}</span>
+<span class="attrib">{attrib}</span>
 
 <style>
   svg {

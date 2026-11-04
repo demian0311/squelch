@@ -258,31 +258,47 @@ export function airportLabel(a: Airport): string {
   return a.size === 'L' && a.city ? `${a.city} · ${code}` : code;
 }
 
-export type LabelSide = 'right' | 'left' | 'above' | 'below';
+export type LabelSide = 'right' | 'left' | 'above' | 'below' | 'right-above' | 'right-below' | 'left-above' | 'left-below';
 interface LabelItem {
   id: string;
   x: number;
   y: number;
   text: string;
+  /** the symbol's radius on screen, in pixels: the label keeps clear of it, and so does every other label */
+  r?: number;
+  /** text already on the map with its top left corner at x, y: labels keep clear of it, and it gets no entry */
+  fixed?: boolean;
 }
 
 /**
- * Where each label fits without covering another, first come first placed, so put what matters first. Sizes are in the
- * caller's units per on-screen pixel. A label with no room gets no entry; its plane still has its arrow and its row.
+ * Where each label fits without covering a symbol or another label, first come first placed, so put what matters
+ * first. Sizes are in the caller's units per on-screen pixel. A label with no room gets no entry; its plane still has
+ * its arrow and its row.
  */
 export function placeLabels(items: LabelItem[], unit: number, charPx = 6.2, heightPx = 13, offsetPx = 9): Map<string, { side: LabelSide; x: number; y: number }> {
   const out = new Map<string, { side: LabelSide; x: number; y: number }>();
   const taken: [number, number, number, number][] = [];
   const hits = (b: [number, number, number, number]) => taken.some((t) => b[0] < t[2] && b[2] > t[0] && b[1] < t[3] && b[3] > t[1]);
+  const h = heightPx * unit;
+  // every symbol and every fixed text is in the way before any label goes down
   for (const it of items) {
+    if (it.fixed) taken.push([it.x, it.y, it.x + it.text.length * charPx * unit, it.y + h]);
+    else if (it.r) taken.push([it.x - it.r * unit, it.y - it.r * unit, it.x + it.r * unit, it.y + it.r * unit]);
+  }
+  for (const it of items) {
+    if (it.fixed) continue;
     const w = it.text.length * charPx * unit;
-    const h = heightPx * unit;
-    const off = offsetPx * unit;
+    const off = (it.r ? it.r + 2 : offsetPx) * unit;
+    const d = off;
     const tries: [LabelSide, number, number][] = [
       ['right', it.x + off, it.y - h / 2],
       ['left', it.x - off - w, it.y - h / 2],
       ['above', it.x - w / 2, it.y - off - h],
       ['below', it.x - w / 2, it.y + off],
+      ['right-above', it.x + d, it.y - d - h],
+      ['right-below', it.x + d, it.y + d],
+      ['left-above', it.x - d - w, it.y - d - h],
+      ['left-below', it.x - d - w, it.y + d],
     ];
     for (const [side, x, y] of tries) {
       const box: [number, number, number, number] = [x, y, x + w, y + h];

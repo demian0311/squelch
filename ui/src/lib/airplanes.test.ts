@@ -112,6 +112,20 @@ describe('the map', () => {
     expect(p.get('d')?.side).toBe('below');
     expect(p.has('e')).toBe(false);
   });
+  it('keeps labels off symbols and fixed text', () => {
+    // a plane 12 px right of an airport ring: right of the plane is free, but left would cross the ring
+    const p = placeLabels([{ id: 'ring', x: 0, y: 0, text: 'MIA', r: 6 }, { id: 'p', x: 12, y: 0, text: 'AAL1', r: 10 }], 1);
+    expect(p.get('ring')?.side).toBe('left');
+    expect(p.get('p')?.side).toBe('right');
+    expect(p.get('p')?.x).toBe(24);
+    // text already drawn takes its room and gets no entry
+    const q = placeLabels([{ id: 'km', x: 10, y: -6, text: '50 km', fixed: true }, { id: 'p', x: 0, y: 0, text: 'AAL1' }], 1);
+    expect(q.has('km')).toBe(false);
+    expect(q.get('p')?.side).toBe('left');
+    // when the four sides are taken, a corner will do
+    const five = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, x: 0, y: 0, text: 'XX' }));
+    expect(placeLabels(five, 1).get('e')?.side).toBe('right-above');
+  });
   it('folds the aircraft bands into one entry', () => {
     const b = (id: string, decoder?: string) => ({ id, group: 'g', name: id, icon: 'x', mode: 'am', low_mhz: 1, high_mhz: 2, start_mhz: 1, decoder, bookmarks: [] });
     const plan = { groups: [{ id: 'g', name: 'G' }], bands: [b('air'), b('adsb', 'adsb'), b('acars', 'acars'), b('fm')] } as unknown as BandPlan;
