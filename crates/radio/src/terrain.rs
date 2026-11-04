@@ -38,7 +38,7 @@ fn read_used(path: &Path) -> Option<Vec<u8>> {
     Some(data)
 }
 
-fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     fs::create_dir_all(path.parent().unwrap())?;
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, data)?;

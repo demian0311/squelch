@@ -74,6 +74,7 @@ export interface MapPlane {
   stale: boolean;
   /** Emergency, advisory or transponder alert. */
   alarm: boolean;
+  alt_ft?: number | null;
 }
 
 /**
@@ -90,7 +91,7 @@ export function mapFrame(list: Aircraft[], site: Site | null, extra: TrackPoint[
   };
   const planes = placed.map((a) => {
     const [x, y] = toKm(centre, a.lon, a.lat);
-    return { icao: a.icao, name: aircraftName(a), x, y, heading: a.heading_deg, stale: (a.pos_age_s ?? Infinity) > STALE_POS_S, alarm: isAlarm(a) };
+    return { icao: a.icao, name: aircraftName(a), x, y, heading: a.heading_deg, stale: (a.pos_age_s ?? Infinity) > STALE_POS_S, alarm: isAlarm(a), alt_ft: a.alt_ft };
   });
   const far = Math.max(0, ...planes.map((p) => Math.max(Math.abs(p.x), Math.abs(p.y)) * 1.1), ...extra.map((p) => {
     const [x, y] = toKm(centre, p.lo, p.la);
@@ -154,6 +155,68 @@ export function trackPath(pts: TrackPoint[], centre: Site, gapKm = 40): string {
     prev = p;
   }
   return d;
+}
+
+/** Trail lines fade to nothing over this long; the picked plane's stays for `TRAIL_KEEP_MS`. */
+export const TRAIL_FADE_MS = 15 * 60 * 1000;
+const FADE_STEPS = 6;
+/** Fades move on this often, so a status that adds no point costs no drawing. */
+const FADE_TICK_MS = 60 * 1000;
+/** Lower to higher, warm to cool. Yellow means picked and red means alarm, so neither is here. */
+export const HEIGHT_BANDS = [
+  { under: 2000, label: 'under 2,000', color: 'var(--orange)' },
+  { under: 10000, label: '10,000', color: 'var(--green)' },
+  { under: 20000, label: '20,000', color: 'var(--cyan)' },
+  { under: 30000, label: '30,000', color: 'var(--accent)' },
+  { under: Infinity, label: 'higher', color: 'var(--magenta)' },
+];
+
+export function heightColor(ft: number | null | undefined): string {
+  if (ft === null || ft === undefined) return 'var(--fg-dim)';
+  return HEIGHT_BANDS.find((b) => ft < b.under)!.color;
+}
+
+export interface TrailPiece {
+  d: string;
+  color: string;
+  opacity: number;
+}
+
+/** A track as lines coloured by height and fading with age, joined where colour and fade are the same. */
+export function trailPieces(pts: TrackPoint[], centre: Site, nowMs: number, fadeMs = TRAIL_FADE_MS, gapKm = 40): TrailPiece[] {
+  const out: TrailPiece[] = [];
+  let open: TrailPiece | null = null;
+  for (let k = 1; k < pts.length; k++) {
+    const [a, b] = [pts[k - 1], pts[k]];
+    const left = 1 - (nowMs - b.t) / fadeMs;
+    const opacity = Number.isFinite(fadeMs) ? Math.ceil(left * FADE_STEPS) / FADE_STEPS : 1;
+    if (opacity <= 0 || kmBetween({ lat: a.la, lon: a.lo }, { lat: b.la, lon: b.lo }) > gapKm) {
+      open = null;
+      continue;
+    }
+    const color = heightColor(b.a ?? a.a);
+    const [x, y] = toKm(centre, b.lo, b.la);
+    const to = `L${x.toFixed(2)} ${y.toFixed(2)}`;
+    if (open && open.color === color && open.opacity === opacity) {
+      open.d += to;
+    } else {
+      const [x0, y0] = toKm(centre, a.lo, a.la);
+      open = { d: `M${x0.toFixed(2)} ${y0.toFixed(2)}${to}`, color, opacity };
+      out.push(open);
+    }
+  }
+  return out;
+}
+
+const pieceMemo = new WeakMap<TrackPoint[], { key: string; pieces: TrailPiece[] }>();
+/** `trailPieces`, kept per track: every status asks for all of them and almost none have changed. */
+export function trailPiecesKept(pts: TrackPoint[], centre: Site, nowMs: number, fadeMs = TRAIL_FADE_MS): TrailPiece[] {
+  const key = `${centre.lat},${centre.lon},${fadeMs},${Math.floor(nowMs / FADE_TICK_MS)}`;
+  const old = pieceMemo.get(pts);
+  if (old?.key === key) return old.pieces;
+  const pieces = trailPieces(pts, centre, nowMs, fadeMs);
+  pieceMemo.set(pts, { key, pieces });
+  return pieces;
 }
 
 export interface Fact {

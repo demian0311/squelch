@@ -1,6 +1,7 @@
 pub mod acars;
 pub mod adsb;
 pub mod airlog;
+pub mod planeinfo;
 pub mod audio;
 pub mod bands;
 pub mod demod;

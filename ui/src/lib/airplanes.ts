@@ -165,6 +165,22 @@ export function routeText(r: { from: string; to: string }, known: Airport[]): st
   return `${city(r.from)} → ${city(r.to)}`;
 }
 
+/** Public pages about one aircraft. A US tail starts with N and has an FAA record. */
+export function lookupLinks(icao: string, registration: string | null | undefined): { label: string; url: string }[] {
+  const reg = registration ?? '';
+  return [
+    ...(reg ? [{ label: 'FlightAware', url: `https://www.flightaware.com/resources/registration/${encodeURIComponent(reg)}` }] : []),
+    ...(/^N[0-9]/.test(reg) ? [{ label: 'FAA record', url: `https://registry.faa.gov/AircraftInquiry/Search/NNumberResult?nNumberTxt=${encodeURIComponent(reg)}` }] : []),
+    { label: 'Live map', url: `https://globe.adsbexchange.com/?icao=${icao.toLowerCase()}` },
+  ];
+}
+
+/** What a big airport is called on the map: its city, which a newcomer knows, with the code a pilot says. */
+export function airportLabel(a: Airport): string {
+  const code = a.iata || a.ident;
+  return a.size === 'L' && a.city ? `${a.city} · ${code}` : code;
+}
+
 export type LabelSide = 'right' | 'left' | 'above' | 'below';
 interface LabelItem {
   id: string;

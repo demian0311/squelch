@@ -443,6 +443,16 @@ export const iss = (location: string) => invoke<Iss>('iss', { location });
 /** The station's ground track, 45 min back to 100 min ahead. */
 export const issTrack = () => invoke<GroundPoint[]>('iss_track');
 /** One elevation tile (terrarium PNG) as a data URL, or null when neither cached nor downloadable. */
+export interface PlaneInfo {
+  known: boolean;
+  maker: string;
+  model: string;
+  owner: string;
+  registration: string;
+  photo: string | null;
+}
+export const planeInfo = (icao: string) => invoke<PlaneInfo | null>('plane_info', { icao });
+export const openLink = (url: string) => invoke<void>('open_link', { url });
 export const terrainTile = (z: number, x: number, y: number) => invoke<string | null>('terrain_tile', { z, x, y });
 /** A shaded local map saved on disk under `key`, or null. */
 export const ground = (key: string) => invoke<string | null>('ground', { key });

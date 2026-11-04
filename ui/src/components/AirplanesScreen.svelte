@@ -3,10 +3,10 @@
   // about it from every source. Covers `main`; App owns the radio and tells this screen whether it is listening.
   import AircraftMap from './AircraftMap.svelte';
   import * as api from '../lib/api';
-  import type { AcarsMessage, Aircraft, Airport, Flight, TrackPoint } from '../lib/api';
+  import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
-  import { aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, planeKind, trackPath, type Trails } from '../lib/adsb';
-  import { airportsFor, friendlyCallsign, isFrom, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
+  import { HEIGHT_BANDS, TRAIL_KEEP_MS, aircraftFacts, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, planeKind, trailPiecesKept, type Trails } from '../lib/adsb';
+  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -132,11 +132,25 @@
   function shortName(a: Aircraft | undefined): string | undefined {
     return a?.callsign ? friendlyCallsign(a.callsign) : undefined;
   }
-  let mapTrails = $derived.by(() => {
+  let mapTracks = $derived.by(() => {
     if (!frame) return {};
     const c = frame.centre;
-    if (flight) return { [flight.icao]: trackPath(track, c) };
-    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, trackPath(v, c)]));
+    const now = Date.now();
+    if (flight) return { [flight.icao]: trailPiecesKept(track, c, now, Infinity) };
+    return Object.fromEntries(Object.entries(trails).map(([k, v]) => [k, k === selected ? trailPiecesKept(v, c, now, TRAIL_KEEP_MS) : trailPiecesKept(v, c, now)]));
+  });
+  // a public database's answer for the plane opened, asked once per opening
+  let pickedIcao = $derived(picked?.a.icao ?? null);
+  let info = $state.raw<PlaneInfo | null>(null);
+  $effect(() => {
+    const icao = pickedIcao;
+    info = null;
+    if (!icao) return;
+    let stale = false;
+    api.planeInfo(icao).then((i) => {
+      if (!stale) info = i;
+    });
+    return () => (stale = true);
   });
   let mapAirports = $derived.by(() => {
     if (!frame) return [];
@@ -145,7 +159,7 @@
     return airportsFor(airports, frame.halfKm)
       .map((a) => {
         const [x, y] = toKm(c, a.lon, a.lat);
-        return { id: a.ident, label: a.iata || a.ident, name: a.name, x, y, big: a.size === 'L', hit: talk?.airport.ident === a.ident };
+        return { id: a.ident, label: airportLabel(a), name: a.name, x, y, big: a.size === 'L', hit: talk?.airport.ident === a.ident };
       })
       .filter((a) => Math.abs(a.x) < reach && Math.abs(a.y) < reach);
   });
@@ -181,11 +195,16 @@
   <div class="body">
     <div class="map" class:paused={!!listening}>
       {#if frame}
-        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} trails={mapTrails} {selected} onpick={pickPlane} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
+        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
       {:else}
         <p class="empty">Waiting for the first plane. Planes appear here once the radio hears one.</p>
       {/if}
       <div class="key">
+        {#if frame}
+          <span class="heights">Height, ft
+            {#each HEIGHT_BANDS as b (b.label)}<i style="background:{b.color}"></i>{b.label}{/each}
+          </span>
+        {/if}
         {#if talk}<span><i class="dash"></i>Probably talking to {talk.name}</span>{/if}
         {#if pins.length}<span class="pinkey">● Where its message said it was</span>{/if}
         {#if flight}<span>Path of {friendlyCallsign(flightName(flight))}</span>{/if}
@@ -207,6 +226,21 @@
               <div>
                 <h3>{planeName(a)}</h3>
                 <p class="dim sub copy">{[a.callsign, a.registration, planeKind(a.category)].filter(Boolean).join(' · ')}</p>
+              </div>
+              {#if info?.known}
+                <div class="about">
+                  {#if info.photo}<img src={info.photo} alt="" />{/if}
+                  <div>
+                    <b>{[info.maker, info.model].filter(Boolean).join(' ')}</b>
+                    {#if info.owner}<span class="dim">{info.owner}</span>{/if}
+                  </div>
+                </div>
+              {/if}
+              <div class="links">
+                <span class="dim">Look it up:</span>
+                {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
+                  <button class="linkish" onclick={() => api.openLink(l.url)}>{l.label}</button>
+                {/each}
               </div>
               {#if route}<p class="route">{routeText(route, routeAirports)}</p>{/if}
               {#if isAlarm(a)}<p class="alarm">{a.emergency ?? 'Alert from this plane'}</p>{/if}
@@ -401,6 +435,32 @@
   }
   .map.paused :global(svg) {
     opacity: 0.45;
+  }
+  .about {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .about img {
+    width: 96px;
+    border-radius: 4px;
+  }
+  .about div {
+    display: flex;
+    flex-direction: column;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    font-size: 12px;
+  }
+  .heights i {
+    display: inline-block;
+    width: 12px;
+    height: 3px;
+    margin: 0 4px 3px 10px;
+    border-radius: 2px;
   }
   .key {
     position: absolute;

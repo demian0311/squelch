@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AcarsMessage, Aircraft, Airport, BandPlan } from './api';
 import { planeKind } from './adsb';
-import { airportsFor, flightOf, friendlyCallsign, isFrom, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
+import { airportLabel, airportsFor, lookupLinks, flightOf, friendlyCallsign, isFrom, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
 
 const plane = (o: Partial<Aircraft> = {}): Aircraft => ({ icao: 'A00001', callsign: null, alt_ft: null, speed_kt: null, heading_deg: null, airspeed: false, vrate_fpm: null, lat: null, lon: null, age_s: 0, pos_age_s: 0, messages: 1, snr_db: 10, registration: null, country: null, category: null, squawk: null, emergency: null, advisory: false, alert: false, spi: false, on_ground: null, gnss_alt_ft: null, selected_alt_ft: null, selected_alt_fms: false, selected_heading_deg: null, baro_hpa: null, modes: [], adsb_version: null, ...o } as Aircraft);
 const msg = (o: Partial<AcarsMessage>): AcarsMessage => ({ id: 1, at_ms: 1, hz: 1, mode: '2', registration: 'N1', ack: null, label: 'H1', block_id: '1', more: false, msn: 'M01A', flight: 'XX1', text: '', ...o });
@@ -125,5 +125,21 @@ describe('planeKind', () => {
     expect(planeKind('Medium')).toBe('Medium plane');
     expect(planeKind('Helicopter')).toBe('Helicopter');
     expect(planeKind(null)).toBe('');
+  });
+});
+
+describe('lookupLinks', () => {
+  it('offers the FAA only for a US tail, and the live map always', () => {
+    expect(lookupLinks('A9C508', 'N729AN').map((l) => l.label)).toEqual(['FlightAware', 'FAA record', 'Live map']);
+    expect(lookupLinks('4CA123', 'EI-ABC').map((l) => l.label)).toEqual(['FlightAware', 'Live map']);
+    expect(lookupLinks('A9C508', null)).toEqual([{ label: 'Live map', url: 'https://globe.adsbexchange.com/?icao=a9c508' }]);
+  });
+});
+
+describe('airportLabel', () => {
+  const a = { ident: 'KMIA', iata: 'MIA', size: 'L', city: 'Miami' } as Airport;
+  it('names a big airport by its city', () => {
+    expect(airportLabel(a)).toBe('Miami · MIA');
+    expect(airportLabel({ ...a, iata: 'OPF', size: 'M' })).toBe('OPF');
   });
 });

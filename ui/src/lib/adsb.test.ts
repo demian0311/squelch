@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Aircraft, Flight } from './api';
-import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath, trailPath } from './adsb';
+import { TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, TRAIL_FADE_MS, extendTrails, heightColor, trailPieces, filterFlights, flightDays, flightLine, fmtClimb, isAlarm, mapFrame, pickedFirst, trackPath, trailPath } from './adsb';
 
 const plane = (icao: string, o: Partial<Aircraft> = {}): Aircraft => ({
   icao,
@@ -151,5 +151,35 @@ describe('trailPath', () => {
     const longer = [...pts, { t: 2, la: 25.2, lo: -80.2 }];
     expect(trailPath(longer, { lat: 25, lon: -80 })).not.toBe(a);
     expect(trailPath(pts, { lat: 25, lon: -80 })).toBe(a);
+  });
+});
+
+describe('trailPieces', () => {
+  const centre = { lat: 26, lon: -80 };
+  const now = 10_000_000;
+  const at = (minsAgo: number, a?: number, la = 26 + minsAgo / 100) => ({ t: now - minsAgo * 60_000, la, lo: -80, ...(a !== undefined ? { a } : {}) });
+
+  it('colours each stretch by its height', () => {
+    expect(heightColor(1000)).toBe('var(--orange)');
+    expect(heightColor(35000)).toBe('var(--magenta)');
+    expect(heightColor(null)).toBe('var(--fg-dim)');
+    const p = trailPieces([at(1, 1000), at(0.8, 1500), at(0.5, 5000)], centre, now);
+    expect(p.map((x) => x.color)).toEqual(['var(--orange)', 'var(--green)']);
+  });
+
+  it('older lines are fainter and past the fade are gone', () => {
+    const p = trailPieces([at(20, 1000), at(16, 1000), at(12, 1000), at(0.1, 1000)], centre, now);
+    expect(p).toHaveLength(2);
+    expect(p[0].opacity).toBeLessThan(p[1].opacity);
+    expect(p[1].opacity).toBe(1);
+    expect(trailPieces([at(TRAIL_FADE_MS / 60000 + 5, 1000), at(TRAIL_FADE_MS / 60000 + 1, 1000)], centre, now)).toEqual([]);
+  });
+
+  it('keeps every line at full strength when there is no fade', () => {
+    expect(trailPieces([at(500, 1000, 26), at(400, 1000, 26.1)], centre, now, Infinity)[0].opacity).toBe(1);
+  });
+
+  it('lifts the pen over a stretch not heard', () => {
+    expect(trailPieces([at(2, 1000, 26), at(1, 1000, 28)], centre, now)).toEqual([]);
   });
 });

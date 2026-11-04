@@ -409,6 +409,20 @@ async fn air_messages(days: u64, max: usize) -> Vec<radio::acars::Message> {
     tauri::async_runtime::spawn_blocking(move || radio::airlog::dir().map(|d| radio::airlog::messages(&d, since, max)).unwrap_or_default()).await.unwrap_or_default()
 }
 
+/// What a public database knows about a plane, by address; null when offline.
+#[tauri::command]
+async fn plane_info(icao: String) -> Option<radio::planeinfo::PlaneInfo> {
+    tauri::async_runtime::spawn_blocking(move || radio::planeinfo::lookup(&icao)).await.ok().flatten()
+}
+
+/// Opens a public web page in the user's browser, best effort.
+#[tauri::command]
+fn open_link(url: String) {
+    if url.starts_with("https://") {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}
+
 /// One elevation tile for the local map, as a data URL; null when it is neither cached nor downloadable.
 #[tauri::command]
 async fn terrain_tile(z: u8, x: u32, y: u32) -> Option<String> {
@@ -526,7 +540,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, plane_info, open_link, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_hd, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   // Aircraft with a position, around the listener (or around themselves without a location): state lines,
   // highways, distance rings and an arrow per aircraft along its track.
-  import type { MapPlane } from '../lib/adsb';
+  import { heightColor, type MapPlane, type TrailPiece } from '../lib/adsb';
   import { placeLabels } from '../lib/airplanes';
   import { GROUNDS, loadGround } from '../lib/ground';
   import { linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
@@ -14,6 +14,8 @@
     here: boolean;
     /** where aircraft have been, an SVG path in km per address */
     trails?: Record<string, string>;
+    /** where aircraft have been, coloured by height and fading with age; takes the place of `trails` */
+    tracks?: Record<string, TrailPiece[]>;
     selected?: string | null;
     onpick?: (icao: string) => void;
     airports?: { id: string; label: string; name: string; x: number; y: number; big: boolean; hit: boolean }[];
@@ -24,12 +26,14 @@
     /** shaded terrain under it all, in these colours */
     palette?: Palette;
   }
-  let { planes, centre, halfKm, here, trails = {}, selected = null, onpick, airports = [], link = null, pins = [], palette }: Props = $props();
+  let { planes, centre, halfKm, here, trails = {}, tracks = {}, selected = null, onpick, airports = [], link = null, pins = [], palette }: Props = $props();
 
   // arrows and labels keep their size on screen whatever the panel's
-  const ARROW_PX = 7;
+  const ARROW_PX = 10;
   const LABEL_PX = 11;
   const SITE_PX = 4;
+  // seen from above, nose up, about one unit from the middle to the nose
+  const PLANE = 'M0 -1C.07 -1 .12 -.88 .12 -.72L.12 -.28 .95 .24 .95 .42 .12 .16 .1 .62 .38 .84 .38 .97 0 .86 -.38 .97 -.38 .84 -.1 .62 -.12 .16 -.95 .42 -.95 .24 -.12 -.28 -.12 -.72C-.12 -.88 -.07 -1 0 -1Z';
   let box = $state<DOMRectReadOnly | undefined>();
   let kmPerPx = $derived(box?.width && box.height ? (2 * halfKm) / Math.min(box.width, box.height) : 1);
 
@@ -97,9 +101,18 @@
     {@const l = labels.get(`@${a.id}`)}
     <g class="airport" class:hit={a.hit} class:big={a.big}>
       <title>{a.name}</title>
-      <rect x={a.x - 2.5 * kmPerPx} y={a.y - 2.5 * kmPerPx} width={5 * kmPerPx} height={5 * kmPerPx} />
+      <!-- a ring crossed by a runway, the way aviation charts draw an airport -->
+      <g transform="translate({a.x} {a.y}) scale({(a.big ? 6 : 4.5) * kmPerPx})">
+        <circle r="1" />
+        <line x1="-0.7" y1="0.7" x2="0.7" y2="-0.7" />
+      </g>
       {#if l}<text x={l.x} y={l.y} font-size={LABEL_PX * 0.9 * kmPerPx}>{a.label}</text>{/if}
     </g>
+  {/each}
+  {#each Object.entries(tracks) as [icao, pieces] (icao)}
+    {#each pieces as t, k (k)}
+      <path d={t.d} class="track" class:picked={icao === selected} style="stroke:{t.color};opacity:{t.opacity}" />
+    {/each}
   {/each}
   {#each Object.entries(trails) as [icao, d] (icao)}
     <path {d} class="trail" class:picked={icao === selected} />
@@ -111,10 +124,10 @@
   {#each planes as p (p.icao)}
     {@const l = labels.get(p.icao)}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale} class:alarm={p.alarm} class:picked={p.icao === selected} onclick={() => onpick?.(p.icao)}>
+    <g transform="translate({p.x} {p.y})" class="plane" class:stale={p.stale} class:alarm={p.alarm} class:picked={p.icao === selected} style="--height:{heightColor(p.alt_ft)}" onclick={() => onpick?.(p.icao)}>
       <title>{p.name}</title>
       {#if p.heading !== null}
-        <path d="M0 -1L0.7 0.8L0 0.4L-0.7 0.8Z" transform="rotate({p.heading}) scale({ARROW_PX * kmPerPx})" class="arrow" />
+        <path d={PLANE} transform="rotate({p.heading}) scale({ARROW_PX * kmPerPx})" class="arrow" />
       {:else}
         <circle r={ARROW_PX * 0.5 * kmPerPx} class="arrow" />
       {/if}
@@ -131,17 +144,35 @@
     height: 100%;
     background: var(--bg-darker);
   }
-  .airport rect {
-    fill: var(--fg-dim);
+  .airport circle {
+    fill: var(--bg-darker);
+    stroke: var(--fg-dim);
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
+  }
+  .airport line {
+    stroke: var(--fg-dim);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
   }
   .airport text {
     fill: var(--fg-dim);
+    paint-order: stroke;
+    stroke: var(--bg-darker);
+    stroke-width: 3;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
   }
-  .airport.big rect {
-    fill: var(--fg);
+  .airport.big circle,
+  .airport.big line {
+    stroke: var(--fg-bright);
   }
-  .airport.hit rect {
-    fill: var(--yellow);
+  .airport.big text {
+    fill: var(--fg-bright);
+  }
+  .airport.hit circle,
+  .airport.hit line {
+    stroke: var(--yellow);
   }
   .airport.hit text {
     fill: var(--yellow);
@@ -198,6 +229,16 @@
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
+  .track {
+    fill: none;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .track.picked {
+    stroke-width: 2.5;
+  }
   .trail {
     fill: none;
     stroke: var(--accent);
@@ -214,7 +255,7 @@
     cursor: pointer;
   }
   .arrow {
-    fill: var(--accent);
+    fill: var(--height, var(--accent));
     stroke: var(--bg-darker);
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
@@ -227,6 +268,11 @@
   }
   .label {
     fill: var(--fg-bright);
+    paint-order: stroke;
+    stroke: var(--bg-darker);
+    stroke-width: 3;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
   }
   .stale {
     opacity: 0.45;
