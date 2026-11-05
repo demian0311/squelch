@@ -179,9 +179,11 @@ export interface Talk {
   /** "Miami Approach". */
   name: string;
   why: string;
+  /** the whole airport: the radio moves to whichever channel in the capture is busy */
+  follow?: boolean;
 }
 
-const KIND_WORD: Record<string, string> = { TWR: 'Tower', GND: 'Ground', APP: 'Approach', DEP: 'Departure', 'A/D': 'Approach', CTAF: 'traffic channel', UNIC: 'traffic channel' };
+const KIND_WORD: Record<string, string> = { TWR: 'Tower', GND: 'Ground', APP: 'Approach', DEP: 'Departure', 'A/D': 'Approach', CTAF: 'traffic channel', UNIC: 'traffic channel', LOW: 'Low sectors', HIGH: 'High sectors', 'LOW/HIGH': 'All heights', 'ULTRA-HIGH': 'Very high' };
 const titleCase = (s: string) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
 /**
@@ -213,8 +215,12 @@ export function hearingSay(h: Hearing, nowMs: number): string {
   return `${h.calls} ${h.calls === 1 ? 'call' : 'calls'} heard, the last ${ago}`;
 }
 
-/** Above this planes talk to en-route controllers, and which one depends on sectors the list does not hold. */
+/** Above this planes talk to the en-route centre; which sector is not in any list, so the nearest site's channels are offered whole. */
 const TOO_HIGH_FT = 18000;
+/** From here up the centre's high sectors; the FAA's split at FL240. */
+const HIGH_FT = 24000;
+/** A centre site further than this is not the one talking to the plane. */
+const CENTER_KM = 400;
 /** Low and this close is the tower's. */
 const TOWER_KM = 12;
 const TOWER_FT = 2500;
@@ -227,10 +233,10 @@ export function talkGuess(a: Aircraft, airports: Airport[], to: string | null): 
   if (a.lat === null || a.lon === null) return null;
   const at = { lat: a.lat, lon: a.lon };
   const ft = a.alt_ft ?? 0;
-  if (ft > TOO_HIGH_FT) return null;
   const km = (x: Airport) => kmBetween(at, { lat: x.lat, lon: x.lon });
+  if (ft > TOO_HIGH_FT) return centerGuess(a, airports.filter((x) => x.size === 'C' && km(x) < CENTER_KM).sort((x, y) => km(x) - km(y))[0], ft);
   const big = BIG_PLANE.test(a.category ?? '');
-  const candidates = airports.filter((x) => km(x) < NEAR_KM && x.channels.length && (!big || x.size !== 'S'));
+  const candidates = airports.filter((x) => x.size !== 'C' && km(x) < NEAR_KM && x.channels.length && (!big || x.size !== 'S'));
   const dest = to ? candidates.find((x) => x.ident === to || x.iata === to) : undefined;
   const home = dest ?? candidates.slice().sort((x, y) => (big ? rank(x) - rank(y) : 0) || km(x) - km(y))[0];
   if (!home) return null;
@@ -248,6 +254,16 @@ export function talkGuess(a: Aircraft, airports: Airport[], to: string | null): 
   return null;
 }
 const rank = (x: Airport) => (x.size === 'L' ? 0 : x.size === 'M' ? 1 : 2);
+/** A high plane: the centre through its nearest site, the sectors for its height first; the radio follows the busy one. */
+function centerGuess(a: Aircraft, site: Airport | undefined, ft: number): Talk | null {
+  if (!site) return null;
+  const high = ft >= HIGH_FT;
+  const fits = (c: AirportChannel) => c.kind === 'LOW/HIGH' || (high ? c.kind === 'HIGH' || c.kind === 'ULTRA-HIGH' : c.kind === 'LOW');
+  const first = site.channels.find(fits) ?? site.channels[0];
+  if (!first) return null;
+  const centre = first.name;
+  return { airport: site, channel: first, name: `${centre} Center`, why: `Above ${TOO_HIGH_FT.toLocaleString('en-US')} ft planes talk to ${centre} Center; its ${site.city} site is the nearest, and the radio plays whichever of its channels is busy`, follow: true };
+}
 
 /** Airports worth drawing at this map size: small fields only once zoomed in. */
 export function airportsFor(airports: Airport[], halfKm: number): Airport[] {
@@ -333,4 +349,74 @@ export function placeLabels(items: LabelItem[], unit: number, charPx = 6.2, heig
     }
   }
   return out;
+}
+
+// ── the airport's channels: which fit the radio, which are busy, which have given calls ──
+
+/** A carrier this close to a channel is the channel: AM voice is about 6 kHz wide, channels 25 kHz apart. */
+export const CHANNEL_TOL_HZ = 8_000;
+/** What to keep in the capture when the airport's channels do not all fit: a tower and an approach before ground. */
+const KIND_WEIGHT: Record<string, number> = { TWR: 3, APP: 3, 'A/D': 3, DEP: 2, CTAF: 2, GND: 1, UNIC: 1, HIGH: 2, LOW: 2, 'LOW/HIGH': 2, 'ULTRA-HIGH': 1 };
+const weight = (c: AirportChannel) => KIND_WEIGHT[c.kind] ?? 0;
+export const channelKey = (c: AirportChannel) => c.mhz.toFixed(3);
+
+export const busyAt = (mhz: number, signals: { hz: number }[]) => signals.some((s) => Math.abs(s.hz - mhz * 1e6) <= CHANNEL_TOL_HZ);
+
+/** The channels one capture holds at once, the window worth the most; Miami's tower, departure and approach span more than it. */
+export function airportWindow(a: Airport, halfHz: number): AirportChannel[] {
+  const by = a.channels.slice().sort((x, y) => x.mhz - y.mhz);
+  let best: AirportChannel[] = [];
+  let bestWeight = -1;
+  for (let i = 0; i < by.length; i++) {
+    const w = by.filter((c) => c.mhz >= by[i].mhz && c.mhz * 1e6 <= by[i].mhz * 1e6 + 2 * halfHz);
+    const sum = w.reduce((s, c) => s + weight(c), 0);
+    if (sum > bestWeight) { best = w; bestWeight = sum; }
+  }
+  return best.slice().sort((x, y) => weight(y) - weight(x) || x.mhz - y.mhz);
+}
+
+export interface CallLog { calls: number; lastAt: number }
+/** One more call for every channel that just went busy. The same object back when nothing changed. */
+export function countCalls(log: Record<string, CallLog>, busyNow: string[], wasBusy: Set<string>, now: number): Record<string, CallLog> {
+  const fresh = busyNow.filter((k) => !wasBusy.has(k));
+  if (!fresh.length) return log;
+  const next = { ...log };
+  for (const k of fresh) next[k] = { calls: (log[k]?.calls ?? 0) + 1, lastAt: now };
+  return next;
+}
+
+export interface ChannelRow {
+  channel: AirportChannel;
+  /** "Tower", "Approach" */
+  word: string;
+  /** the radio can hear it where it sits now */
+  inReach: boolean;
+  busy: boolean;
+  calls: number;
+  lastAt: number | null;
+}
+/** The airport's channels as the card shows them: the useful ones first, each with its light and its count. */
+export function channelRows(a: Airport, capture: { center: number; half: number } | null, signals: { hz: number }[], log: Record<string, CallLog>): ChannelRow[] {
+  const inReach = (c: AirportChannel) => !!capture && Math.abs(c.mhz * 1e6 - capture.center) <= capture.half;
+  return a.channels
+    .slice()
+    .sort((x, y) => weight(y) - weight(x) || x.mhz - y.mhz)
+    .map((c) => ({ channel: c, word: KIND_WORD[c.kind] ?? c.kind, inReach: inReach(c), busy: inReach(c) && busyAt(c.mhz, signals), calls: log[channelKey(c)]?.calls ?? 0, lastAt: log[channelKey(c)]?.lastAt ?? null }));
+}
+
+/** Hearing the airport: when the tuned channel is quiet and another in the window is busy, that one. Null to stay. */
+export function followChannel(tuned: AirportChannel, window: AirportChannel[], signals: { hz: number }[], tunedTalking: boolean): AirportChannel | null {
+  if (tunedTalking) return null;
+  return window.find((c) => c.mhz !== tuned.mhz && busyAt(c.mhz, signals)) ?? null;
+}
+
+/** Listening to an airport, not one channel: the strip's name and why. */
+export function airportTalk(a: Airport, halfHz: number): Talk | null {
+  const w = airportWindow(a, halfHz);
+  if (!w.length) return null;
+  const words = w.map((c) => (KIND_WORD[c.kind] ?? c.kind).toLowerCase());
+  const out = a.channels.filter((c) => !w.includes(c)).map((c) => (KIND_WORD[c.kind] ?? c.kind).toLowerCase());
+  const list = (xs: string[]) => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0];
+  const why = `Whichever of its channels is busy: ${list(words)} fit the radio at once${out.length ? `; ${list(out)} ${out.length > 1 ? 'are' : 'is'} out of its reach from here` : ''}`;
+  return { airport: a, channel: w[0], name: a.size === 'C' ? a.name : `${airportShort(a)} airport`, why, follow: true };
 }

@@ -3,7 +3,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
-  import type { Band, BandPlan, GroundPoint, Iss, IssPass, Mode, Setup, Status, Theme } from './lib/api';
+  import type { Airport, Band, BandPlan, GroundPoint, Iss, IssPass, Mode, Setup, Status, Theme } from './lib/api';
   import { MODE_NAMES, allBookmarks, bandAt, readFrequency, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
@@ -28,7 +28,7 @@
   import EmsScreen from './components/EmsScreen.svelte';
   import Talkgroups from './components/Talkgroups.svelte';
   import DmrPanel from './components/DmrPanel.svelte';
-  import { AIR_TURNS, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
+  import { AIR_TURNS, airportTalk, airportWindow, followChannel, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
@@ -595,10 +595,39 @@
     airHearing = { talking: false, calls: 0, lastAt: null };
     tuned = Math.round(t.channel.mhz * 1e6);
     mode = 'am';
-    vs = tuned - span / 2;
-    ve = tuned + span / 2;
+    if (t.follow) {
+      // the view covers every channel the capture holds, so the radio can move between them without retuning the dongle
+      const w = airportWindow(t.airport, rate * 0.45).map((c) => c.mhz * 1e6);
+      const pad = Math.max(50_000, (span - (Math.max(...w) - Math.min(...w))) / 2);
+      vs = Math.min(...w) - pad;
+      ve = Math.max(...w) + pad;
+    } else {
+      vs = tuned - span / 2;
+      ve = tuned + span / 2;
+    }
     if (!playing) togglePlay();
   }
+  /** Hearing the airport: whichever of its channels in the capture is busy. */
+  function listenAirport(a: Airport) {
+    const t = airportTalk(a, rate * 0.45);
+    if (t) listenTo(t);
+  }
+  // the radio moves to a busy channel once the tuned one has been quiet a moment, never mid-call
+  const FOLLOW_HOLD_MS = 1500;
+  let followedAt = 0;
+  $effect(() => {
+    const t = airListen;
+    const s = status;
+    if (!t?.follow || !s || !playing) return;
+    if (Date.now() - followedAt < FOLLOW_HOLD_MS) return;
+    const next = followChannel(t.channel, airportWindow(t.airport, rate * 0.45), s.signals, s.squelch_open === true);
+    if (!next) return;
+    followedAt = Date.now();
+    untrack(() => {
+      airListen = { ...t, channel: next };
+      tuned = Math.round(next.mhz * 1e6);
+    });
+  });
 
   let acarsOn = $derived(band?.decoder === 'acars' || airWatching);
   // the engine sends only the last few seconds; the list is kept here
@@ -1867,7 +1896,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if emsScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />

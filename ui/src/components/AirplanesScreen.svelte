@@ -9,8 +9,9 @@
   import type { AcarsMessage, Aircraft, Airport, Flight, PlaneInfo, TrackPoint } from '../lib/api';
   import { acarsTime, filterMessages } from '../lib/acars';
   import { compassLetters, compassWord } from '../lib/radio';
+  import { kmBetween } from '../lib/repeaters';
   import { HEIGHT_BANDS, aircraftFacts, fmtClimb, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
-  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, hearingSay, type Hearing, type Talk } from '../lib/airplanes';
+  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, hearingSay, channelKey, channelRows, countCalls, type CallLog, type Hearing, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -23,17 +24,21 @@
     listening: Talk | null;
     /** what the channel has given since Listen */
     hearing: Hearing;
+    /** carriers the radio sees in its capture now, and where the capture sits: lights on the airport's channels */
+    signals: { hz: number }[];
+    capture: { center: number; half: number };
     playing: boolean;
     recording: boolean;
     /** The record button's blink: lit on even seconds while recording. */
     recLit: boolean;
     palette: Palette;
     onListen: (t: Talk) => void;
+    onListenAirport: (a: Airport) => void;
     onStopListening: () => void;
     onRecord: () => void;
     onSettings: () => void;
   }
-  let { live, messages, waterfall, trails, site, listening, hearing, playing, recording, recLit, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, hearing, signals, capture, playing, recording, recLit, palette, onListen, onListenAirport, onStopListening, onRecord, onSettings }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -101,6 +106,23 @@
   let route = $derived(routeOf(itsMessages));
   let routeAirports = $state<Airport[]>([]);
   let knownAirports = $derived([...airports, ...routeAirports]);
+  // calls per channel while the radio sits on the air band: a channel going busy is one call
+  let callLog = $state<Record<string, CallLog>>({});
+  let wasBusy = new Set<string>();
+  $effect(() => {
+    const busy = airports.flatMap((a) => channelRows(a, capture, signals, {}).filter((r) => r.busy).map((r) => channelKey(r.channel)));
+    callLog = countCalls(untrack(() => callLog), busy, wasBusy, Date.now());
+    wasBusy = new Set(busy);
+  });
+  /** the airport whose card is open: click one on the map */
+  let airportPick = $state<string | null>(null);
+  let pickedAirport = $derived(airportPick ? knownAirports.find((a) => a.ident === airportPick) ?? null : null);
+  function pickAirport(id: string) {
+    airportPick = airportPick === id ? null : id;
+    if (airportPick) { pickId = null; tab = 'now'; list_el?.scrollTo(0, 0); }
+  }
+  const NEAR_AIRPORT_KM = 30;
+  let nearAirport = $derived(pickedAirport ? rows.filter((r) => r.a.lat !== null && kmBetween({ lat: r.a.lat!, lon: r.a.lon! }, pickedAirport!) < NEAR_AIRPORT_KM) : []);
   $effect(() => {
     if (route) api.airportsByCode([route.from, route.to]).then((a) => (routeAirports = a));
   });
@@ -109,6 +131,7 @@
   let pins = $derived(pinned ? positionsIn(pinned) : []);
   function pickPlane(icao: string) {
     pickId = pickId === icao ? null : icao;
+    airportPick = null;
     list_el?.scrollTo(0, 0);
     pickedMessage = null;
     msgsOpen = false;
@@ -224,6 +247,21 @@
   </span>
 {/snippet}
 
+{#snippet chips(a: Airport)}
+  <!-- the airport's channels: a light while a carrier is on one, the calls counted since the band opened -->
+  <div class="chips">
+    {#each channelRows(a, capture, signals, callLog) as r (r.channel.mhz)}
+      {@const on = listening?.channel.mhz === r.channel.mhz}
+      <button class="chip" class:busy={r.busy} class:on={on} class:far={!r.inReach} onclick={() => onListen({ airport: a, channel: r.channel, name: `${r.word === 'traffic channel' ? r.word : `${a.name} ${r.word}`}`, why: 'You picked it' })} title={r.inReach ? (r.busy ? 'Someone is on it now' : 'Quiet now') : 'Out of the radio\'s reach where it sits; click to move there'}>
+        <i></i>{r.word} <span class="mono">{r.channel.mhz.toFixed(r.channel.mhz * 1000 % 10 ? 3 : 2)}</span>{#if r.calls}<small>{r.calls}</small>{/if}
+      </button>
+    {/each}
+    {#if !listening?.follow || listening.airport.ident !== a.ident}
+      <button class="chip hear" onclick={() => onListenAirport(a)} title="Play whichever of its channels is busy">{a.size === 'C' ? 'Hear the centre site' : 'Hear the airport'}</button>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="air">
   <div class="body">
     <div class="map" class:paused={!!listening}>
@@ -233,14 +271,15 @@
           <i class="level" class:on={hearing.talking}></i>
           <div class="what">
             <b>Listening to {listening.name} <span class="mono dim">{listening.channel.mhz.toFixed(3)} MHz</span></b>
-            <span>{listening.why}. Every plane on this channel, not only that one. {hearingSay(hearing, nowMs)}.</span>
+            <span>{listening.why}. {listening.follow ? '' : 'Every plane on this channel, not only that one. '}{hearingSay(hearing, nowMs)}.</span>
+            {#if listening.follow}{@render chips(listening.airport)}{/if}
           </div>
           <button class="stop" onclick={onStopListening}>Stop listening</button>
         </div>
       {/if}
       <div class="mapbody">
       {#if frame}
-        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} onclear={() => { if (pickId) pickPlane(pickId); }} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
+        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} onclear={() => { if (pickId) pickPlane(pickId); }} airports={mapAirports} onairport={pickAirport} link={mapLink} pins={mapPins} {palette} />
       {:else}
         <p class="empty">Waiting for the first plane. Planes appear here once the radio hears one.</p>
       {/if}
@@ -266,6 +305,23 @@
       </div>
       <div class="scroll" bind:this={list_el}>
         {#if tab === 'now'}
+          {#if pickedAirport}
+            <div class="aircard">
+              <button class="row picked" onclick={() => pickAirport(pickedAirport!.ident)}>
+                <b>{pickedAirport.name}</b>
+                <span class="r mono">{pickedAirport.iata || pickedAirport.ident}</span>
+                <span class="chev"><Icon name="chevronDown" size={14} /></span>
+                <small class="line">{pickedAirport.city}{nearAirport.length ? ` · ${nearAirport.length} ${nearAirport.length === 1 ? 'plane' : 'planes'} within ${NEAR_AIRPORT_KM} km` : ''}</small>
+              </button>
+              <div class="card">
+                {#if pickedAirport.channels.length}
+                  {@render chips(pickedAirport)}
+                {:else}
+                  <span class="dim">No channels listed for this airport</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
           {#each pickedFirst(rows, pickId) as r (r.a.icao)}
               {@const open = r.a.icao === pickId}
               <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
@@ -324,7 +380,7 @@
                     </button>
                   {/if}
                 {:else}
-                  <span class="dim" title={(a.alt_ft ?? 0) > 18000 ? 'Planes this high talk to controllers this list does not cover' : 'No channel known for here'}><Icon name="tower" size={13} />{(a.alt_ft ?? 0) > 18000 ? 'too high for a channel' : 'no channel known'}</span>
+                  <span class="dim" title={(a.alt_ft ?? 0) > 18000 ? 'Planes this high talk to a centre, and no centre site is within reach of here' : 'No channel known for here'}><Icon name="tower" size={13} />no channel known</span>
                 {/if}
                 {#if itsMessages.length}
                   <button class="fold" class:on={msgsOpen} onclick={() => (msgsOpen = !msgsOpen)}><Icon name="msg" size={13} />{itsMessages.length} {itsMessages.length === 1 ? 'message' : 'messages'}</button>
@@ -333,6 +389,7 @@
                 {/if}
                 <button class="fold more" class:on={moreOpen} onclick={() => (moreOpen = !moreOpen)}>More<Icon name={moreOpen ? 'chevronDown' : 'chevronRight'} size={13} /></button>
               </div>
+              {#if talk}{@render chips(talk.airport)}{/if}
               {#if msgsOpen && itsMessages.length}
               <div class="sec">
                 {#each itsMessages as m (m.at_ms + ':' + m.id)}
@@ -463,6 +520,51 @@
   .strip .what span {
     font-size: 12px;
     color: var(--fg-dim);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border: 1px solid var(--muted);
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .chip i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .chip.busy i {
+    background: var(--green);
+  }
+  .chip.on {
+    border-color: var(--accent);
+  }
+  .chip.far {
+    opacity: 0.55;
+  }
+  .chip small {
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .chip.hear {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .aircard .card {
+    padding-top: 4px;
   }
   .strip .stop {
     font: inherit;

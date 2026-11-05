@@ -18,6 +18,8 @@
     tracks?: Record<string, TrailPiece[]>;
     selected?: string | null;
     onpick?: (icao: string) => void;
+    /** an airport was clicked: its card opens */
+    onairport?: (id: string) => void;
     /** a click on the map away from every plane */
     onclear?: () => void;
     airports?: { id: string; label: string; name: string; x: number; y: number; big: boolean; hit: boolean }[];
@@ -28,7 +30,7 @@
     /** shaded terrain under it all, in these colours */
     palette?: Palette;
   }
-  let { planes, centre, halfKm, here, trails = {}, tracks = {}, selected = null, onpick, onclear, airports = [], link = null, pins = [], palette }: Props = $props();
+  let { planes, centre, halfKm, here, trails = {}, tracks = {}, selected = null, onpick, onairport, onclear, airports = [], link = null, pins = [], palette }: Props = $props();
 
   // arrows and labels keep their size on screen whatever the panel's
   const ARROW_PX = 10;
@@ -125,8 +127,9 @@
   {/each}
   {#each airports as a (a.id)}
     {@const l = labels.get(`@${a.id}`)}
-    <g class="airport" class:hit={a.hit} class:big={a.big}>
-      <title>{a.name}</title>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <g class="airport" class:hit={a.hit} class:big={a.big} class:clickable={!!onairport} onclick={(e) => { e.stopPropagation(); onairport?.(a.id); }}>
+      <title>{a.name}: click for its channels</title>
       <!-- a ring crossed by a runway, the way aviation charts draw an airport -->
       <g transform="translate({a.x} {a.y}) scale({(a.big ? 6 : 4.5) * kmPerPx})">
         <circle r="1" />

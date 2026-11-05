@@ -457,7 +457,8 @@ export interface AirportChannel {
 export interface Airport {
   ident: string;
   iata: string;
-  size: 'L' | 'M' | 'S';
+  /** C: an en-route centre's radio site, not an airport */
+  size: 'L' | 'M' | 'S' | 'C';
   lat: number;
   lon: number;
   name: string;
