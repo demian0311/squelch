@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BandPlan } from './api';
-import { addLine, cellsToPixels, emsRanges, oneEms, railId, stripHz, stripPick, stripSay, stripSections, stripX, STRIP_ROWS, type LookLine } from './ems';
+import { addLine, cellsToPixels, emsRanges, oneEms, railId, stripHz, stripPick, stripSay, stripSections, stripX, voiceHeard, STRIP_ROWS, type LookLine } from './ems';
 
 const band = (id: string, low: number, high: number) => ({ id, group: 'safety', name: id, low_mhz: low, high_mhz: high, start_mhz: low, mode: 'p25' }) as BandPlan['bands'][number];
 const plan = { groups: [{ id: 'safety', name: 'Public safety' }], bands: [band('fm', 88, 108), band('ps700', 769, 775), band('ps800', 851, 869)] } as unknown as BandPlan;
@@ -79,5 +79,22 @@ describe('the strip', () => {
     expect(stripSay(false, 0, null)).toMatch(/first check/);
     expect(stripSay(false, 2, 12)).toMatch(/12 s ago/);
     expect(stripSay(false, 2, 120)).toMatch(/2 min ago/);
+  });
+});
+
+describe('voiceHeard', () => {
+  // cell 235 of 1440 over 851-869 MHz is 853.94 MHz; cells are 12.5 kHz
+  it('lists carriers on in some looks but not most, and skips what is always on', () => {
+    const lines = [line(4, { 100: 150, 235: 200 }), line(3, { 100: 150 }), line(2, { 100: 150, 235: 180, 236: 120 }), line(1, { 100: 150 })];
+    const v = voiceHeard(lines);
+    expect(v.map((x) => [Math.round(x.hz), x.seen, x.of, x.ago, x.level])).toEqual([[853_943_750, 2, 4, 0, 200]]);
+  });
+  it('needs a few lines first', () => {
+    expect(voiceHeard([line(2, { 235: 200 }), line(1)])).toEqual([]);
+  });
+  it('folds the cells of one carrier into its strongest', () => {
+    const v = voiceHeard([line(3, { 235: 150, 236: 210 }), line(2), line(1)]);
+    expect(v.length).toBe(1);
+    expect(Math.round(v[0].hz)).toBe(853_956_250);
   });
 });

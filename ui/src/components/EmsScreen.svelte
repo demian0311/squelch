@@ -5,8 +5,9 @@
   import Icon from './Icon.svelte';
   import Talkgroups from './Talkgroups.svelte';
   import type { P25, P25Talkgroup } from '../lib/api';
-  import { WINDOW_MIN, channelBoard, minuteBars, steps, verdict, type Picks } from '../lib/p25';
-  import { fmtMHz } from '../lib/radio';
+  import { LINE_SECS, voiceHeard, type LookLine } from '../lib/ems';
+  import { WINDOW_MIN, channelBoard, minuteBars, sinceSay, steps, verdict, type Picks } from '../lib/p25';
+  import { fmtMHz, type Saved } from '../lib/radio';
   interface Props {
     p25: P25 | null;
     picks: Picks;
@@ -20,8 +21,20 @@
     onSkip: (group: number) => void;
     onOtherBand: () => void;
     onSeeRadio: () => void;
+    /** The look's kept lines, newest first: where plain voice is found. */
+    lines: LookLine[];
+    /** Named frequencies, for the national interoperability channels. */
+    named: Saved[];
+    /** On a plain-FM band: what is tuned and whether the squelch is open. Null on the trunking bands. */
+    analog: { tuned: number; open: boolean | null; lo: number; hi: number } | null;
+    onListen: (hz: number) => void;
+    onTowers: () => void;
   }
-  let { p25, picks, lockSecs, rows, fold, otherBand, onHold, onSkip, onOtherBand, onSeeRadio }: Props = $props();
+  let { p25, picks, lockSecs, rows, fold, otherBand, onHold, onSkip, onOtherBand, onSeeRadio, lines, named, analog, onListen, onTowers }: Props = $props();
+  let voices = $derived(voiceHeard(lines));
+  /** A name within half a channel of the frequency. */
+  const nameOf = (hz: number) => named.find((n) => Math.abs(n.mhz * 1e6 - hz) <= 7_000)?.name ?? null;
+  const agoSay = (lineAgo: number) => (lineAgo === 0 ? 'in the last look' : sinceSay(lineAgo * LINE_SECS));
   let stepList = $derived(steps(p25, lockSecs));
   let said = $derived(verdict(p25, picks, lockSecs));
   let board = $derived(p25 ? channelBoard(p25) : []);
@@ -32,28 +45,39 @@
     control: 'The control channel: always on, data only, about 30 messages a second. The receiver sits on it and reads which voice channel each call gets.',
     tower: 'A tower (site) of the agency’s network (system). Each tower has its own control channel; the number is the tower’s inside its region.',
     calls: 'A call: one talkgroup keying up for a few seconds on one voice channel. A talkgroup is a group of radios that hear each other, a dispatch desk and its units.',
+    plain: 'Plain voice: ordinary narrow FM with no tower in between, which many counties and volunteer departments still use. Named ones are the national interoperability channels, the same everywhere.',
   };
 </script>
 
 <div class="ems">
-  <section class="steps" aria-label="Where the receiver is">
-    {#each stepList as s, i (s.n)}
-      {#if i}<span class="arrow">→</span>{/if}
-      <span class="step" class:done={s.state === 'done'} class:now={s.state === 'now'} title={s.n === 1 ? GLOSS.control : s.n === 2 ? GLOSS.tower : GLOSS.calls}>
-        <b>{s.state === 'done' ? '✓' : s.n}</b>{s.say}
-      </span>
-    {/each}
-  </section>
-  <p class="verdict">
-    {said.say}
-    {#if said.action === 'other-band' && otherBand}
-      <button class="act" onclick={onOtherBand} title="Start the search again on {otherBand}, at its own start">Try {otherBand}</button>
-    {/if}
-  </p>
+  {#if analog}
+    <section class="steps" aria-label="What the receiver is doing">
+      <span class="step now" title={GLOSS.plain}><b><Icon name="play" size={11} /></b>Listening to plain voice · {fmtMHz(analog.tuned)} MHz{nameOf(analog.tuned) ? ` · ${nameOf(analog.tuned)}` : ''}</span>
+    </section>
+    <p class="verdict">
+      {analog.open ? 'Someone is talking.' : 'Quiet. Plain FM dispatch comes in short bursts; the squelch opens when someone keys up.'}
+      <button class="act" onclick={onTowers} title="Back to the trunked towers">Back to the towers</button>
+    </p>
+  {:else}
+    <section class="steps" aria-label="Where the receiver is">
+      {#each stepList as s, i (s.n)}
+        {#if i}<span class="arrow">→</span>{/if}
+        <span class="step" class:done={s.state === 'done'} class:now={s.state === 'now'} title={s.n === 1 ? GLOSS.control : s.n === 2 ? GLOSS.tower : GLOSS.calls}>
+          <b>{s.state === 'done' ? '✓' : s.n}</b>{s.say}
+        </span>
+      {/each}
+    </section>
+    <p class="verdict">
+      {said.say}
+      {#if said.action === 'other-band' && otherBand}
+        <button class="act" onclick={onOtherBand} title="Start the search again on {otherBand}, at its own start">Try {otherBand}</button>
+      {/if}
+    </p>
+  {/if}
 
   <div class="body">
     <div class="left">
-      {#if board.length}
+      {#if !analog && board.length}
         <h2 title={GLOSS.tower}>This tower's channels <span class="dim">· lit while a call is on</span></h2>
         <div class="board">
           {#each board as c (c.hz)}
@@ -72,7 +96,7 @@
           {/each}
         </div>
       {/if}
-      {#if p25 && p25.state !== 'searching'}
+      {#if !analog && p25 && p25.state !== 'searching'}
         <h2 title={GLOSS.calls}>Calls <span class="dim">· last {WINDOW_MIN} min · a column a minute</span></h2>
         <div class="timeline" role="img" aria-label="Calls per minute: those you can hear and those that are locked">
           {#each bars as b, i (i)}
@@ -84,10 +108,36 @@
         </div>
         <div class="axis"><span>−{WINDOW_MIN} min</span><span class="legend"><i class="play"></i> you can hear <i class="locked"></i> encrypted or Phase 2</span><span>now</span></div>
       {/if}
+      <h2 title={GLOSS.plain}>Plain voice heard <span class="dim">· the whole band looked at every {LINE_SECS} s</span></h2>
+      {#if voices.length}
+        <div class="voices">
+          {#each voices as v (v.hz)}
+            <button class="voice" class:sel={!!analog && Math.abs(analog.tuned - v.hz) < 7_000} onclick={() => onListen(v.hz)} title="Listen here as plain FM">
+              <span class="ic"><Icon name="play" size={13} /></span>
+              <span class="f">{fmtMHz(v.hz)} MHz</span>
+              <span class="nm">{nameOf(v.hz) ?? 'unnamed'}</span>
+              <span class="dim">on in {v.seen} of {v.of} looks · {agoSay(v.ago)}</span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="small">{lines.length < 3 ? `Looking: ${lines.length} of 3 looks so far.` : 'Nothing that comes and goes like voice in the last looks. Plain FM dispatch is rare near big cities; towns and counties still use it.'}</p>
+      {/if}
     </div>
     <div class="side">
-      {#if p25}
+      {#if p25 && !analog}
         <Talkgroups {p25} {picks} {rows} {fold} {onHold} {onSkip} />
+      {:else if analog}
+        <h2 title={GLOSS.plain}>Named channels on this band</h2>
+        <div class="voices">
+          {#each named.filter((n) => n.mhz * 1e6 >= analog.lo && n.mhz * 1e6 <= analog.hi) as n (n.mhz)}
+            <button class="voice" class:sel={Math.abs(analog.tuned - n.mhz * 1e6) < 7_000} onclick={() => onListen(n.mhz * 1e6)} title="Listen here as plain FM">
+              <span class="ic"><Icon name="play" size={13} /></span>
+              <span class="f">{fmtMHz(n.mhz * 1e6)} MHz</span>
+              <span class="nm">{n.name}</span>
+            </button>
+          {/each}
+        </div>
       {/if}
     </div>
   </div>
@@ -290,6 +340,51 @@
   }
   .side {
     min-width: 0;
+  }
+  .voices {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .voice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 9px;
+    border: 1px solid var(--muted);
+    border-radius: 7px;
+    background: var(--bg-light);
+    color: var(--fg);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+  }
+  .voice.sel {
+    border-color: var(--accent);
+  }
+  .voice .f {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .voice .nm {
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .voice .dim {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .small {
+    margin: 0;
+    font-size: 12px;
+    color: var(--fg-dim);
+    max-width: 70ch;
   }
   .foot {
     margin: 0;

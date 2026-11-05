@@ -143,7 +143,10 @@
   let emsLines = $state.raw<LookLine[]>([]);
   let emsLineAt = $state<number | null>(null);
   let emsSide = $state<string | null>(null);
+  // the trunking side of EMS last used, where "Back to the towers" goes
+  let emsTowerSide = $state('ps800');
   $effect(() => {
+    if (isEms(band) && band!.mode === 'p25') emsTowerSide = band!.id;
     if (isEms(band)) emsSide = band!.id;
   });
   $effect(() => {
@@ -692,7 +695,21 @@
     });
   });
   let lockSecs = $derived(lockAt ? Math.max(0, nowS - lockAt) : 0);
-  let otherEmsBand = $derived(plan.bands.find((b) => isEms(b) && b.id !== band?.id));
+  let otherEmsBand = $derived(plan.bands.find((b) => isEms(b) && b.mode === 'p25' && b.id !== band?.id));
+  // on a plain-FM EMS band the screen shows what is tuned instead of a tower
+  let emsAnalog = $derived(emsScreen && band?.mode === 'nfm' ? { tuned, open: status?.squelch_open ?? null, lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6 } : null);
+  /** Plain voice the look found: tune it as narrow FM on whichever EMS band holds it. */
+  function listenPlain(hz: number) {
+    const b = bandAt(plan, hz);
+    if (b && isEms(b)) emsSide = b.id;
+    goTo(hz, 'nfm');
+  }
+  function backToTowers() {
+    const b = plan.bands.find((x) => x.id === emsTowerSide) ?? plan.bands.find((x) => isEms(x) && x.mode === 'p25');
+    if (!b) return;
+    emsSide = b.id;
+    pickBand(b);
+  }
   /** A quiet tower: start the search again on the other EMS band, at its own start. */
   function goOtherEmsBand() {
     const b = otherEmsBand;
@@ -1682,7 +1699,7 @@
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={airPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if emsScreen && !bookmarksOpen}
-        <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} />
+        <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />

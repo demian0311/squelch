@@ -176,6 +176,61 @@ low_mhz = 851.0
 high_mhz = 869.0
 # Enters where a 2.4 MHz capture holds most of a site's channels (Miami-Dade's downtown site: 851.11-853.86).
 start_mhz = 852.5
+# The national interoperability channels are the same everywhere (NIFOG, read from RadioReference's copy 2026-11-05);
+# these 800 MHz ones are plain FM, so they carry their own mode.
+names = [
+  { mhz = 851.0125, name = "Calling, any agency (8CALL90)", mode = "nfm" },
+  { mhz = 851.5125, name = "Tactical (8TAC91)", mode = "nfm" },
+  { mhz = 852.0125, name = "Tactical (8TAC92)", mode = "nfm" },
+  { mhz = 852.5125, name = "Tactical (8TAC93)", mode = "nfm" },
+  { mhz = 853.0125, name = "Tactical (8TAC94)", mode = "nfm" },
+]
+
+# Plain narrow FM, where fire and EMS still dispatch in many counties. The names are the national
+# interoperability channels (NIFOG, read from RadioReference's copy 2026-11-05): the same everywhere.
+[[band]]
+id = "psvhf"
+group = "safety"
+name = "Fire & EMS VHF"
+icon = "siren"
+mode = "nfm"
+low_mhz = 150.0
+high_mhz = 160.0
+start_mhz = 154.28
+names = [
+  { mhz = 155.7525, name = "Calling, any agency (VCALL10)" },
+  { mhz = 151.1375, name = "Tactical (VTAC11)" },
+  { mhz = 154.4525, name = "Tactical (VTAC12)" },
+  { mhz = 158.7375, name = "Tactical (VTAC13)" },
+  { mhz = 159.4725, name = "Tactical (VTAC14)" },
+  { mhz = 154.28, name = "Fire mutual aid (VFIRE21)" },
+  { mhz = 154.265, name = "Fire mutual aid (VFIRE22)" },
+  { mhz = 154.295, name = "Fire mutual aid (VFIRE23)" },
+  { mhz = 154.2725, name = "Fire mutual aid (VFIRE24)" },
+  { mhz = 154.2875, name = "Fire mutual aid (VFIRE25)" },
+  { mhz = 154.3025, name = "Fire mutual aid (VFIRE26)" },
+  { mhz = 155.34, name = "EMS to hospital (VMED28)" },
+  { mhz = 155.3475, name = "EMS (VMED29)" },
+  { mhz = 155.475, name = "Police mutual aid (VLAW31)" },
+  { mhz = 155.4825, name = "Police (VLAW32)" },
+  { mhz = 155.16, name = "Search and rescue (VSAR16)" },
+]
+
+[[band]]
+id = "psuhf"
+group = "safety"
+name = "Fire & EMS UHF"
+icon = "siren"
+mode = "nfm"
+low_mhz = 450.0
+high_mhz = 470.0
+start_mhz = 453.2125
+names = [
+  { mhz = 453.2125, name = "Calling, any agency (UCALL40)" },
+  { mhz = 453.4625, name = "Tactical (UTAC41)" },
+  { mhz = 453.7125, name = "Tactical (UTAC42)" },
+  { mhz = 453.8625, name = "Tactical (UTAC43)" },
+]
 
 # ── Ham ────────────────────────────────────────────────
 
