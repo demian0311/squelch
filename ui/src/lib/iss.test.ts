@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ageDays, ageLabel, footprintDeg, freshness, freshnessNote, groundAt, issRailLine, utcTime, mapView, overhead, slack, until, upcoming } from './iss';
+import { ageDays, ageLabel, compass, footprintDeg, freshness, freshnessNote, groundAt, issRailLine, utcTime, mapView, overhead, passColour, passWord, slack, until, upcoming } from './iss';
 
-const pass = (rise: number, set: number) => ({ rise, top: (rise + set) / 2, set, max_elevation: 30 });
+const pass = (rise: number, set: number) => ({ rise, top: (rise + set) / 2, set, max_elevation: 30, rise_az: 225, set_az: 45, track: [] });
 const passes = [pass(1000, 1500), pass(7000, 7400)];
 
 describe('orbit data age', () => {
@@ -92,5 +92,29 @@ describe('issRailLine', () => {
 describe('utcTime', () => {
   it('is 24-hour UTC with seconds', () => {
     expect(utcTime(Date.UTC(2026, 9, 31, 16, 51, 7) / 1000)).toBe('16:51:07');
+  });
+});
+
+describe('pass quality', () => {
+  it('rates higher passes better', () => {
+    expect(passWord(72)).toBe('Strong');
+    expect(passWord(45)).toBe('Strong');
+    expect(passWord(31)).toBe('Fair');
+    expect(passWord(17)).toBe('Weak');
+    expect(passWord(9)).toBe('Hard to hear');
+  });
+  it('fades between the stops', () => {
+    expect(passColour(0)).toBe('color-mix(in srgb, var(--orange) 0%, var(--red))');
+    expect(passColour(5)).toBe('color-mix(in srgb, var(--orange) 50%, var(--red))');
+    expect(passColour(25)).toBe('color-mix(in srgb, var(--yellow) 100%, var(--orange))');
+    expect(passColour(60)).toBe('var(--green)');
+    expect(passColour(-3)).toBe(passColour(0));
+  });
+  it('names compass points', () => {
+    expect(compass(0)).toBe('N');
+    expect(compass(44)).toBe('NE');
+    expect(compass(210)).toBe('SW');
+    expect(compass(359)).toBe('N');
+    expect(compass(-90)).toBe('W');
   });
 });

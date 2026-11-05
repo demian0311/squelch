@@ -124,6 +124,43 @@ export function footprintDeg(altKm: number): number {
   return (Math.acos(EARTH_KM / (EARTH_KM + altKm)) * 180) / Math.PI;
 }
 
+/**
+ * How well a pass will be heard, from how high the station climbs. Higher is nearer: at 90° it is 420 km away straight
+ * up, at 10° about 1,450 km away near the horizon (11 dB weaker) and behind whatever stands there.
+ * Colour stops by degrees: red on the horizon, orange at 10°, yellow at 25°, green from 45°.
+ */
+export const QUALITY_STOPS: [number, string][] = [
+  [0, 'var(--red)'],
+  [10, 'var(--orange)'],
+  [25, 'var(--yellow)'],
+  [45, 'var(--green)'],
+];
+
+/** A CSS colour for a pass that climbs to `maxElevation` degrees, fading between `QUALITY_STOPS`. */
+export function passColour(maxElevation: number): string {
+  const el = Math.max(0, maxElevation);
+  for (let i = 1; i < QUALITY_STOPS.length; i++) {
+    const [[a, ca], [b, cb]] = [QUALITY_STOPS[i - 1], QUALITY_STOPS[i]];
+    if (el <= b) return `color-mix(in srgb, ${cb} ${Math.round(((el - a) / (b - a)) * 100)}%, ${ca})`;
+  }
+  return QUALITY_STOPS[QUALITY_STOPS.length - 1][1];
+}
+
+/** One word for a pass's quality: the same thresholds as the colour stops. */
+export function passWord(maxElevation: number): string {
+  return maxElevation >= 45 ? 'Strong' : maxElevation >= 25 ? 'Fair' : maxElevation >= 10 ? 'Weak' : 'Hard to hear';
+}
+
+/** Why a pass is rated as it is, for a tooltip. */
+export function passWhy(maxElevation: number): string {
+  return `The station climbs to ${Math.round(maxElevation)}° above the horizon. Higher is nearer, so louder and longer; below about 10° it is rarely heard.`;
+}
+
+/** A compass word for a bearing in degrees (0 = north, 90 = east). */
+export function compass(az: number): string {
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round((((az % 360) + 360) % 360) / 45) % 8];
+}
+
 /** dB above the floor that counts as hearing something on the station's channel. Empty channels read 3–10 dB. */
 export const RECEPTION_DB = 12;
 

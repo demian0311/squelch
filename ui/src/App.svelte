@@ -3,13 +3,13 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
-  import type { Band, BandPlan, GroundPoint, Iss, Mode, Setup, Status, Theme } from './lib/api';
+  import type { Band, BandPlan, GroundPoint, Iss, IssPass, Mode, Setup, Status, Theme } from './lib/api';
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
-  import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, passWord, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
@@ -464,6 +464,8 @@
 
   // Ground track for the map; it covers 100 min ahead, so it is reloaded well before it runs out.
   let issTrack = $state.raw<GroundPoint[]>([]);
+  // The pass under the pointer (or focused): the map draws it instead of the live position.
+  let issHover = $state.raw<IssPass | null>(null);
   let issHere = $derived(groundAt(issTrack, nowS));
   // Zoom the map to the listener only while a pass is under way and its channel has signal.
   let issLocal = $derived(issUp !== null && (status?.channel_snr_db ?? 0) >= RECEPTION_DB);
@@ -1654,7 +1656,8 @@
           {:else if panel === 'iss'}
             <div class="split over">
               <div class="mapbox issmap">
-                <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} />
+                <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} pass={issHover} />
+                {#if issHover}<span class="mapcap">{issHover === issUp ? 'Overhead now' : `${dayLabel(issHover.rise, nowS)} ${clock(issHover.rise)}`} · {Math.round(issHover.max_elevation)}° high · {passWord(issHover.max_elevation).toLowerCase()}</span>{/if}
                 <span class="maplabel" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
               </div>
               <div class="list">
@@ -1666,10 +1669,12 @@
                 {:else}
                   {#each issNext as p (p.rise)}
                     {@const now = p === issUp}
-                    <div class="item" class:sel={now}>
+                    {@const colour = passColour(p.max_elevation)}
+                    <div class="item pass" class:sel={now} role="button" tabindex="0" title={passWhy(p.max_elevation)} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
                       <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
-                      <span class="big">{Math.round(p.max_elevation)}° high</span>
-                      <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon</span>
+                      <span class="big" style:color={colour}>{Math.round(p.max_elevation)}° high</span>
+                      <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon · rises {compass(p.rise_az)}, sets {compass(p.set_az)}</span>
+                      <span class="meter"><span class="bar"><i style:width="{(Math.max(0, p.max_elevation) / 90) * 100}%" style:background={colour}></i></span><b style:color={colour}>{passWord(p.max_elevation)}</b></span>
                     </div>
                   {/each}
                   <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
@@ -2394,6 +2399,57 @@
       border-top: 0;
       border-left: 1px solid var(--muted);
     }
+  }
+  .item.pass {
+    cursor: default;
+    outline: none;
+  }
+  .item.pass:hover,
+  .item.pass:focus-visible {
+    border-color: var(--fg-dim);
+  }
+  /* How well a pass will be heard: a bar to 90°, the mark where hearing starts (10°), and a word. */
+  .meter {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .meter .bar {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
+    overflow: hidden;
+  }
+  .meter .bar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 3px;
+  }
+  .meter .bar::after {
+    content: '';
+    position: absolute;
+    left: 11.1%;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--bg-darker);
+  }
+  .meter b {
+    font-weight: 600;
+  }
+  .mapcap {
+    position: absolute;
+    right: 8px;
+    top: 6px;
+    font-size: 11px;
+    color: var(--fg-bright);
+    background: color-mix(in srgb, var(--bg-darker) 80%, transparent);
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
   }
   .maplabel {
     position: absolute;

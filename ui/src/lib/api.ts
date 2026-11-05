@@ -105,6 +105,7 @@ export interface Status {
   hd: Hd | null;
   /** HD pictures; only present on the status that follows a change. */
   hd_images: HdImage[] | null;
+  play: Playing | null;
   /** Trunked radio receiver, in P25 mode. */
   p25: P25 | null;
   /** All of a wide band in one line per check, while an EMS band is open. `line` rides in the statuses just after a check. */
@@ -331,7 +332,13 @@ export interface IssPass {
   rise: number;
   top: number;
   set: number;
+  /** Degrees above the horizon at `top`. Higher is nearer: louder and longer. */
   max_elevation: number;
+  /** Compass bearing (0 = north, 90 = east) where the station comes up and goes down. */
+  rise_az: number;
+  set_az: number;
+  /** Ground track a few minutes either side of the pass. */
+  track: GroundPoint[];
 }
 
 /** A point under the station; `t` is Unix seconds. */
@@ -438,6 +445,30 @@ export interface Recording {
 }
 export const record = (on: boolean) => invoke('record', { on });
 export const recording = () => invoke<Recording>('recording');
+
+/** One saved recording, as the Recordings screen lists it. */
+export interface SavedRecording {
+  file: string;
+  /** When it started, seconds since the Unix epoch. */
+  at: number;
+  hz: number;
+  mode: Mode;
+  secs: number;
+  bytes: number;
+}
+/** A recording being played in place of the live sound. */
+export interface Playing {
+  file: string;
+  secs: number;
+  len_secs: number;
+  paused: boolean;
+  done: boolean;
+}
+export const recordings = () => invoke<SavedRecording[]>('recordings');
+export const deleteRecording = (file: string) => invoke('delete_recording', { file });
+export const playRecording = (file: string | null) => invoke('play_recording', { file });
+export const playPause = (paused: boolean) => invoke('play_pause', { paused });
+export const playSeek = (secs: number) => invoke('play_seek', { secs });
 export const setPlaying = (playing: boolean) => invoke('set_playing', { playing });
 /** Mute below `db` above the noise floor; null turns squelch off. */
 /** Run the weather-balloon decoders on every narrow signal in the capture. */

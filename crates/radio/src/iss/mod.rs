@@ -82,8 +82,17 @@ pub struct Pass {
     pub rise: f64,
     pub top: f64,
     pub set: f64,
+    /// Degrees above the horizon at `top`. Higher is nearer: louder and longer.
     pub max_elevation: f64,
+    /// Compass bearing (0 = north, 90 = east) where the station comes up and goes down.
+    pub rise_az: f64,
+    pub set_az: f64,
+    /// Ground track from `TRACK_MARGIN_SECS` before the rise to as long after the set, every `STEP_SECS`.
+    pub track: Vec<GroundPoint>,
 }
+
+/// How far each side of a pass its ground track reaches, so a map shows where the station comes from.
+const TRACK_MARGIN_SECS: f64 = 180.0;
 
 impl Orbit {
     /// Reads the first `1 …` / `2 …` line pair; a name line is optional.
@@ -120,14 +129,22 @@ impl Orbit {
 
     /// Degrees above the site's horizon; negative below it.
     pub fn elevation(&self, site: Site, t: f64) -> Option<f64> {
+        self.look(site, t).map(|l| l.0)
+    }
+
+    /// Where the station is in the site's sky: (degrees above the horizon, compass bearing 0 = north, 90 = east).
+    pub fn look(&self, site: Site, t: f64) -> Option<(f64, f64)> {
         let sat = self.ecef(t)?;
         let (lat, lon) = (site.lat.to_radians(), site.lon.to_radians());
-        let n = EARTH_A_KM / (1.0 - EARTH_E2 * lat.sin().powi(2)).sqrt();
-        let obs = [n * lat.cos() * lon.cos(), n * lat.cos() * lon.sin(), n * (1.0 - EARTH_E2) * lat.sin()];
-        let up = [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()];
+        let (sl, cl, so, co) = (lat.sin(), lat.cos(), lon.sin(), lon.cos());
+        let n = EARTH_A_KM / (1.0 - EARTH_E2 * sl * sl).sqrt();
+        let obs = [n * cl * co, n * cl * so, n * (1.0 - EARTH_E2) * sl];
         let d = [sat[0] - obs[0], sat[1] - obs[1], sat[2] - obs[2]];
+        let east = -so * d[0] + co * d[1];
+        let north = -sl * co * d[0] - sl * so * d[1] + cl * d[2];
+        let up = cl * co * d[0] + cl * so * d[1] + sl * d[2];
         let range = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        Some(((d[0] * up[0] + d[1] * up[1] + d[2] * up[2]) / range).asin().to_degrees())
+        Some(((up / range).asin().to_degrees(), east.atan2(north).to_degrees().rem_euclid(360.0)))
     }
 
     /// Passes that end after `from` and rise before `from + hours`. A pass under way at `from` is included.
@@ -150,7 +167,9 @@ impl Orbit {
                     let set = self.bisect(site, t, next, false);
                     let top = peak(r, set, el);
                     if set > from {
-                        out.push(Pass { rise: r, top, set, max_elevation: el(top) });
+                        let az = |t: f64| self.look(site, t).map(|l| l.1).unwrap_or(0.0);
+                        let track = self.track(r - TRACK_MARGIN_SECS, set + TRACK_MARGIN_SECS, STEP_SECS);
+                        out.push(Pass { rise: r, top, set, max_elevation: el(top), rise_az: az(r), set_az: az(set), track });
                     }
                     rise = None;
                 }
@@ -256,7 +275,18 @@ mod tests {
             if i > 0 {
                 assert!(ps[i - 1].set < p.rise);
             }
+            // The track brackets the pass, and the station comes up where the track meets the horizon.
+            assert!(p.track.first().unwrap().t < p.rise && p.track.last().unwrap().t > p.set);
+            let at_rise = o.ground(p.rise).unwrap();
+            assert!((bearing(site, &at_rise) - p.rise_az).abs() < 2.0, "{p:?} {}", bearing(site, &at_rise));
+            assert!((p.rise_az - p.set_az).abs() > 30.0 || (p.rise_az - p.set_az).abs() > 330.0, "{p:?}");
         }
+    }
+
+    /// Initial bearing from the site to a ground point, on a sphere.
+    fn bearing(site: Site, p: &GroundPoint) -> f64 {
+        let (a, b, dl) = (site.lat.to_radians(), p.lat.to_radians(), (p.lon - site.lon).to_radians());
+        (dl.sin() * b.cos()).atan2(a.cos() * b.sin() - a.sin() * b.cos() * dl.cos()).to_degrees().rem_euclid(360.0)
     }
 
     #[test]
