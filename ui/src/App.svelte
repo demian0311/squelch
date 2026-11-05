@@ -770,10 +770,9 @@
   let stripPalette = $derived(lut(stops));
   // every strength bar in the page wears the waterfall's ramp on the meter's dB scale
   let ramp = $derived(rampGradient(stops, METER_DB, setup.below_floor_db, setup.range_db));
-  // the local map's shaded terrain, in theme colours
-  let mapPalette = $derived({ plain: theme.lighter_background, peak: mix(theme.muted, theme.light_foreground, 0.15), shadow: theme.darker_background, light: theme.light_foreground });
-  // flat country has no relief to show, so land and water get a trace of colour
-  let airPalette = $derived({ ...mapPalette, plain: mix(theme.lighter_background, theme.green, 0.1), water: mix(theme.dark_background, theme.blue, 0.16) });
+  // the local maps' shaded terrain (repeaters and airplanes alike), in theme colours; flat country has no relief to show,
+  // so land and water get a trace of colour
+  let mapPalette = $derived({ plain: mix(theme.lighter_background, theme.green, 0.1), peak: mix(theme.muted, theme.light_foreground, 0.15), shadow: theme.darker_background, light: theme.light_foreground, water: mix(theme.dark_background, theme.blue, 0.16) });
   let wfColors = $derived({
     bg: theme.darker_background,
     grid: theme.lighter_background,
@@ -1696,7 +1695,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={airPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if emsScreen && !bookmarksOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
