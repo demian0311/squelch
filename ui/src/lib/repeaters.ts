@@ -15,12 +15,12 @@ export const WIDEST_KM = 75;
 /** Zoomed all the way in: repeaters sharing one tower are the only ones still on top of each other. */
 export const NEAREST_KM = 1.5;
 /** Marks nearer than this on screen fold into one badge. */
-export const BUNCH_PX = 22;
+export const BUNCH_PX = 12;
 /** How far a fanned-out mark sits from the tower it shares, in pixels. */
 export const FAN_PX = 24;
 /** A badge's radius on screen for this many repeaters, and the radius of a mark kept apart (the tuned one is drawn twice a dot). */
-export const badgeRadius = (n: number) => 11 + Math.min(7, n);
-export const APART_PX = 12;
+export const badgeRadius = (n: number) => Math.min(12, 8 + Math.floor(n / 4));
+export const APART_PX = 10;
 
 // a signal this close to a repeater's output is taken to be that repeater
 const ON_AIR_HZ = 5_000;
@@ -118,18 +118,12 @@ export interface MapView {
 }
 export const DEFAULT_VIEW: MapView = { x: 0, y: 0, halfKm: WIDEST_KM };
 
-/** The view kept between runs, or the default when what was saved is not one. */
-export function readView(saved: unknown): MapView {
-  const v = saved as Partial<MapView> | null;
-  if (!v || typeof v !== 'object' || ![v.x, v.y, v.halfKm].every((n) => typeof n === 'number' && Number.isFinite(n))) return DEFAULT_VIEW;
-  return clampView({ x: v.x!, y: v.y!, halfKm: v.halfKm! });
-}
-
-/** Never closer than `NEAREST_KM`, never wider than `WIDEST_KM`, and the centre never leaves the widest view. */
+/** Never closer than `NEAREST_KM`, never wider than `WIDEST_KM`, and the edge never leaves the widest view: no bare ground past it. */
 export function clampView(v: MapView): MapView {
   const halfKm = Math.min(WIDEST_KM, Math.max(NEAREST_KM, v.halfKm));
-  const lim = WIDEST_KM;
-  return { x: Math.min(lim, Math.max(-lim, v.x)), y: Math.min(lim, Math.max(-lim, v.y)), halfKm };
+  const lim = WIDEST_KM - halfKm;
+  // `|| 0` keeps a -0 out of the view
+  return { x: Math.min(lim, Math.max(-lim, v.x)) || 0, y: Math.min(lim, Math.max(-lim, v.y)) || 0, halfKm };
 }
 
 /**
@@ -141,6 +135,22 @@ export function zoomView(v: MapView, factor: number, at?: { x: number; y: number
   const f = halfKm / v.halfKm;
   const a = at ?? { x: v.x, y: v.y };
   return clampView({ x: a.x + (v.x - a.x) * f, y: a.y + (v.y - a.y) * f, halfKm });
+}
+
+/**
+ * How far in to go, in km above and below the centre, for a badge's repeaters to come apart: one click opens it.
+ * The closest pair sets it, with room to spare; a badge whose repeaters all share one tower goes to the nearest zoom, where they fan out.
+ */
+export function openHalfKm(points: RepeaterPoint[], kmPerPx: number, halfKm: number, bunchPx = BUNCH_PX): number {
+  let closest = Infinity;
+  for (let i = 0; i < points.length; i++)
+    for (let j = i + 1; j < points.length; j++) {
+      const d = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
+      if (d >= 0.05 && d < closest) closest = d;
+    }
+  if (closest === Infinity) return NEAREST_KM;
+  const want = (halfKm * closest) / (kmPerPx * bunchPx * 1.5);
+  return Math.max(NEAREST_KM, Math.min(want, halfKm * 0.6));
 }
 
 /** What a repeater's colour says: can it be heard here. */

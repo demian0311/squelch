@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Band, Repeater } from './api';
-import { clampView, heldOutputs, hueOf, kmBetween, liveOutputs, mapMarks, NEAREST_KM, readView, repeaterPoints, ringReach, townLabels, WIDEST_KM, zoomView, type RepeaterPoint } from './repeaters';
+import { clampView, heldOutputs, hueOf, kmBetween, liveOutputs, mapMarks, NEAREST_KM, openHalfKm, repeaterPoints, ringReach, townLabels, WIDEST_KM, zoomView, type RepeaterPoint } from './repeaters';
 
 const twoM: Band = { id: '2m', group: 'ham', name: '2 m', icon: 'tower', mode: 'nfm', low_mhz: 144, high_mhz: 148, start_mhz: 146.52, bookmarks: [] };
 const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ id: `${call}-${mhz}`, call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
@@ -78,9 +78,10 @@ describe('ringReach', () => {
 });
 
 describe('map view', () => {
-  it('never goes closer, wider, or further off than the widest view', () => {
-    expect(clampView({ x: 500, y: -500, halfKm: 1000 })).toEqual({ x: WIDEST_KM, y: -WIDEST_KM, halfKm: WIDEST_KM });
+  it('never goes closer or wider than allowed, and its edge never leaves the widest view', () => {
+    expect(clampView({ x: 500, y: -500, halfKm: 1000 })).toEqual({ x: 0, y: 0, halfKm: WIDEST_KM });
     expect(clampView({ x: 0, y: 0, halfKm: 0.1 }).halfKm).toBe(NEAREST_KM);
+    expect(clampView({ x: 500, y: -500, halfKm: 20 })).toEqual({ x: WIDEST_KM - 20, y: -(WIDEST_KM - 20), halfKm: 20 });
   });
   it('zooms around the place under the pointer, which stays put', () => {
     const v = { x: 0, y: 0, halfKm: 40 };
@@ -90,11 +91,6 @@ describe('map view', () => {
     // the pointer's place was 10 km right of centre in a 40 km view: still a quarter of the view right of the new centre
     expect((at.x - z.x) / z.halfKm).toBeCloseTo((at.x - v.x) / v.halfKm);
     expect((at.y - z.y) / z.halfKm).toBeCloseTo((at.y - v.y) / v.halfKm);
-  });
-  it('reads a saved view and falls back on nonsense', () => {
-    expect(readView({ x: 1, y: 2, halfKm: 30 })).toEqual({ x: 1, y: 2, halfKm: 30 });
-    expect(readView(75)).toEqual({ x: 0, y: 0, halfKm: WIDEST_KM });
-    expect(readView({ x: 'a' })).toEqual({ x: 0, y: 0, halfKm: WIDEST_KM });
   });
 });
 
@@ -106,21 +102,21 @@ describe('marks', () => {
     expect(hueOf({ reach: false, digital: null })).toBe('red');
   });
   it('folds neighbours on screen into one badge around the nearest', () => {
-    const marks = mapMarks([pt('a', 0, 0), pt('b', 1, 0), pt('c', 30, 0, { reach: false })], 0.1, false);
+    const marks = mapMarks([pt('a', 0, 0), pt('b', 0.5, 0), pt('c', 30, 0, { reach: false })], 0.1, false);
     expect(marks.map((m) => m.kind)).toEqual(['many', 'one']);
     const badge = marks[0] as Extract<(typeof marks)[number], { kind: 'many' }>;
     expect(badge.points.map((p) => p.id)).toEqual(['a', 'b']);
-    expect(badge.x).toBe(0.5);
+    expect(badge.x).toBe(0.25);
     expect(badge.hue).toBe('green');
   });
   it('a badge is blue only when none of it is plain FM in reach, red when none is in reach', () => {
-    const blue = mapMarks([pt('a', 0, 0, { digital: 'DMR' }), pt('b', 1, 0, { reach: false })], 0.1, false)[0];
+    const blue = mapMarks([pt('a', 0, 0, { digital: 'DMR' }), pt('b', 0.5, 0, { reach: false })], 0.1, false)[0];
     expect(blue.kind === 'many' && blue.hue).toBe('blue');
-    const red = mapMarks([pt('a', 0, 0, { reach: false }), pt('b', 1, 0, { reach: false })], 0.1, false)[0];
+    const red = mapMarks([pt('a', 0, 0, { reach: false }), pt('b', 0.5, 0, { reach: false })], 0.1, false)[0];
     expect(red.kind === 'many' && red.hue).toBe('red');
   });
   it('the tuned repeater and those on air never fold into a badge', () => {
-    const marks = mapMarks([pt('a', 0, 0), pt('b', 1, 0), pt('c', 1, 1)], 0.1, false, new Set(['b']));
+    const marks = mapMarks([pt('a', 0, 0), pt('b', 0.5, 0), pt('c', 0.5, 0.5)], 0.1, false, new Set(['b']));
     expect(marks.map((m) => (m.kind === 'one' ? m.p.id : m.points.map((p) => p.id).join('+')))).toEqual(['a+c', 'b']);
   });
   it('a badge on the tuned tower moves beside it, on a line back to the tower', () => {
@@ -129,6 +125,14 @@ describe('marks', () => {
     expect(badge.from).toEqual({ x: 0.05, y: 0 });
     expect(badge.x).toBeGreaterThan(2);
     expect(badge.y).toBe(0);
+  });
+  it('opening a badge zooms just far enough for its repeaters to come apart', () => {
+    // 1 km apart at 0.1 km a pixel is 10 px: at 12 px a bunch they need 18 px, so the view closes to 10/18 of itself
+    expect(openHalfKm([pt('a', 0, 0), pt('b', 1, 0)], 0.1, 75)).toBeCloseTo((75 * 10) / 18);
+    // far apart already (folded only by the margin): at least a step closer
+    expect(openHalfKm([pt('a', 0, 0), pt('b', 1.1, 0)], 0.1, 75)).toBe(75 * 0.6);
+    // one tower: all the way in, where they fan out
+    expect(openHalfKm([pt('a', 0, 0), pt('b', 0, 0)], 0.1, 75)).toBe(NEAREST_KM);
   });
   it('at the nearest zoom nothing folds, and a shared tower fans out', () => {
     const marks = mapMarks([pt('a', 0, 0), pt('b', 0, 0), pt('c', 0.5, 0)], 0.01, true);

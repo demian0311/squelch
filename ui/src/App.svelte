@@ -32,7 +32,7 @@
   import AircraftMap from './components/AircraftMap.svelte';
   import { ADSB_CENTRE_HZ, TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
-  import { REACH_KM, WIDEST_KM, heldOutputs, liveOutputs, readView, repeaterPoints, type HeardOutput, type MapView } from './lib/repeaters';
+  import { DEFAULT_VIEW, REACH_KM, WIDEST_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput, type MapView } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
   import ChannelBoard from './components/ChannelBoard.svelte';
   import BoardActivity from './components/BoardActivity.svelte';
@@ -519,12 +519,9 @@
     repHeard = heldOutputs(untrack(() => repHeard), live, Date.now());
   });
   let repLive = $derived(new Map([...repHeard].map(([hz, h]) => [hz, h.snr])));
-  // where the map looks, kept between runs
-  let repView = $state<MapView>(readView(store.getState('repeaters.view', null)));
-  function setRepView(v: MapView) {
-    repView = v;
-    store.setState('repeaters.view', v);
-  }
+  // where the map looks: every run opens fully zoomed out
+  let repView = $state<MapView>(DEFAULT_VIEW);
+  const setRepView = (v: MapView) => (repView = v);
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
     if (!repInBand.length) return 'None near your location';

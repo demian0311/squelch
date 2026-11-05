@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { placeLabels } from '../lib/airplanes';
   import type { Mark, MapView, RepeaterPoint } from '../lib/repeaters';
-  import { APART_PX, NEAREST_KM, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, ringReach, townLabels, zoomView } from '../lib/repeaters';
+  import { APART_PX, NEAREST_KM, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, openHalfKm, ringReach, townLabels, zoomView } from '../lib/repeaters';
   import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -26,7 +26,7 @@
   const WIDTH_RATIO = 8 / 3;
   const DISTANCES_KM = [2, 5, 10, 25, 50];
   // dots and words keep their size on screen whatever the panel's
-  const DOT_PX = 6;
+  const DOT_PX = 5;
   const HIT_PX = 13;
   const LABEL_PX = 11;
   const TOWN_PX = 12;
@@ -101,20 +101,22 @@
   const badgeTitle = (ps: RepeaterPoint[]) => `${ps.length} repeaters near ${ps[0].city} · click to open\n${ps.slice(0, 8).map((p) => `${p.call} ${(p.hz / 1e6).toFixed(3)}`).join('\n')}${ps.length > 8 ? `\n… ${ps.length - 8} more` : ''}`;
 
   // Words go wherever they fit without covering a mark or each other, what matters most placed first: the tuned and
-  // on-air calls, then the towns, then every other call once the map is close enough that they are not a wall.
+  // on-air calls, then the towns, then every other mark nearest first. A badge's word is its nearest call and how many more.
+  const markId = (m: Mark) => (m.kind === 'one' ? m.p.id : m.points[0].id);
+  const markWord = (m: Mark) => (m.kind === 'one' ? m.p.call : `${m.points[0].call} +${m.points.length - 1}`);
   let labels = $derived.by(() => {
     const u = kmPerPx;
     const items: Parameters<typeof placeLabels>[0] = [];
     items.push({ id: 'you', x: (DOT_PX + 4) * u, y: (4 - YOU_PX * 0.78) * u, text: 'You', fixed: true });
-    for (const m of ordered) items.push({ id: `mark:${m.kind === 'one' ? m.p.id : m.points[0].id}`, x: m.x, y: m.y, text: '', r: radius(m) });
-    const singles = ordered.filter((m): m is Extract<Mark, { kind: 'one' }> => m.kind === 'one');
-    const rank = (m: Extract<Mark, { kind: 'one' }>) => (m.p.id === tunedId ? 0 : onAir.includes(m.p) ? 1 : hueOf(m.p) === 'green' ? 2 : 3);
-    const byRank = [...singles].sort((a, b) => rank(a) - rank(b) || a.p.km - b.p.km);
-    const call = (m: Extract<Mark, { kind: 'one' }>) => ({ id: m.p.id, x: m.x, y: m.y, text: m.p.call, r: radius(m) });
-    for (const m of byRank) if (rank(m) <= 1) items.push(call(m));
+    for (const m of ordered) items.push({ id: `mark:${markId(m)}`, x: m.x, y: m.y, text: '', r: radius(m) });
+    const rank = (m: Mark) => (m.kind === 'many' ? 2 : m.p.id === tunedId ? 0 : onAir.includes(m.p) ? 1 : 2);
+    const km = (m: Mark) => (m.kind === 'one' ? m.p.km : m.points[0].km);
+    const byRank = [...ordered].sort((a, b) => rank(a) - rank(b) || km(a) - km(b));
+    const word = (m: Mark) => ({ id: markId(m), x: m.x, y: m.y, text: markWord(m), r: radius(m) });
+    for (const m of byRank) if (rank(m) <= 1) items.push(word(m));
     // a town's name sits at the middle of its repeaters, which is usually a badge: it keeps clear of whatever is there
     for (const t of towns) items.push({ id: `town:${t.name}`, x: t.x, y: t.y, text: t.name, r: Math.max(DOT_PX, ...ordered.filter((m) => Math.hypot(m.x - t.x, m.y - t.y) < 20 * u).map(radius)) });
-    if (halfKm < WIDEST_KM * 0.5) for (const m of byRank) if (rank(m) > 1) items.push(call(m));
+    for (const m of byRank) if (rank(m) > 1) items.push(word(m));
     return placeLabels(items, u, LABEL_PX * 0.62, LABEL_PX + 2);
   });
 
@@ -167,7 +169,8 @@
     if (dragged) return;
     go();
   }
-  const open = (m: Extract<Mark, { kind: 'many' }>) => onView(zoomView(view, 0.4, { x: m.x, y: m.y }));
+  // one click takes a badge apart: the view closes on it just enough, and its tower comes to the centre
+  const open = (m: Extract<Mark, { kind: 'many' }>) => onView(clampView({ x: m.from?.x ?? m.x, y: m.from?.y ?? m.y, halfKm: openHalfKm(m.points, kmPerPx, halfKm) }));
 </script>
 
 <script lang="ts" module>
@@ -229,7 +232,7 @@
       <g role="button" tabindex="0" aria-label={badgeTitle(m.points)} onclick={() => pick(() => open(m))} onkeydown={(e) => onKey(e, () => open(m))} class="badge {m.hue}">
         <title>{badgeTitle(m.points)}</title>
         <circle cx={m.x} cy={m.y} r={radius(m) * kmPerPx} class="dot" />
-        <text x={m.x} y={m.y} font-size={12 * kmPerPx} class="count">{m.points.length}</text>
+        <text x={m.x} y={m.y} dy="0.36em" font-size={11 * kmPerPx} class="count">{m.points.length}</text>
       </g>
     {/if}
   {/each}
@@ -239,12 +242,10 @@
       <text x={at.x} y={at.y} class="town" font-size={TOWN_PX * kmPerPx}>{t.name}</text>
     {/if}
   {/each}
-  {#each ordered as m (m.kind === 'one' ? m.p.id : m.points[0].id)}
-    {#if m.kind === 'one'}
-      {@const at = labels.get(m.p.id)}
-      {#if at}
-        <text x={at.x} y={at.y} font-size={LABEL_PX * kmPerPx} class="call {hueOf(m.p)}" class:tuned={m.p.id === tunedId}>{m.p.call}</text>
-      {/if}
+  {#each ordered as m (markId(m))}
+    {@const at = labels.get(markId(m))}
+    {#if at}
+      <text x={at.x} y={at.y} font-size={LABEL_PX * kmPerPx} class="call {m.kind === 'one' ? hueOf(m.p) : m.hue}" class:tuned={m.kind === 'one' && m.p.id === tunedId}>{markWord(m)}</text>
     {/if}
   {/each}
   <circle r={DOT_PX * kmPerPx} class="site" />
@@ -380,7 +381,6 @@
     fill: var(--bg-darker);
     font-weight: 600;
     text-anchor: middle;
-    dominant-baseline: central;
     pointer-events: none;
   }
   .call {
