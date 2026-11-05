@@ -109,7 +109,7 @@
 
   <div class="foot">
     <button class="gear" class:on={settingsOpen} onclick={onSettings} title="Settings (S)" aria-expanded={settingsOpen}>
-      <span class="glyph">⚙</span>{#if open}<span>Settings</span>{/if}
+      <Icon name="gear" size={18} />{#if open}<span>Settings</span>{/if}
     </button>
     <button class="toggle" onclick={onToggle} aria-label={open ? 'Narrow the band list' : 'Widen the band list'} title={open ? 'Narrow the band list' : 'Widen the band list'}>
       <Icon name={open ? 'sidebarClose' : 'sidebarOpen'} size={18} />
@@ -301,9 +301,6 @@
   .foot .gear.on {
     background: var(--bg-light);
     color: var(--fg-bright);
-  }
-  .glyph {
-    font-size: 16px;
   }
   /* slides over the band list, above the footer; wider than the list when the rail is narrow */
   .drawer {
