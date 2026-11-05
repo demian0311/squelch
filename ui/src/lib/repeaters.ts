@@ -7,8 +7,10 @@ import type { Band, Repeater } from './api';
  */
 export const REACH_KM: Record<string, number> = { '6m': 60, '2m': 50, '125': 40, '70cm': 30 };
 
-// squelch plays analog FM only; a repeater also listed in one of these may be digital only
+// a repeater also listed in one of these may be digital only; of them, the app plays DMR
 const DIGITAL = ['DMR', 'P25', 'NXDN', 'D-STAR', 'M17'];
+/** The digital mode the app plays; a repeater listed under it opens in that mode. */
+export const PLAYS = 'DMR';
 
 /** Zoomed all the way out the map shows this far above and below the listener, in km: past it there is nothing to hear. */
 export const WIDEST_KM = 75;
@@ -155,9 +157,13 @@ export function openHalfKm(points: RepeaterPoint[], kmPerPx: number, halfKm: num
 
 /** What a repeater's colour says: can it be heard here. */
 export type Hue = 'green' | 'blue' | 'red';
-/** Green: the band should reach it. Blue: also listed under a digital mode, so it may carry no analog FM. Red: probably too far. */
+/** Green: FM, the band should reach it. Blue: DMR, which the app plays. Red: probably too far. */
 export function hueOf(p: Pick<RepeaterPoint, 'reach' | 'digital'>): Hue {
-  return p.digital ? 'blue' : p.reach ? 'green' : 'red';
+  return p.digital === PLAYS ? 'blue' : p.reach ? 'green' : 'red';
+}
+/** Listed under a digital mode nothing here decodes (D-STAR, NXDN, M17, conventional P25): drawn hollow. */
+export function undecoded(p: Pick<RepeaterPoint, 'digital'>): boolean {
+  return p.digital !== null && p.digital !== PLAYS;
 }
 
 /** One thing drawn on the map: a repeater, or a count badge standing for several too close to tell apart. */
@@ -200,7 +206,7 @@ export function mapMarks(points: RepeaterPoint[], kmPerPx: number, nearest: bool
     } else {
       const x = group.reduce((s, p) => s + p.x, 0) / group.length;
       const y = group.reduce((s, p) => s + p.y, 0) / group.length;
-      const hue: Hue = group.some((p) => p.reach && !p.digital) ? 'green' : group.some((p) => p.digital) ? 'blue' : 'red';
+      const hue: Hue = group.some((p) => p.reach && !p.digital) ? 'green' : group.some((p) => p.digital === PLAYS) ? 'blue' : 'red';
       out.push({ kind: 'many', points: group, x, y, hue });
     }
   }

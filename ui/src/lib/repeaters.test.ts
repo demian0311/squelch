@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Band, Repeater } from './api';
-import { clampView, heldOutputs, hueOf, kmBetween, liveOutputs, mapMarks, NEAREST_KM, openHalfKm, repeaterPoints, ringReach, townLabels, WIDEST_KM, zoomView, type RepeaterPoint } from './repeaters';
+import { clampView, heldOutputs, hueOf, undecoded, kmBetween, liveOutputs, mapMarks, NEAREST_KM, openHalfKm, repeaterPoints, ringReach, townLabels, WIDEST_KM, zoomView, type RepeaterPoint } from './repeaters';
 
 const twoM: Band = { id: '2m', group: 'ham', name: '2 m', icon: 'tower', mode: 'nfm', low_mhz: 144, high_mhz: 148, start_mhz: 146.52, bookmarks: [] };
 const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ id: `${call}-${mhz}`, call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
@@ -96,10 +96,14 @@ describe('map view', () => {
 
 describe('marks', () => {
   const pt = (id: string, x: number, y: number, more: Partial<RepeaterPoint> = {}): RepeaterPoint => ({ id, hz: 146e6, call: id, city: 'Miami', x, y, km: Math.hypot(x, y), reach: true, digital: null, ...more });
-  it('says green for reach, blue for maybe digital, red for too far', () => {
+  it('says green for FM in reach, blue for DMR (which plays), red for too far; other digital listings are hollow', () => {
     expect(hueOf({ reach: true, digital: null })).toBe('green');
     expect(hueOf({ reach: true, digital: 'DMR' })).toBe('blue');
     expect(hueOf({ reach: false, digital: null })).toBe('red');
+    expect(hueOf({ reach: true, digital: 'D-STAR' })).toBe('green');
+    expect(undecoded({ digital: 'D-STAR' })).toBe(true);
+    expect(undecoded({ digital: 'DMR' })).toBe(false);
+    expect(undecoded({ digital: null })).toBe(false);
   });
   it('folds neighbours on screen into one badge around the nearest', () => {
     const marks = mapMarks([pt('a', 0, 0), pt('b', 0.5, 0), pt('c', 30, 0, { reach: false })], 0.1, false);

@@ -529,8 +529,9 @@
     if (!repInBand.length) return 'None near your location';
     const shown = repPoints.filter((p) => p.km <= WIDEST_KM);
     const hear = shown.filter((p) => p.reach && !p.digital).length;
-    const maybe = shown.filter((p) => p.digital).length;
-    return `${shown.length} within ${WIDEST_KM} km · green: ${hear} you should hear · ${repLive.size} on air` + (maybe ? ` · blue: ${maybe} may be digital only` : '');
+    const dmr = shown.filter((p) => p.digital === 'DMR').length;
+    const other = shown.filter((p) => p.digital && p.digital !== 'DMR').length;
+    return `${shown.length} within ${WIDEST_KM} km · green: ${hear} FM you should hear · ${repLive.size} on air` + (dmr ? ` · blue: ${dmr} DMR, click to listen` : '') + (other ? ` · hollow: ${other} digital this radio does not decode` : '');
   });
   let locationInput = $state<HTMLInputElement | undefined>();
   /** The map title's pin: Settings, with the location ready to type over. */
@@ -1824,7 +1825,7 @@
             {:else if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
-                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, 'nfm')} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, modeAt(plan, named, hz, 'nfm'))} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
                   {#if repTuned}
                     <span class="maplabel">{repTuned.call} · {channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km{repTuned.digital ? ` · may be ${repTuned.digital} only` : ''}</span>
                   {/if}

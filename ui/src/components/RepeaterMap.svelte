@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { placeLabels } from '../lib/airplanes';
   import type { Mark, MapView, RepeaterPoint } from '../lib/repeaters';
-  import { APART_PX, NEAREST_KM, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, openHalfKm, ringReach, townLabels, zoomView } from '../lib/repeaters';
+  import { APART_PX, NEAREST_KM, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, openHalfKm, ringReach, townLabels, undecoded, zoomView } from '../lib/repeaters';
   import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -96,7 +96,7 @@
   let ringing = $derived(onAir.filter((p) => inView.includes(p)));
   const place = (p: RepeaterPoint) => `${p.call} · ${p.city} · ${(p.hz / 1e6).toFixed(4)} MHz · ${Math.round(p.km)} km`;
   const onAirNote = (p: RepeaterPoint) => (onAir.includes(p) ? ` · on air, ${live.get(p.hz)!.toFixed(0)} dB above the noise` : '');
-  const hearing = (p: RepeaterPoint) => (p.digital ? `may be ${p.digital} only` : p.reach ? 'you should hear it' : 'probably too far');
+  const hearing = (p: RepeaterPoint) => (p.digital === 'DMR' ? `DMR · plays here${p.reach ? '' : ', though probably too far'}` : p.digital ? `listed ${p.digital}: may be digital only, which this radio does not decode` : p.reach ? 'FM · you should hear it' : 'FM · probably too far');
   const title = (p: RepeaterPoint) => `${place(p)}${onAirNote(p)} · ${hearing(p)}`;
   const badgeTitle = (ps: RepeaterPoint[]) => `${ps.length} repeaters near ${ps[0].city} · click to open\n${ps.slice(0, 8).map((p) => `${p.call} ${(p.hz / 1e6).toFixed(3)}`).join('\n')}${ps.length > 8 ? `\n… ${ps.length - 8} more` : ''}`;
 
@@ -220,7 +220,7 @@
       {#if m.from}
         <line x1={m.from.x} y1={m.from.y} x2={m.x} y2={m.y} class="fan" />
       {/if}
-      <g role="button" tabindex="0" aria-label={title(m.p)} onclick={() => pick(() => onTune(m.p.hz))} onkeydown={(e) => onKey(e, () => onTune(m.p.hz))} class="rep {hueOf(m.p)}" class:tuned={m.p.id === tunedId}>
+      <g role="button" tabindex="0" aria-label={title(m.p)} onclick={() => pick(() => onTune(m.p.hz))} onkeydown={(e) => onKey(e, () => onTune(m.p.hz))} class="rep {hueOf(m.p)}" class:tuned={m.p.id === tunedId} class:hollow={undecoded(m.p)}>
         <title>{title(m.p)}</title>
         <circle cx={m.x} cy={m.y} r={Math.max(HIT_PX, radius(m) + 2) * kmPerPx} class="hit" />
         <circle cx={m.x} cy={m.y} r={radius(m) * kmPerPx} class="dot" />
@@ -350,6 +350,13 @@
   }
   .cover {
     stroke: currentColor;
+  }
+  /* listed under a digital mode nothing here decodes: an outline, not a dot */
+  .rep.hollow .dot {
+    fill: var(--bg-darker);
+    stroke: currentColor;
+    stroke-width: 1.5px;
+    vector-effect: non-scaling-stroke;
   }
   .rep,
   .badge {

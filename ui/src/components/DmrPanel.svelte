@@ -23,10 +23,10 @@
 <div class="head">
   {#if dmr.heard}
     <span class="name">DMR {dmr.source ? SOURCE[dmr.source] : ''}{#if dmr.colour_code !== null} · <span title={GLOSS.colour}>colour code {dmr.colour_code}</span>{/if}</span>
-    <span class="dim">{dmr.bursts_per_sec.toFixed(0)} bursts/s · plays one slot at a time, the first to carry a call</span>
+    <span class="dim">{dmr.bursts_per_sec.toFixed(0)} bursts/s · {dmr.slots.some((s) => s.call) ? 'one slot plays at a time, the first to carry a call' : 'quiet between calls is normal: when someone talks, a slot below fills and plays'}</span>
   {:else}
     <span class="name">{dmr.colour_code === null ? 'No DMR heard here yet' : 'DMR quiet'}</span>
-    <span class="dim">A repeater listed as DMR can still carry plain FM. <button class="link" onclick={onFm}>Hear it as FM</button></span>
+    <span class="dim">A DMR repeater sends nothing between calls, so silence here is normal. One that stays silent while the waterfall shows a signal may be on plain FM. <button class="link" onclick={onFm}>Hear it as FM</button></span>
   {/if}
   {#if dmr.voice_error}<span class="dim err">{dmr.voice_error}</span>{/if}
 </div>
