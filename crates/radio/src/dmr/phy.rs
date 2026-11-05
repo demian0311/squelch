@@ -18,6 +18,9 @@ const SLOT_SYMBOLS: usize = 144;
 const BEFORE_SYNC: usize = 54;
 /// Normalised correlation a sync must reach.
 const MIN_CORR: f32 = 0.85;
+/// Sliced back, the 24 sync symbols may miss the pattern by this many. The correlation alone passes
+/// noise about once a second (its denominator is the noise's own size, 2026-11-05); a hard match does not.
+const MAX_SYNC_ERRS: usize = 3;
 /// Lock is dropped after this many bursts without a sync (a voice superframe on both slots
 /// goes 5 bursts each without one).
 const LOST_AFTER: u32 = 24;
@@ -140,11 +143,12 @@ impl Phy {
                 }
                 let (k, c) = self.best_sync(next);
                 let (k, c) = (next - SLIP..=next + SLIP).map(|t| self.best_sync(t)).fold((k, c), |a, b| if b.1.abs() > a.1.abs() { b } else { a });
-                let (sync, at) = if c.abs() >= MIN_CORR {
-                    let t = self.peak(k, next - SLIP..=next + SLIP);
+                let t = if c.abs() >= MIN_CORR { self.peak(k, next - SLIP..=next + SLIP) } else { next };
+                let voice = self.corr(k, t) > 0.0;
+                let (sync, at) = if c.abs() >= MIN_CORR && self.sync_errs(k, t, self.amplitude(t), voice) <= MAX_SYNC_ERRS {
                     amp = self.amplitude(t);
                     misses = 0;
-                    (Some(Sync { source: VOICE_SYNCS[k].0, voice: self.corr(k, t) > 0.0 }), t)
+                    (Some(Sync { source: VOICE_SYNCS[k].0, voice }), t)
                 } else {
                     misses += 1;
                     (None, next)
@@ -171,6 +175,10 @@ impl Phy {
                 let t = self.peak(k, self.pos..=self.pos + SPS - 1);
                 let c = self.corr(k, t);
                 let amp = self.amplitude(t);
+                if self.sync_errs(k, t, amp, c > 0.0) > MAX_SYNC_ERRS {
+                    self.pos += 1;
+                    continue;
+                }
                 let sync = Some(Sync { source: VOICE_SYNCS[k].0, voice: c > 0.0 });
                 bursts.push(self.slice(t, amp, sync, 0, true));
                 self.lock = Some(Lock { next: t + SLOT_SYMBOLS * SPS, amp, misses: 0, seq: 1 });
@@ -209,6 +217,18 @@ impl Phy {
             e += x.abs();
         }
         c / (3.0 * e).max(1e-9)
+    }
+
+    /// How many of the 24 sync symbols at `t`, sliced at `amp`, miss pattern `k` (inverted for a data sync).
+    fn sync_errs(&self, k: usize, t: usize, amp: f32, voice: bool) -> usize {
+        let sign = if voice { 1.0 } else { -1.0 };
+        (0..SYNC_LEN)
+            .filter(|&i| {
+                let v = self.symbol(t + i * SPS) / amp * 3.0;
+                let level = if v > 2.0 { 3.0 } else if v > 0.0 { 1.0 } else if v > -2.0 { -1.0 } else { -3.0 };
+                level != self.syncs[k][i] * sign
+            })
+            .count()
     }
 
     /// Discriminator value of a ±3 symbol, from the sync's own symbols.

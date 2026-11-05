@@ -110,6 +110,8 @@ export interface Status {
   p25: P25 | null;
   /** Two-slot digital voice receiver, in DMR mode. */
   dmr: Dmr | null;
+  /** The Repeaters screen's receiver, while it is on. */
+  repeaters: RepeaterScan | null;
   /** All of a wide band in one line per check, while an EMS band is open. `line` rides in the statuses just after a check. */
   look: { looking: boolean; line: { seq: number; parts: { lo_hz: number; hi_hz: number; cells: number[] }[] } | null } | null;
   /** Aircraft messages, while a band with the ACARS decoder is selected. */
@@ -171,6 +173,24 @@ export interface DmrSlot {
   /** This slot's voice goes to the speaker. */
   playing: boolean;
   calls: number;
+}
+/** One repeater output the Repeaters screen watches. */
+export interface RepeaterState {
+  hz: number;
+  /** The DMR receiver's state, on a DMR repeater in the capture. */
+  dmr: Dmr | null;
+  /** FM: a carrier is on now. */
+  on_air: boolean;
+  /** Inside the capture, so it can be heard. */
+  heard: boolean;
+  /** Engine seconds when it last carried something. */
+  last_on_secs: number | null;
+}
+export interface RepeaterScan {
+  now_secs: number;
+  playing: number | null;
+  hold: number | null;
+  channels: RepeaterState[];
 }
 export interface Dmr {
   now_secs: number;
@@ -525,6 +545,8 @@ export const airMessages = (days: number, max: number) => invoke<AcarsMessage[]>
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
 /** P25: only `hold` plays (null: any talkgroup), and nothing in `skip` does. */
+/** The Repeaters screen: watch these outputs at once, play the held one or whoever talks first; an empty list stops. */
+export const setRepeaterScan = (channels: { hz: number; dmr: boolean }[], hold: number | null) => invoke('set_repeater_scan', { channels, hold });
 export const setP25Picks = (hold: number | null, skip: number[]) => invoke('set_p25_picks', { hold, skip });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 /** Correct the dongle's crystal by `ppm`, positive when it runs fast. */

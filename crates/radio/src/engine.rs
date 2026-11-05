@@ -14,6 +14,7 @@ use crate::hd::{Hd, HdImage, HdInfo};
 use crate::look::{BandLook, Hop};
 use crate::dmr::Dmr;
 use crate::p25::P25;
+use crate::repscan::{Play, RepeaterChannel, RepeaterScan};
 use crate::spectrum::{Floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
 use crate::squelch::Squelch;
@@ -71,6 +72,9 @@ pub enum Command {
     SetHd(Option<u32>),
     /// P25: only `hold` plays (None: any talkgroup), and nothing in `skip` does.
     P25Picks { hold: Option<u16>, skip: Vec<u16> },
+    /// The Repeaters screen: watch these outputs at once and play the held one, else whoever talks
+    /// first; `tuned` follows what plays. An empty list stops.
+    RepeaterScan { channels: Vec<RepeaterChannel>, hold: Option<f64> },
     /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
     SetPpm(i32),
     Stop,
@@ -125,6 +129,8 @@ pub struct Status {
     pub p25: Option<crate::p25::Info>,
     /// Digital voice state, in DMR mode.
     pub dmr: Option<crate::dmr::Info>,
+    /// The Repeaters screen's receiver, while it is on.
+    pub repeaters: Option<crate::repscan::Info>,
     /// The whole band, while `Command::BandLook` is on.
     pub look: Option<crate::look::Info>,
     /// Aircraft messages, while ACARS decoding is on.
@@ -330,6 +336,7 @@ fn run(
     let mut p25: Option<P25> = None;
     let dmr_for = |mode: Mode, tuned: f64| (mode == Mode::Dmr).then(|| Dmr::new(rate, tuned));
     let mut dmr: Option<Dmr> = None;
+    let mut repscan: Option<RepeaterScan> = None;
     let mut p25_picks: (Option<u16>, Vec<u16>) = (None, Vec::new());
     let mut last_status = Instant::now() - Duration::from_secs(1);
     let mut recorder: Option<Recorder> = None;
@@ -346,6 +353,8 @@ fn run(
                 Ok(Command::Tune { center_hz, tuned_hz }) => {
                     // while the two aircraft jobs take turns, the turns say where the dongle sits
                     let center_hz = if turns.is_some() { center } else { center_hz };
+                    // while a scanned repeater plays, what is tuned is the scan's to choose
+                    let tuned_hz = if repscan.as_ref().is_some_and(|s| s.playing().is_some()) { tuned } else { tuned_hz };
                     // the view moves the dongle but not what is playing: only a new frequency restarts the audio
                     let center_moved = (center_hz - center).abs() > 1.0;
                     let tuned_moved = (tuned_hz - tuned).abs() > 1.0;
@@ -470,6 +479,15 @@ fn run(
                         a.set_site(s);
                     }
                 }
+                Ok(Command::RepeaterScan { channels, hold }) => {
+                    if channels.is_empty() {
+                        repscan = None;
+                    } else if let Some(s) = &mut repscan {
+                        s.set(rate, &channels, hold);
+                    } else {
+                        repscan = Some(RepeaterScan::new(rate, &channels, hold));
+                    }
+                }
                 Ok(Command::P25Picks { hold, skip }) => {
                     p25_picks = (hold, skip);
                     if let Some(c) = p25.as_mut().and_then(|p| p.set_picks(p25_picks.0, &p25_picks.1)) {
@@ -565,7 +583,7 @@ fn run(
                 if let Some(l) = &mut look {
                     l.abort();
                 }
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -615,7 +633,7 @@ fn run(
             }
             if last_status.elapsed() >= Duration::from_millis(200) {
                 last_status = Instant::now();
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), dmr.as_ref().map(Dmr::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
             }
             prof.report();
             continue;
@@ -706,7 +724,31 @@ fn run(
             }
         }
 
-        if let Some(p) = &mut p25 {
+        if let Some(scan) = &mut repscan {
+            let play = scan.process(&iq, center, &signals, squelch_db);
+            let hz = match play {
+                Play::Dmr(hz) | Play::Fm(hz) => Some(hz),
+                Play::Quiet => None,
+            };
+            if let Some(hz) = hz.filter(|hz| (tuned - hz).abs() > 1.0) {
+                tuned = hz;
+                mixer.set(tuned - center, rate as f64);
+                squelch.reset();
+                snr = 0.0;
+                if let Some(a) = &audio {
+                    a.clear();
+                }
+            }
+            match play {
+                Play::Dmr(hz) => scan.take_pcm(hz, &mut pcm),
+                Play::Fm(_) => {
+                    demod.process_mixed(&iq, &mut mixer, &mut pcm);
+                    squelch.apply(&mut pcm);
+                }
+                Play::Quiet => pcm.clear(),
+            }
+            prof.lap("repeaters");
+        } else if let Some(p) = &mut p25 {
             // the receiver opens and closes on calls itself, so the squelch stays out of it
             if let Some(c) = p.process(&iq, center, &signals, &mut pcm) {
                 center = c;
@@ -785,7 +827,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, dmr.as_ref().map(Dmr::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
         }
         prof.lap("status");
         prof.report();
@@ -880,6 +922,7 @@ fn send_status(
     hd_images: Option<Vec<HdImage>>,
     p25: Option<crate::p25::Info>,
     dmr: Option<crate::dmr::Info>,
+    repeaters: Option<crate::repscan::Info>,
     look: Option<crate::look::Info>,
     acars: Option<crate::acars::Info>,
     ppm: i32,
@@ -910,6 +953,7 @@ fn send_status(
         hd_images,
         p25,
         dmr,
+        repeaters,
         look,
         acars,
         ppm,

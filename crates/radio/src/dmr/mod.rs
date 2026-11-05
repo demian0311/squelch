@@ -81,6 +81,9 @@ struct Slot {
     in_voice: bool,
     /// Embedded LC fragments collected so far in this superframe.
     emb: Vec<[u8; 32]>,
+    /// Something checked has been read for this call: a header, or an EMB past its code. A voice sync alone
+    /// also comes out of noise (2026-11-05: on the simulator every quiet DMR row read "talking, encrypted").
+    confirmed: bool,
     calls: u32,
 }
 
@@ -202,6 +205,11 @@ impl Dmr {
         self.slots.iter().any(|s| s.call.is_some())
     }
 
+    /// A call is on that could be heard: not encrypted.
+    pub fn clear_call(&self) -> bool {
+        self.slots.iter().any(|s| s.call.as_ref().is_some_and(|c| !c.encrypted))
+    }
+
     pub fn process(&mut self, iq: &[C32], center: f64, pcm: &mut Vec<f32>) {
         pcm.clear();
         self.now += iq.len() as f64 / self.rate;
@@ -265,8 +273,14 @@ impl Dmr {
         let i = self.slot_of(b);
         match b.sync {
             Some(s) => {
-                self.last_sync = self.now;
-                self.source = Some(s.source);
+                // a sync where the timing said one would be is no accident; the first of a lock may be noise
+                if s.voice && !b.relocked {
+                    self.slots[i].confirmed = true;
+                }
+                if !b.relocked || self.slots[i].confirmed {
+                    self.last_sync = self.now;
+                    self.source = Some(s.source);
+                }
                 if s.voice {
                     self.slots[i].emb.clear();
                     self.voice_burst(i, b);
@@ -289,6 +303,7 @@ impl Dmr {
         let mut slot_type = [0u8; 20];
         slot_type[..10].copy_from_slice(&bits[98..108]);
         slot_type[10..].copy_from_slice(&bits[156..166]);
+        // Golay (20,8) passes a third of noise bursts: nothing counts until the block code behind it passes too
         let Some(_) = fec::golay_20_8_decode(&mut slot_type) else { return };
         self.cc = Some(field(&slot_type, 0, 4) as u8);
         let dt = field(&slot_type, 4, 4) as u8;
@@ -300,8 +315,10 @@ impl Dmr {
             DT_VOICE_HEADER => {
                 let Some(block) = fec::bptc_196_96_decode(&info) else { return };
                 if let Some(lc) = FullLc::from_block(&block, lc::MASK_HEADER).filter(FullLc::is_voice) {
+                    self.last_sync = now;
                     let slot = &mut self.slots[i];
                     apply_lc(slot.call.get_or_insert_with(|| new_call(i, now)), &lc);
+                    slot.confirmed = true;
                     slot.in_voice = true;
                     slot.last_voice = now;
                     slot.emb.clear();
@@ -309,13 +326,17 @@ impl Dmr {
                 }
             }
             DT_PI_HEADER => {
+                let Some(_) = fec::bptc_196_96_decode(&info) else { return };
+                self.last_sync = now;
                 let slot = &mut self.slots[i];
                 slot.call.get_or_insert_with(|| new_call(i, now)).encrypted = true;
+                slot.confirmed = true;
                 slot.in_voice = true;
                 slot.last_voice = now;
             }
             DT_TERMINATOR => {
                 if let Some(block) = fec::bptc_196_96_decode(&info) {
+                    self.last_sync = now;
                     if let (Some(lc), Some(call)) = (FullLc::from_block(&block, lc::MASK_TERMINATOR), self.slots[i].call.as_mut()) {
                         apply_lc(call, &lc);
                     }
@@ -333,8 +354,10 @@ impl Dmr {
         let mut emb = [0u8; 16];
         emb[..8].copy_from_slice(&centre[..8]);
         emb[8..].copy_from_slice(&centre[40..48]);
+        // QR (16,7) passes a quarter of noise: the EMB alone confirms nothing
         let Some(_) = fec::qr_16_7_decode(&mut emb) else { return };
         self.cc = Some(field(&emb, 0, 4) as u8);
+        let now = self.now;
         let pi = emb[4] == 1;
         let lcss = field(&emb, 5, 2) as u8;
         let slot = &mut self.slots[i];
@@ -361,9 +384,10 @@ impl Dmr {
                 }
                 let lc = FullLc::parse(&lc_bits);
                 if lc.is_voice() {
-                    if let Some(c) = slot.call.as_mut() {
-                        apply_lc(c, &lc);
-                    }
+                    // a whole embedded LC past its checks is a call, header or not
+                    self.last_sync = now;
+                    slot.confirmed = true;
+                    apply_lc(slot.call.get_or_insert_with(|| new_call(i, now)), &lc);
                 }
             }
             _ => slot.emb.clear(),
@@ -374,6 +398,12 @@ impl Dmr {
         let now = self.now;
         let encrypted = {
             let slot = &mut self.slots[i];
+            // a voice sync alone: wait for the next burst's EMB to pass its code before calling it a call
+            if slot.call.is_none() && !slot.confirmed {
+                slot.in_voice = true;
+                slot.last_voice = now;
+                return;
+            }
             let call = slot.call.get_or_insert_with(|| new_call(i, now));
             call.last_secs = now;
             slot.in_voice = true;
@@ -415,6 +445,7 @@ impl Dmr {
     fn end_call(&mut self, i: usize) {
         let slot = &mut self.slots[i];
         slot.in_voice = false;
+        slot.confirmed = false;
         slot.emb.clear();
         let Some(call) = slot.call.take() else { return };
         slot.calls += 1;
@@ -605,6 +636,29 @@ pub mod tests {
         assert_eq!(info.encrypted_calls, 1);
         assert!(info.recent[0].encrypted);
         assert!(audio.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn noise_is_not_a_call() {
+        // five seconds of noise through the receiver: the odd false voice sync must not become a call
+        let mut dmr = Dmr::new(240_000, 0.0);
+        let mut pcm = Vec::new();
+        let mut x = 0x9e3779b97f4a7c15u64;
+        let mut unit = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 11) as f32 / (1u64 << 53) as f32 - 0.5
+        };
+        for _ in 0..50 {
+            let iq: Vec<C32> = (0..24_000).map(|_| C32::new(unit(), unit())).collect();
+            dmr.process(&iq, 0.0, &mut pcm);
+            let info = dmr.info();
+            assert!(info.slots.iter().all(|s| s.call.is_none()), "{info:?}");
+            assert!(!info.heard);
+            assert!(pcm.is_empty());
+        }
+        assert!(dmr.info().recent.is_empty());
     }
 
     #[test]

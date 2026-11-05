@@ -19,6 +19,7 @@ pub mod nxdn;
 pub mod p25;
 pub mod prefs;
 pub mod rds;
+pub mod repscan;
 pub mod repeaters;
 pub mod sonde;
 pub mod record;

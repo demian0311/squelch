@@ -84,6 +84,8 @@ export function repeaterPoints(list: Repeater[], band: Band, site: { lat: number
         digital: r.modes.find((m) => DIGITAL.includes(m)) ?? null,
       };
     })
+    // listed only under a digital mode nothing here decodes: not drawn, not a row (owner's call 2026-11-05)
+    .filter((p) => !undecoded(p))
     .sort((a, b) => a.km - b.km);
 }
 

@@ -28,6 +28,7 @@
   import EmsScreen from './components/EmsScreen.svelte';
   import Talkgroups from './components/Talkgroups.svelte';
   import DmrPanel from './components/DmrPanel.svelte';
+  import RepeatersScreen from './components/RepeatersScreen.svelte';
   import { AIR_TURNS, airportTalk, airportWindow, followChannel, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
@@ -37,6 +38,7 @@
   import { ADSB_CENTRE_HZ, TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_VIEW, REACH_KM, WIDEST_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput, type MapView } from './lib/repeaters';
+  import { bestCentre, rememberHeard, repRows, repSteps, repVerdict, scanChannels } from './lib/repscreen';
   import Icon from './components/Icon.svelte';
   import ChannelBoard from './components/ChannelBoard.svelte';
   import BoardActivity from './components/BoardActivity.svelte';
@@ -205,7 +207,7 @@
     const fitsAcars = [vs, ve, tuned].every((f) => Math.abs(f - ACARS_CENTRE_HZ) <= half);
     // a control-channel scan owns the dongle until a hand tune (the engine's tuned frequency still matches)
     const scanning = !!p25?.scan && status !== null && Math.abs(status.tuned_hz - tuned) < 1;
-    center = scanning ? status!.center_hz : band?.decoder === 'acars' && fitsAcars ? ACARS_CENTRE_HZ : captureCenter(center, vs, ve, tuned, half, DC_OFFSET);
+    center = repScreen && repCentre !== null ? repCentre : scanning ? status!.center_hz : band?.decoder === 'acars' && fitsAcars ? ACARS_CENTRE_HZ : captureCenter(center, vs, ve, tuned, half, DC_OFFSET);
     send();
   }
 
@@ -532,8 +534,7 @@
     const shown = repPoints.filter((p) => p.km <= WIDEST_KM);
     const hear = shown.filter((p) => p.reach && !p.digital).length;
     const dmr = shown.filter((p) => p.digital === 'DMR').length;
-    const other = shown.filter((p) => p.digital && p.digital !== 'DMR').length;
-    return `${shown.length} within ${WIDEST_KM} km · green: ${hear} FM you should hear · ${repLive.size} on air` + (dmr ? ` · blue: ${dmr} DMR, click to listen` : '') + (other ? ` · hollow: ${other} digital this radio does not decode` : '');
+    return `${shown.length} within ${WIDEST_KM} km · green: ${hear} FM you should hear · ${repLive.size} on air` + (dmr ? ` · blue: ${dmr} DMR, click to listen` : '');
   });
   let locationInput = $state<HTMLInputElement | undefined>();
   /** The map title's pin: Settings, with the location ready to type over. */
@@ -571,6 +572,98 @@
   let planesScreen = $derived(band?.id === 'air' && !seeRadio);
   // The EMS screen: the receiver's steps, a verdict, the tower's channels and the talkgroups; `seeRadio` is the waterfall.
   let emsScreen = $derived(isEms(band) && !seeRadio);
+  // The Repeaters screen: every repeater in reach as a row, every one in the capture heard at once, the held one or
+  // whoever talks first plays; `seeRadio` is the waterfall. Issue #34, mockup https://claude.ai/artifact/P4XjQ1zc3Bg5BS71oJxeFM
+  let repScreen = $derived(repReachKm !== undefined && !!iss?.site && !seeRadio);
+  let repShown = $derived(repPoints.filter((p) => p.km <= WIDEST_KM));
+  /** Where the capture sits while the screen is open: over the most repeaters, or over a clicked row. */
+  let repCentre = $state<number | null>(null);
+  let repHold = $state<number | null>(null);
+  /** Per output frequency, when it last carried something; kept across runs. */
+  let repMemory = $state<Record<string, number>>(store.getState('repeaters.heard', {}));
+  let repRowList = $derived(repRows(repShown, status?.repeaters ?? null, repMemory, nowS * 1000));
+  let repPlayingRow = $derived(repRowList.find((r) => r.state === 'playing') ?? null);
+  let repScanOn = false;
+  $effect(() => {
+    if (repScreen) {
+      repScanOn = true;
+      api.setRepeaterScan(scanChannels(repShown), repHold);
+    } else if (repScanOn) {
+      repScanOn = false;
+      api.setRepeaterScan([], null);
+    }
+  });
+  // entering: the capture goes where it hears the most, as plain FM; leaving: the playing repeater's own mode
+  $effect(() => {
+    const on = repScreen;
+    const pts = repShown;
+    untrack(() => {
+      if (on && repCentre === null && pts.length) {
+        repCentre = bestCentre(pts, rate);
+        if (repCentre !== null) {
+          vs = repCentre - maxSpan / 2;
+          ve = repCentre + maxSpan / 2;
+        }
+        if (mode !== 'nfm') {
+          mode = 'nfm';
+          api.setMode(mode);
+        }
+        // the digits show the nearest repeater in the capture until something plays
+        const c = repCentre;
+        const first = c === null ? undefined : pts.find((p) => Math.abs(p.hz - c) < rate * 0.45);
+        if (first) tuned = first.hz;
+        recenter();
+      } else if (!on && repCentre !== null) {
+        repCentre = null;
+        repHold = null;
+        const m = modeAt(plan, named, tuned, 'nfm');
+        if (m !== mode) {
+          mode = m;
+          api.setMode(m);
+        }
+      }
+    });
+  });
+  // the engine moves the tuned frequency to what plays: the page follows
+  $effect(() => {
+    const t = status?.tuned_hz;
+    if (!repScreen || t === undefined) return;
+    untrack(() => {
+      if (Math.abs(t - tuned) > 1) tuned = Math.round(t);
+    });
+  });
+  $effect(() => {
+    const next = rememberHeard(untrack(() => repMemory), status?.repeaters ?? null, Date.now());
+    if (next) {
+      repMemory = next;
+      store.setState('repeaters.heard', next);
+    }
+  });
+  /** A row or its mark clicked: hold it, let it go, or move the capture onto it. */
+  function repRowClick(hz: number) {
+    const st = status?.repeaters?.channels.find((c) => Math.abs(c.hz - hz) < 1);
+    if (!st?.heard) {
+      repCentre = bestCentre(repShown, rate, hz);
+      if (repCentre !== null) {
+        vs = repCentre - maxSpan / 2;
+        ve = repCentre + maxSpan / 2;
+      }
+      repHold = hz;
+      recenter();
+      return;
+    }
+    repHold = repHold !== null && Math.abs(repHold - hz) < 1 ? null : hz;
+  }
+  /** Arrow keys on the screen: hold the next or previous repeater that can be heard. */
+  function repStepHold(dir: 1 | -1) {
+    const heard = repRowList.filter((r) => r.heard);
+    if (!heard.length) return;
+    const i = heard.findIndex((r) => r.held);
+    repHold = heard[(i + dir + heard.length) % heard.length].p.hz;
+  }
+  let repSub = $derived(
+    repPlayingRow ? `${repPlayingRow.p.call} · ${repPlayingRow.detail}` : `Hearing ${repRowList.filter((r) => r.heard).length} repeaters at once · ${repHold !== null ? 'holding one' : 'whoever talks first plays'}`,
+  );
   let airWatching = $derived(planesScreen && !airListen);
   // while watching, the waterfall shows the whole capture wherever the turns have put the dongle
   let airCentre = $derived(status?.center_hz ?? ACARS_CENTRE_HZ);
@@ -829,13 +922,14 @@
     const same = d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
     return same ? 'today' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
   }
-  let nowTitle = $derived(playTitle ?? airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived(playTitle ?? airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (repScreen ? (repPlayingRow?.p.call ?? band?.name ?? 'Repeaters') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     playSub ? playSub :
     airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
     p25 && p25.state === 'searching' ? p25Summary(p25) :
     p25 && !p25.call && picks.hold !== null ? holdSay(p25, picks.hold) :
+    repScreen ? repSub :
     dmr ? dmrSummary(dmr) :
     airListen ? hearingSay(airHearing, nowS * 1000) :
     muted ? 'Muted — signal is below the squelch level' :
@@ -1078,7 +1172,7 @@
     if (band?.decoder === 'adsb' || band?.decoder === 'acars') own.push('flights');
     if (p25 && !emsScreen) own.push('p25');
     if (dmr) own.push('dmr');
-    if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
+    if (repReachKm !== undefined && !repScreen && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     if (band?.mode === 'wfm') own.push('stations');
     // what HD stations send besides audio, once there is some
     if (hdTraffic || hdWeather) own.push('hd');
@@ -1310,6 +1404,7 @@
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
     const keyed = railPlan.groups.flatMap((g) => railPlan.bands.filter((b) => b.group === g.id)).slice(0, 9);
     if (/^[1-9]$/.test(e.key) && keyed[+e.key - 1]) pickBand(keyed[+e.key - 1]);
+    else if (repScreen && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) repStepHold(e.key === 'ArrowRight' ? 1 : -1);
     else if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'ArrowLeft') step(-1);
     else if (e.key === '[') setView(vs - span / 4, ve - span / 4);
@@ -1530,6 +1625,13 @@
           <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and every aircraft frequency">See the radio</button>
         {:else}
           <button class="chip backair" onclick={() => { seeRadio = false; airListen = null; }}>Back to the map</button>
+        {/if}
+      {/if}
+      {#if repReachKm !== undefined && iss?.site && !bookmarksOpen}
+        {#if repScreen}
+          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and the whole band">See the radio</button>
+        {:else}
+          <button class="chip backair" onclick={() => (seeRadio = false)}>Back to the repeaters</button>
         {/if}
       {/if}
       {#if isEms(band) && !bookmarksOpen}
@@ -1897,6 +1999,15 @@
       {/if}
       {#if planesScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+      {/if}
+      {#if repScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
+        <RepeatersScreen rows={repRowList} steps={repSteps(repRowList)} verdict={repVerdict(repRowList, repMemory, nowS * 1000)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)}>
+          {#snippet map()}
+            {#if iss?.site}
+              <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={repRowClick} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
+            {/if}
+          {/snippet}
+        </RepeatersScreen>
       {/if}
       {#if emsScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
