@@ -12,6 +12,7 @@ use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::hd::{Hd, HdImage, HdInfo};
 use crate::look::{BandLook, Hop};
+use crate::dmr::Dmr;
 use crate::p25::P25;
 use crate::spectrum::{Floor, Spectrum};
 use crate::sonde::{all_decoders, Scanner, Sonde};
@@ -122,6 +123,8 @@ pub struct Status {
     pub hd_images: Option<Vec<HdImage>>,
     /// Trunked radio state, in P25 mode.
     pub p25: Option<crate::p25::Info>,
+    /// Digital voice state, in DMR mode.
+    pub dmr: Option<crate::dmr::Info>,
     /// The whole band, while `Command::BandLook` is on.
     pub look: Option<crate::look::Info>,
     /// Aircraft messages, while ACARS decoding is on.
@@ -325,6 +328,8 @@ fn run(
         })
     };
     let mut p25: Option<P25> = None;
+    let dmr_for = |mode: Mode, tuned: f64| (mode == Mode::Dmr).then(|| Dmr::new(rate, tuned));
+    let mut dmr: Option<Dmr> = None;
     let mut p25_picks: (Option<u16>, Vec<u16>) = (None, Vec::new());
     let mut last_status = Instant::now() - Duration::from_secs(1);
     let mut recorder: Option<Recorder> = None;
@@ -363,6 +368,9 @@ fn run(
                     if center_moved || tuned_moved {
                         tuned = tuned_hz;
                         mixer.set(tuned - center, rate as f64);
+                        if let Some(d) = &mut dmr {
+                            d.set_tuned(tuned);
+                        }
                     }
                     if !tuned_moved {
                         if let (true, Some(h)) = (center_moved, &mut hd) {
@@ -395,6 +403,7 @@ fn run(
                     mode = m;
                     demod = Demodulator::new(mode, rate);
                     p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges), &p25_picks);
+                    dmr = dmr_for(mode, tuned);
                     hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
@@ -556,7 +565,7 @@ fn run(
                 if let Some(l) = &mut look {
                     l.abort();
                 }
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -606,7 +615,7 @@ fn run(
             }
             if last_status.elapsed() >= Duration::from_millis(200) {
                 last_status = Instant::now();
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), dmr.as_ref().map(Dmr::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
             }
             prof.report();
             continue;
@@ -707,6 +716,10 @@ fn run(
                 recent.clear();
             }
             prof.lap("p25");
+        } else if let Some(d) = &mut dmr {
+            // calls open and close the sound themselves
+            d.process(&iq, center, &mut pcm);
+            prof.lap("dmr");
         } else {
             demod.process_mixed(&iq, &mut mixer, &mut pcm);
             prof.lap("demod");
@@ -772,7 +785,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, dmr.as_ref().map(Dmr::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
         }
         prof.lap("status");
         prof.report();
@@ -866,6 +879,7 @@ fn send_status(
     hd: Option<HdInfo>,
     hd_images: Option<Vec<HdImage>>,
     p25: Option<crate::p25::Info>,
+    dmr: Option<crate::dmr::Info>,
     look: Option<crate::look::Info>,
     acars: Option<crate::acars::Info>,
     ppm: i32,
@@ -895,6 +909,7 @@ fn send_status(
         hd,
         hd_images,
         p25,
+        dmr,
         look,
         acars,
         ppm,

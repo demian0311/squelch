@@ -7,6 +7,7 @@ pub mod bands;
 pub mod demod;
 pub mod detect;
 pub mod device;
+pub mod dmr;
 pub mod dsp;
 pub mod engine;
 pub mod airports;

@@ -7,7 +7,7 @@
 # you saved; the app writes those.
 #
 # icon: radio plane cloud anchor walkie truck train wave tower pin msg balloon key mesh dish star therm siren
-# mode: wfm nfm am usb lsb none p25
+# mode: wfm nfm am usb lsb none p25 dmr
 
 [[group]]
 id = "listen"

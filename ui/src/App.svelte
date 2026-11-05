@@ -8,6 +8,7 @@
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
+  import { dmrSummary } from './lib/dmr';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
@@ -24,6 +25,7 @@
   import AirplanesScreen from './components/AirplanesScreen.svelte';
   import EmsScreen from './components/EmsScreen.svelte';
   import Talkgroups from './components/Talkgroups.svelte';
+  import DmrPanel from './components/DmrPanel.svelte';
   import { AIR_TURNS, oneAirplanes, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
@@ -38,7 +40,7 @@
   import BoardActivity from './components/BoardActivity.svelte';
   import { BOARDS, SHOW_AFTER_MIN, activity, boardFor, channelOn, listened, liveOn, parseHistory, record, sideView, sidesIn, spanText, type Minute } from './lib/board';
 
-  const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500 };
+  const BANDWIDTH: Record<Mode, number> = { wfm: 200_000, nfm: 12_500, am: 8_000, usb: 2_800, lsb: 2_800, none: 10_000, p25: 12_500, dmr: 12_500 };
   // a card's border and padding, its signal bar and its bookmark, each with its gap
   const CARD_PAD_PX = 15;
   const CARD_BAR_PX = 18;
@@ -694,6 +696,7 @@
   let hdTraffic = $derived(trafficGrid(hdImages));
   let hdWeather = $derived(hdImages.find((i) => i.kind === 'weather'));
   let p25 = $derived(status?.mode === 'p25' ? (status.p25 ?? null) : null);
+  let dmr = $derived(status?.mode === 'dmr' ? (status.dmr ?? null) : null);
   // ── P25 picks: the one talkgroup that plays and those that never do, per system ──
   let p25Picks = $state<Record<string, Picks>>(store.getState('p25.picks', {}));
   let picks = $derived(p25Picks[systemKey(p25) ?? ''] ?? NO_PICKS);
@@ -792,6 +795,7 @@
     airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
     p25 && p25.state === 'searching' ? p25Summary(p25) :
     p25 && !p25.call && picks.hold !== null ? holdSay(p25, picks.hold) :
+    dmr ? dmrSummary(dmr) :
     muted ? 'Muted — signal is below the squelch level' :
     airListen ? 'Every plane on this channel, not only one' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
@@ -822,7 +826,7 @@
   // ── panels ──────────────────────────────────────────
   // One panel beside the waterfall: the most relevant one. Others that matter right now are tabs in its title.
 
-  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'flights' | 'stations' | 'hd' | 'p25' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
+  type PanelId = 'sondes' | 'acars' | 'aircraft' | 'flights' | 'stations' | 'hd' | 'p25' | 'dmr' | 'iss' | 'repeaters' | 'board' | 'activity' | 'channels';
   let panelPick = $state<PanelId | null>(null);
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
@@ -994,6 +998,7 @@
     if (band?.decoder === 'adsb') own.push('aircraft');
     if (band?.decoder === 'adsb' || band?.decoder === 'acars') own.push('flights');
     if (p25 && !emsScreen) own.push('p25');
+    if (dmr) own.push('dmr');
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     if (band?.mode === 'wfm') own.push('stations');
     // what HD stations send besides audio, once there is some
@@ -1050,12 +1055,12 @@
     const t = setInterval(load, FLIGHT_REFRESH_MS);
     return () => clearInterval(t);
   });
-  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', flights: 'Flights log', stations: 'Stations', hd: 'Traffic and weather', p25: 'EMS', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
+  const PANEL_TITLE: Record<Exclude<PanelId, 'board'>, string> = { activity: 'Activity', sondes: 'Weather balloons', acars: 'Aircraft messages', aircraft: 'Aircraft', flights: 'Flights log', stations: 'Stations', hd: 'Traffic and weather', p25: 'EMS', dmr: 'DMR', iss: 'Space station', repeaters: 'Repeaters', channels: 'Channels' };
   const panelTitle = (id: PanelId) => (id === 'board' ? (board?.title ?? 'Channels') : PANEL_TITLE[id]);
   let issHue = $derived(hues[plan.bands.find((b) => b.id === 'iss')?.group ?? ''] ?? hue);
   const panelHue = (id: PanelId) => (id === 'iss' ? issHue : hue);
   let panelSummary = $derived(
-    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'flights' ? `${flightList.length} flight${flightList.length === 1 ? '' : 's'} in the last ${FLIGHT_LOG_DAYS} days` : panel === 'stations' ? dialSummary : panel === 'hd' ? (hd?.name ?? '') : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
+    panel === 'sondes' ? sondeLine : panel === 'acars' ? acarsSummary(status?.acars ?? null, acarsList.length) : panel === 'aircraft' ? adsbLine : panel === 'flights' ? `${flightList.length} flight${flightList.length === 1 ? '' : 's'} in the last ${FLIGHT_LOG_DAYS} days` : panel === 'stations' ? dialSummary : panel === 'hd' ? (hd?.name ?? '') : panel === 'p25' && p25 ? p25Summary(p25) : panel === 'dmr' && dmr ? dmrSummary(dmr) : panel === 'iss' ? issMapSummary : panel === 'repeaters' ? repSummary : panel === 'channels' || panel === 'board' ? chSummary : panel === 'activity' ? boardSummary : '',
   );
 
   let wfSummary = $derived(
@@ -1730,6 +1735,10 @@
               <div class="col">
                 <Talkgroups {p25} {picks} rows={tgRows} {fold} onHold={holdGroup} onSkip={skipGroup} />
               </div>
+            </div>
+          {:else if panel === 'dmr' && dmr}
+            <div class="pbody">
+              <DmrPanel {dmr} onFm={() => tuneSaved(tuned, 'nfm')} />
             </div>
           {:else if panel === 'iss'}
             <div class="split over">

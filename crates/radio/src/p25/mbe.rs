@@ -1,6 +1,6 @@
 //! mbelib (szechyjs/mbelib, Arch package `mbelib`), loaded at run time so the receiver still
-//! starts without it. Decodes IMBE, the P25 Phase 1 voice codec. `Parms` mirrors
-//! `struct mbe_parameters` in `mbelib.h`; recheck it if mbelib is upgraded.
+//! starts without it. Decodes IMBE (P25 Phase 1) and AMBE+2 at 3600x2450 (DMR, NXDN, Fusion DN).
+//! `Parms` mirrors `struct mbe_parameters` in `mbelib.h`; recheck it if mbelib is upgraded.
 
 use libloading::Library;
 use std::ffi::{c_char, c_int, c_short};
@@ -28,10 +28,12 @@ struct Parms {
 }
 
 type Imbe = unsafe extern "C" fn(*mut c_short, *mut c_int, *mut c_int, *mut c_char, *mut [c_char; 23], *mut c_char, *mut Parms, *mut Parms, *mut Parms, c_int);
+type Ambe = unsafe extern "C" fn(*mut c_short, *mut c_int, *mut c_int, *mut c_char, *mut [c_char; 24], *mut c_char, *mut Parms, *mut Parms, *mut Parms, c_int);
 type Init = unsafe extern "C" fn(*mut Parms, *mut Parms, *mut Parms);
 
 struct Lib {
     imbe: Imbe,
+    ambe: Ambe,
     init: Init,
     _lib: Library,
 }
@@ -42,10 +44,11 @@ fn lib() -> Result<&'static Lib, String> {
         let lib = ["libmbe.so.1", "libmbe.so"]
             .into_iter()
             .find_map(|p| Library::new(p).ok())
-            .ok_or_else(|| "P25 voice needs mbelib — sudo pacman -S mbelib".to_string())?;
+            .ok_or_else(|| "Digital voice needs mbelib — sudo pacman -S mbelib".to_string())?;
         let imbe = *lib.get::<Imbe>(b"mbe_processImbe7200x4400Frame").map_err(|e| format!("mbelib: {e}"))?;
+        let ambe = *lib.get::<Ambe>(b"mbe_processAmbe3600x2450Frame").map_err(|e| format!("mbelib: {e}"))?;
         let init = *lib.get::<Init>(b"mbe_initMbeParms").map_err(|e| format!("mbelib: {e}"))?;
-        Ok(Lib { imbe, init, _lib: lib })
+        Ok(Lib { imbe, ambe, init, _lib: lib })
     })
     .as_ref()
     .map_err(|e| e.clone())
@@ -92,6 +95,30 @@ impl Decoder {
         let [a, b, c] = &mut *self.parms;
         unsafe {
             (self.lib.imbe)(out.as_mut_ptr(), &mut errs, &mut errs2, err_str.as_mut_ptr(), fr.as_mut_ptr(), data.as_mut_ptr(), a, b, c, UV_QUALITY);
+        }
+        let mut pcm = [0f32; FRAME_SAMPLES];
+        for (p, &s) in pcm.iter_mut().zip(&out) {
+            *p = s as f32 / 32768.0;
+        }
+        (pcm, errs2.max(0) as u32)
+    }
+
+    /// Decode one 72-bit AMBE+2 frame (as `ambe_fr[4][24]` bits: C0 24, C1 23, C2 11, C3 14).
+    /// Returns 8 kHz audio and the number of bit errors the codec corrected.
+    pub fn decode_ambe(&mut self, frame: &[[u8; 24]; 4]) -> ([f32; FRAME_SAMPLES], u32) {
+        let mut fr = [[0 as c_char; 24]; 4];
+        for (o, i) in fr.iter_mut().zip(frame) {
+            for (a, &b) in o.iter_mut().zip(i) {
+                *a = b as c_char;
+            }
+        }
+        let mut out = [0 as c_short; FRAME_SAMPLES];
+        let (mut errs, mut errs2) = (0 as c_int, 0 as c_int);
+        let mut err_str = [0 as c_char; 1024];
+        let mut data = [0 as c_char; 49];
+        let [a, b, c] = &mut *self.parms;
+        unsafe {
+            (self.lib.ambe)(out.as_mut_ptr(), &mut errs, &mut errs2, err_str.as_mut_ptr(), fr.as_mut_ptr(), data.as_mut_ptr(), a, b, c, UV_QUALITY);
         }
         let mut pcm = [0f32; FRAME_SAMPLES];
         for (p, &s) in pcm.iter_mut().zip(&out) {

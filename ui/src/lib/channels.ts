@@ -58,8 +58,9 @@ export function setRepeaters(list: Repeater[], bands: Band[]) {
   for (const r of list) {
     const b = bands.find((b) => r.mhz >= b.low_mhz && r.mhz <= b.high_mhz);
     if (!b || CHANNELS[b.id]) continue;
-    // repeaters are FM even on bands whose default is sideband, like 6 m
-    (plans[b.id] ??= []).push({ hz: mhz(r.mhz), name: r.call, group: repeaterNote(r, b.id), mode: 'nfm' });
+    // repeaters are FM even on bands whose default is sideband, like 6 m; one listed under DMR
+    // is nearly always digital only, so it opens in DMR (the panel offers FM)
+    (plans[b.id] ??= []).push({ hz: mhz(r.mhz), name: r.call, group: repeaterNote(r, b.id), mode: r.modes.includes('DMR') ? 'dmr' : 'nfm' });
   }
   for (const p of Object.values(plans)) steps.set(p, Math.min(halfStep(p), REPEATER_REACH_HZ));
   repeaterPlans = plans;

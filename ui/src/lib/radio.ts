@@ -11,6 +11,7 @@ export const MODE_NAMES: Record<Mode, string> = {
   lsb: 'LSB',
   none: 'No audio',
   p25: 'P25 digital',
+  dmr: 'DMR digital',
 };
 
 /** 146520000 → "146.520.000" */

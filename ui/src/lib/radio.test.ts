@@ -221,6 +221,11 @@ describe('repeaters', () => {
     expect(channelAt('2m', 147_045_000)?.group).toBe('Northglenn · +600 kHz · 123.0 Hz');
     expect(channelAt('70cm', 447_000_000)?.group).toBe('Boulder · −5 MHz · DCS 023 · DMR');
   });
+  it('opens a DMR-listed repeater in DMR and the others in FM', () => {
+    setRepeaters([k0ml, digi], ham.bands);
+    expect(modeAt(ham, [], 447_000_000, 'nfm')).toBe('dmr');
+    expect(modeAt(ham, [], 147_045_000, 'nfm')).toBe('nfm');
+  });
   it("doesn't let a lone repeater claim the whole band", () => {
     setRepeaters([k0ml], ham.bands);
     expect(label(ham, saved, { hz: 146_940_000, width_hz: 12_000, snr_db: 20 }).title).toBe('2 m signal');

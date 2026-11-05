@@ -4,7 +4,7 @@ import { bytesFromBase64, decodeFeed } from './feed';
 import { listen } from '@tauri-apps/api/event';
 import type { ReadSlot, Slot } from './schedule';
 
-export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25';
+export type Mode = 'wfm' | 'nfm' | 'am' | 'usb' | 'lsb' | 'none' | 'p25' | 'dmr';
 
 export interface Bookmark {
   mhz: number;
@@ -108,6 +108,8 @@ export interface Status {
   play: Playing | null;
   /** Trunked radio receiver, in P25 mode. */
   p25: P25 | null;
+  /** Two-slot digital voice receiver, in DMR mode. */
+  dmr: Dmr | null;
   /** All of a wide band in one line per check, while an EMS band is open. `line` rides in the statuses just after a check. */
   look: { looking: boolean; line: { seq: number; parts: { lo_hz: number; hi_hz: number; cells: number[] }[] } | null } | null;
   /** Aircraft messages, while a band with the ACARS decoder is selected. */
@@ -148,6 +150,41 @@ export interface P25Talkgroup {
   emergency: boolean;
   /** Calls per minute across the window, oldest first. */
   minutes: number[];
+}
+/** One DMR call: a talkgroup or a private call on one time slot. */
+export interface DmrCall {
+  /** Time slot 1 or 2. */
+  slot: number;
+  group: boolean;
+  /** Talkgroup or called radio; null until a header or the embedded signalling is read. */
+  dst: number | null;
+  src: number | null;
+  emergency: boolean;
+  encrypted: boolean;
+  start_secs: number;
+  last_secs: number;
+  frames: number;
+  bad_frames: number;
+}
+export interface DmrSlot {
+  call: DmrCall | null;
+  /** This slot's voice goes to the speaker. */
+  playing: boolean;
+  calls: number;
+}
+export interface Dmr {
+  now_secs: number;
+  /** A DMR sync was seen in the last two seconds. */
+  heard: boolean;
+  source: 'repeater' | 'radio' | 'direct' | null;
+  colour_code: number | null;
+  slots: [DmrSlot, DmrSlot];
+  /** Calls that ended, newest first. */
+  recent: DmrCall[];
+  /** Why voice cannot play (mbelib missing). */
+  voice_error: string | null;
+  bursts_per_sec: number;
+  encrypted_calls: number;
 }
 export interface P25 {
   state: 'searching' | 'control' | 'voice';

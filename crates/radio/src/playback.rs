@@ -78,7 +78,7 @@ pub fn parse_name(name: &str) -> Option<(i64, f64, Mode)> {
     let (h, mi, s) = (num(&time[11..13])?, num(&time[13..15])?, num(&time[15..17])?);
     let at = days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + s;
     let hz = mhz.strip_suffix("MHz")?.parse::<f64>().ok()? * 1e6;
-    let mode = [Mode::Wfm, Mode::Nfm, Mode::Am, Mode::Usb, Mode::Lsb, Mode::None, Mode::P25].into_iter().find(|m| format!("{m:?}").to_lowercase() == mode)?;
+    let mode = [Mode::Wfm, Mode::Nfm, Mode::Am, Mode::Usb, Mode::Lsb, Mode::None, Mode::P25, Mode::Dmr].into_iter().find(|m| format!("{m:?}").to_lowercase() == mode)?;
     Some((at, hz, mode))
 }
 

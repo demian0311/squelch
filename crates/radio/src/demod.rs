@@ -19,6 +19,8 @@ pub enum Mode {
     None,
     /// P25 Phase 1 trunked radio; tune the control channel. The engine runs `p25::P25` instead.
     P25,
+    /// DMR digital voice, two time slots; tune a repeater's output. The engine runs `dmr::Dmr` instead.
+    Dmr,
 }
 
 impl Mode {
@@ -26,7 +28,7 @@ impl Mode {
     pub fn bandwidth(self) -> f32 {
         match self {
             Mode::Wfm => 200_000.0,
-            Mode::Nfm | Mode::P25 => 12_500.0,
+            Mode::Nfm | Mode::P25 | Mode::Dmr => 12_500.0,
             Mode::Am => 8_000.0,
             Mode::Usb | Mode::Lsb => 2_800.0,
             Mode::None => 10_000.0,
@@ -127,7 +129,7 @@ impl Demodulator {
 
     fn run(&mut self, audio: &mut Vec<f32>, stage1: impl FnOnce(&mut Decimate<C32>, &mut Vec<C32>)) {
         audio.clear();
-        if matches!(self.mode, Mode::None | Mode::P25) {
+        if matches!(self.mode, Mode::None | Mode::P25 | Mode::Dmr) {
             return;
         }
         let mid = self.in_rate / (self.in_rate / 240_000.0).round().max(1.0);
@@ -184,7 +186,7 @@ impl Demodulator {
                 }
                 self.s2 = s2;
             }
-            Mode::None | Mode::P25 => {}
+            Mode::None | Mode::P25 | Mode::Dmr => {}
         }
         self.s1 = s1;
     }
