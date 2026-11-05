@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Band, BandPlan } from './api';
-import { compassWord, binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir, compassLetters } from './radio';
+import { compassWord, binAt, allBookmarks, bandAt, captureCenter, bookmarksByBand, namedFrequencies, notOnAir, bandEntryHz, outOfBand, fmtHz, readFrequency, label, modeAt, anchor, Persistence, placeCards, rdsNow, snapTune, sondeDrift, sondeSummary, withRds, withSondes, withoutDeadAir, compassLetters } from './radio';
 import type { Rds, Sonde } from './api';
 import { channelAt, channelList, channelTicks, quietChannels, setRepeaters } from './channels';
 
@@ -359,5 +359,27 @@ describe('compassLetters', () => {
     expect(compassLetters(135)).toBe('SE');
     expect(compassLetters(359)).toBe('N');
     expect(compassLetters(-90)).toBe('W');
+  });
+});
+
+describe('readFrequency', () => {
+  it('reads MHz, then kHz, then Hz', () => {
+    expect(readFrequency('101.1')).toEqual({ hz: 101_100_000 });
+    expect(readFrequency('462.7455')).toEqual({ hz: 462_745_500 });
+    expect(readFrequency('1090')).toEqual({ hz: 1_090_000_000 });
+    expect(readFrequency('162550')).toEqual({ hz: 162_550_000 });
+    expect(readFrequency('101100000')).toEqual({ hz: 101_100_000 });
+    expect(readFrequency(' 146,52 ')).toEqual({ hz: 146_520_000 });
+  });
+  it('says why a number cannot be tuned', () => {
+    expect(readFrequency('2.4')).toEqual({ problem: 'below 24 MHz' });
+    expect(readFrequency('1800')).toEqual({ problem: 'above 1766 MHz' });
+    expect(readFrequency('1800000')).toEqual({ problem: 'above 1766 MHz' });
+  });
+  it('is quiet while the text is empty or not a number', () => {
+    expect(readFrequency('')).toEqual({});
+    expect(readFrequency('146.')).toEqual({ hz: 146_000_000 });
+    expect(readFrequency('abc')).toEqual({});
+    expect(readFrequency('0')).toEqual({});
   });
 });

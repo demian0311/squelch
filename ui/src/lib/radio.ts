@@ -21,6 +21,27 @@ export function fmtHz(hz: number): string {
   return `${mhz}.${s.slice(-6, -3)}.${s.slice(-3)}`;
 }
 
+/** What the RTL-SDR with an R820T tuner can reach, in MHz. */
+export const DONGLE_LO_MHZ = 24;
+export const DONGLE_HI_MHZ = 1766;
+
+/**
+ * A frequency typed by hand. MHz is the unit of the top bar; a number too big for MHz is kHz, too big for kHz is Hz,
+ * so "162550" is the weather channel as NOAA prints it. `hz` when it can be tuned, `problem` when it cannot, neither
+ * while the text is empty or not yet a number.
+ */
+export function readFrequency(text: string): { hz?: number; problem?: string } {
+  const t = text.trim().replace(',', '.');
+  if (!/^\d+(\.\d*)?$|^\.\d+$/.test(t)) return {};
+  const n = Number(t);
+  if (!(n > 0)) return {};
+  for (const unit of [1e6, 1e3, 1]) {
+    const hz = n * unit;
+    if (hz >= DONGLE_LO_MHZ * 1e6 && hz <= DONGLE_HI_MHZ * 1e6) return { hz: Math.round(hz) };
+  }
+  return { problem: n < DONGLE_LO_MHZ ? `below ${DONGLE_LO_MHZ} MHz` : `above ${DONGLE_HI_MHZ} MHz` };
+}
+
 /** 146520000 → "146.520" */
 export function fmtMHz(hz: number, decimals = 3): string {
   return (hz / 1e6).toFixed(decimals);

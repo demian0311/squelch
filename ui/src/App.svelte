@@ -4,7 +4,7 @@
   import * as api from './lib/api';
   import { channelAt, channelList, quietChannels, setRepeaters } from './lib/channels';
   import type { Band, BandPlan, GroundPoint, Iss, IssPass, Mode, Setup, Status, Theme } from './lib/api';
-  import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
+  import { MODE_NAMES, allBookmarks, bandAt, readFrequency, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
@@ -892,7 +892,7 @@
     // moved away by hand: stay where they went
     if (back && Math.abs(tuned - slot.mhz * 1e6) < 1_000) goTo(back.hz, back.mode);
   }
-  function goTo(hz: number, m: Mode) {
+  function goTo(hz: number, m?: Mode) {
     const b = bandAt(plan, hz);
     if (b && b.id !== bandId) pickBand(b);
     tuneSaved(hz, m);
@@ -961,6 +961,31 @@
     leaveRecordings();
     tuneCentered(tuned);
   }
+  // typing a frequency: the digits become the field; Enter tunes it, entering whichever band covers it, Esc keeps the old one
+  let typing = $state(false);
+  let typed = $state('');
+  let typedRead = $derived(readFrequency(typed));
+  /** The band a typed frequency lands in: the current band when it covers it, else the narrowest that does. */
+  let typedBand = $derived(typedRead.hz === undefined ? undefined : band && typedRead.hz / 1e6 >= band.low_mhz && typedRead.hz / 1e6 <= band.high_mhz ? band : bandAt(plan, typedRead.hz));
+  let typedMode = $derived(typedRead.hz === undefined ? undefined : modeAt(plan, named, typedRead.hz, mode));
+  function startTyping() {
+    typed = '';
+    typing = true;
+  }
+  function typedKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') typing = false;
+    else if (e.key === 'Enter') {
+      if (typed.trim() === '') {
+        typing = false;
+        showTuned();
+      } else if (typedRead.hz !== undefined) {
+        typing = false;
+        goTo(typedRead.hz);
+      }
+    } else return;
+    e.preventDefault();
+  }
+  const focusNow = (node: HTMLElement) => node.focus();
   // the one bookmark control: saved under the name this frequency already has, else its number
   let tunedMark = $derived(bookmarkNear(saved, tuned, 1_500));
   function toggleBookmark() {
@@ -1237,6 +1262,7 @@
     else if (e.key === '-') zoom(1.5);
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleMax('panel');
+    else if (e.key === 't') startTyping();
     else if (e.key === 'b') {
       leaveRecordings();
       bookmarksOpen = !bookmarksOpen;
@@ -1366,16 +1392,23 @@
   <div class="right">
     <header>
       <div class="freq">
-        <button class="digits mono" onclick={showTuned} title={airWatching ? 'Where the radio is now; it takes turns between planes and messages' : 'Show this frequency on the waterfall'}><em>{fmtHz(shownHz).split('.')[0]}</em>.{fmtHz(shownHz).split('.').slice(1).join('.')}</button>
-        <span class="unit mono">MHz</span>
-        {#if outside}<span class="outside mono">outside {band?.name}</span>{/if}
+        {#if typing}
+          <input class="digits mono edit" type="text" inputmode="decimal" bind:value={typed} placeholder={fmtHz(shownHz)} style:width="{Math.max(typed.length, fmtHz(shownHz).length) + 1}ch" use:focusNow onkeydown={typedKey} onblur={() => (typing = false)} aria-label="Frequency in MHz" spellcheck="false" />
+          <span class="unit mono">MHz</span>
+          {#if typedRead.problem}<span class="outside no mono">{typedRead.problem}</span>
+          {:else if typedRead.hz !== undefined}<span class="outside mono" class:ok={!!typedBand}>{typedBand ? `${typedBand.name} · ${MODE_NAMES[typedMode!]}` : 'outside every band'}</span>{/if}
+        {:else}
+          <button class="digits mono" onclick={startTyping} title={airWatching ? 'Where the radio is now; it takes turns between planes and messages. Click to type a frequency (t)' : 'Type a frequency (t); Enter alone shows this one on the waterfall'}><em>{fmtHz(shownHz).split('.')[0]}</em>.{fmtHz(shownHz).split('.').slice(1).join('.')}</button>
+          <span class="unit mono">MHz</span>
+          {#if outside}<span class="outside mono">outside {band?.name}</span>{/if}
+        {/if}
       </div>
       <div class="now">
         <span class="titleline">
-          <span class="title">{nowTitle}</span>
+          <span class="title">{typing ? 'Type a frequency' : nowTitle}</span>
           <button class="keep" class:on={tunedMark} aria-pressed={!!tunedMark} disabled={!tunedMark && !bandAt(plan, tuned)} onclick={toggleBookmark} aria-label={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency'} title={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency (b lists them all)'}><Icon name="bookmark" size={14} filled={!!tunedMark} /></button>
         </span>
-        <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{nowSub}</span>
+        <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span>
       </div>
       <button class="play" class:on={barPlay ? !barPlay.paused : playing && !airWatching} disabled={airWatching && !barPlay} onclick={togglePlay} aria-label={(barPlay ? !barPlay.paused : playing) ? 'Pause' : 'Play'} title={barPlay ? `${barPlay.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press barPlay on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
         <Icon name={(barPlay ? !barPlay.paused : playing && !airWatching) ? 'pause' : 'play'} size={20} />
@@ -1916,6 +1949,24 @@
   .digits em {
     font-style: normal;
     color: var(--hue);
+  }
+  .digits.edit {
+    border-bottom: 2px solid var(--hue);
+    border-radius: 0;
+    outline: none;
+    caret-color: var(--hue);
+    line-height: 1;
+  }
+  .digits.edit::placeholder {
+    color: var(--muted);
+  }
+  .outside.ok {
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .outside.no {
+    border-color: var(--red);
+    color: var(--red);
   }
   .outside {
     align-self: center;
