@@ -16,6 +16,10 @@
   --red: #e07b6e;
   --mono: 'JetBrainsMono Nerd Font', 'JetBrains Mono', ui-monospace, monospace;
   --sans: Inter, 'Noto Sans', 'Liberation Sans', sans-serif;
+  /* one shape vocabulary: chips and keys, rows and cards, panes */
+  --r-sm: 4px;
+  --r: 8px;
+  --r-lg: 10px;
 }
 
 * {
@@ -60,4 +64,30 @@ button {
 
 .mono {
   font-family: var(--mono);
+}
+
+/* A section heading inside a panel or screen: sentence case, quiet, never tracked-out capitals. */
+.sect {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* A key the user can press, as it looks in Settings and tooltips. */
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--muted);
+  border-bottom-width: 2px;
+  background: var(--bg-light);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
 }

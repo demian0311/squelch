@@ -137,7 +137,7 @@
   .in {
     min-height: 30px;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: var(--bg);
     color: var(--fg);
@@ -177,7 +177,7 @@
   .chip {
     min-height: 26px;
     padding: 2px 10px;
-    border-radius: 6px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: transparent;
     color: var(--fg-dim);

@@ -165,15 +165,13 @@
     border: 0;
     background: transparent;
     color: var(--fg-dim);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 12px;
     text-align: left;
   }
   .swatch {
     width: 7px;
     height: 7px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--c);
   }
   .chev {
@@ -199,7 +197,7 @@
     min-height: 42px;
     padding: 4px 8px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg);
     text-align: left;
@@ -226,7 +224,7 @@
     flex: 0 0 auto;
     width: 32px;
     height: 32px;
-    border-radius: 8px;
+    border-radius: var(--r);
     color: var(--c);
     background: color-mix(in srgb, var(--c) 14%, transparent);
   }
@@ -286,7 +284,7 @@
     min-width: 40px;
     padding: 0 10px;
     border: 0;
-    border-radius: 8px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
   }
@@ -348,7 +346,7 @@
     font-size: 20px;
     min-width: 32px;
     min-height: 32px;
-    border-radius: 6px;
+    border-radius: var(--r);
   }
   .dhead button:hover {
     background: var(--bg-light);

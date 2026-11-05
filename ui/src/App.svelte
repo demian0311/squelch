@@ -10,7 +10,7 @@
   import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
   import { dmrSummary } from './lib/dmr';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
-  import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, passWord, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
@@ -932,9 +932,22 @@
     repScreen ? repSub :
     dmr ? dmrSummary(dmr) :
     airListen ? hearingSay(airHearing, nowS * 1000) :
-    muted ? 'Muted — signal is below the squelch level' :
+    muted ? 'Quiet · nothing above the mute line' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
-    rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
+    rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between stations · → finds the next',
+  );
+  // the sub-line's glyph says the state before the words do
+  let nowGlyph = $derived(
+    playSub ? 'tape' :
+    airWatching ? 'plane' :
+    p25 && p25.state === 'searching' ? 'search' :
+    p25 && !p25.call && picks.hold !== null ? 'users' :
+    repScreen ? (repPlayingRow ? 'speaker' : 'tower') :
+    dmr ? 'users' :
+    airListen ? 'headphones' :
+    muted ? 'quiet' :
+    hd?.digital && hd.title ? 'speaker' :
+    rds && rdsNow(rds) ? 'speaker' : listening ? 'speaker' : listeningMark ? 'quiet' : 'search',
   );
   let meter = $derived(playing ? Math.max(0, Math.min(100, ((status?.channel_snr_db ?? 0) / METER_DB) * 100)) : 0);
 
@@ -1562,7 +1575,7 @@
           <button class="keep" class:on={tunedMark} aria-pressed={!!tunedMark} disabled={!tunedMark && !bandAt(plan, tuned)} onclick={toggleBookmark} aria-label={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency'} title={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency (b lists them all)'}><Icon name="bookmark" size={14} filled={!!tunedMark} /></button>
           <button class="keep about" class:on={guideOpen} aria-pressed={guideOpen} disabled={!guideDoc} onclick={toggleGuide} aria-label={guideDoc ? `About ${guideDoc.title}` : 'No guide for this band'} title={guideOpen ? 'Back to the radio (Esc)' : guideDoc ? `About ${guideDoc.title}: what it is for, the band plan, the rules (?)` : 'No guide for this band'}><Icon name="book" size={14} /></button>
         </span>
-        <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span>
+        <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}><Icon name={typing ? 'arrowRight' : nowGlyph} size={13} /><span>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span></span>
       </div>
       <button class="play" class:on={barPlay ? !barPlay.paused : playing && !airWatching} disabled={airWatching && !barPlay} onclick={togglePlay} aria-label={barPlay ? (barPlay.paused ? 'Play' : 'Pause') : airListen && playing ? 'Stop listening' : playing ? 'Pause' : 'Play'} title={barPlay ? `${barPlay.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press Listen on its card' : airListen && playing ? 'Stop listening: the map comes back (space)' : `${playing ? 'Pause' : 'Play'} (space)`}>
         <Icon name={barPlay ? (barPlay.paused ? 'play' : 'pause') : airListen && playing ? 'stop' : playing && !airWatching ? 'pause' : 'play'} size={20} />
@@ -1582,17 +1595,17 @@
       {/if}
       <div class="levels">
         <div class="ctl">
-          <span>Signal · squelch {squelch > 0 ? `${squelch} dB` : 'off'}</span>
+          <span class="lbl"><Icon name={squelch > 0 ? 'quiet' : 'speaker'} size={13} />{squelch > 0 ? 'Mute below the mark' : 'Never muted'}<small class="mono">{squelch > 0 ? `${squelch} dB` : ''}</small></span>
           <div
             class="track"
             role="slider"
             tabindex="0"
-            aria-label="Squelch"
+            aria-label="Mute line (squelch)"
             aria-valuemin={0}
             aria-valuemax={METER_DB}
             aria-valuenow={squelch}
             aria-valuetext={squelch > 0 ? `${squelch} dB` : 'Off'}
-            title="Squelch: drag the mark. Audio stays muted while the signal is left of it. Far left turns it off."
+            title="The bar is the signal. Drag the mark: the sound stays off while the signal is left of it (radio calls this the squelch). Far left never mutes."
             onpointerdown={dragSquelch}
             onkeydown={squelchKey}
           >
@@ -1601,46 +1614,47 @@
           </div>
         </div>
         <label class="ctl">
-          <span>Volume</span>
-          <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} />
+          <span class="lbl"><Icon name="speaker" size={13} />Volume</span>
+          <input type="range" min="0" max="1.5" step="0.05" bind:value={volume} aria-label="Volume" />
         </label>
       </div>
-      <div class="clocks mono" title="Local time and UTC">
-        <span>{localTime(nowS)}</span>
-        <span>{utcTime(nowS)} <small>UTC</small></span>
+      <!-- the corner: the time, the way between a screen and the radio, and what the receiver is -->
+      <div class="corner">
+          {#each due as r (r.key)}
+            <span class="chip warn remind">
+              <button onclick={() => followReminder(r)} title="Tune {fmtMHz(r.slot.mhz * 1e6)} MHz {MODE_NAMES[r.slot.mode]}"><Icon name="clock" size={13} />{r.slot.name || 'Time to tune in'} · {r.phase === 'now' ? 'starting now' : when(r.start, new Date(nowS * 1000))} · Tune</button>
+              <button onclick={() => (dismissed = new Set(dismissed).add(r.key))} aria-label="Dismiss" title="Dismiss">×</button>
+            </span>
+          {/each}
+          {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated receiver</span>{/if}
+          {#if status?.error || bandsError || fileError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? fileError ?? ''}>Problem · details</button>{/if}
+          {#if band?.id === 'air' && !bookmarksOpen}
+            {#if planesScreen}
+              <button class="chip view" onclick={() => (seeRadio = true)} title="The waterfall and every aircraft frequency"><Icon name="waterfall" size={14} />See the radio</button>
+            {:else}
+              <button class="chip view" onclick={() => { seeRadio = false; airListen = null; }}><Icon name="map" size={14} />Back to the map</button>
+            {/if}
+          {:else if repReachKm !== undefined && iss?.site && !bookmarksOpen}
+            {#if repScreen}
+              <button class="chip view" onclick={() => (seeRadio = true)} title="The waterfall and the whole band"><Icon name="waterfall" size={14} />See the radio</button>
+            {:else}
+              <button class="chip view" onclick={() => (seeRadio = false)}><Icon name="tower" size={14} />Back to the repeaters</button>
+            {/if}
+          {:else if isEms(band) && !bookmarksOpen}
+            {#if emsScreen}
+              <button class="chip view" onclick={() => (seeRadio = true)} title="The waterfall and the whole band"><Icon name="waterfall" size={14} />See the radio</button>
+            {:else}
+              <button class="chip view" onclick={() => (seeRadio = false)}><Icon name="tower" size={14} />Back to the tower</button>
+            {/if}
+          {/if}
+          <div class="clocks mono" title="Local time and UTC">
+            <span>{localTime(nowS)}</span>
+            <span>{utcTime(nowS)} <small>UTC</small></span>
+          </div>
+          <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
+            <Icon name={full ? 'shrink' : 'expand'} size={18} />
+          </button>
       </div>
-      {#each due as r (r.key)}
-        <span class="chip warn remind">
-          <button onclick={() => followReminder(r)} title="Tune {fmtMHz(r.slot.mhz * 1e6)} MHz {MODE_NAMES[r.slot.mode]}">{r.slot.name || 'Time to tune in'} · {r.phase === 'now' ? 'starting now' : when(r.start, new Date(nowS * 1000))} · Tune</button>
-          <button onclick={() => (dismissed = new Set(dismissed).add(r.key))} aria-label="Dismiss" title="Dismiss">×</button>
-        </span>
-      {/each}
-      {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
-      {#if status?.error || bandsError || fileError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? fileError ?? ''}>Problem · details</button>{/if}
-      <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
-        <Icon name={full ? 'shrink' : 'expand'} size={18} />
-      </button>
-      {#if band?.id === 'air' && !bookmarksOpen}
-        {#if planesScreen}
-          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and every aircraft frequency">See the radio</button>
-        {:else}
-          <button class="chip backair" onclick={() => { seeRadio = false; airListen = null; }}>Back to the map</button>
-        {/if}
-      {/if}
-      {#if repReachKm !== undefined && iss?.site && !bookmarksOpen}
-        {#if repScreen}
-          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and the whole band">See the radio</button>
-        {:else}
-          <button class="chip backair" onclick={() => (seeRadio = false)}>Back to the repeaters</button>
-        {/if}
-      {/if}
-      {#if isEms(band) && !bookmarksOpen}
-        {#if emsScreen}
-          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and the whole band">See the radio</button>
-        {:else}
-          <button class="chip backair" onclick={() => (seeRadio = false)}>Back to the tower</button>
-        {/if}
-      {/if}
     </header>
 
     {#if onPlan}
@@ -1944,7 +1958,7 @@
               <div class="list passes">
                 {#if iss?.bad_location}<p class="empty err">Your location in Settings is not a US ZIP code, state or “lat, lon”.</p>{/if}
                 {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
-                <p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>
+                {#if issNote || freshness(issAge) !== 'fresh'}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>{/if}
                 {#if !location}
                   <p class="empty">Set your location in Settings (S) to see when the station passes over.</p>
                 {:else}
@@ -1953,7 +1967,17 @@
                     {@const colour = passColour(p.max_elevation)}
                     <div class="item pass" class:sel={now} role="button" tabindex="0" title={`${passWhy(p.max_elevation)} ${Math.round((p.set - p.rise) / 60)} min above the horizon, rises ${compass(p.rise_az)}, sets ${compass(p.set_az)}.`} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
                       <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`} <small>– {clock(p.set)}</small></span>
-                      <span class="big" style:color={colour}>{Math.round(p.max_elevation)}° high</span>
+                      <span class="arcline">
+                        <!-- how high it climbs: the horizon, the sky as an arc, the station at its peak -->
+                        <svg class="arc" viewBox="0 0 48 26" aria-hidden="true">
+                          <path d="M2 24h44" stroke="var(--muted)" />
+                          <path d="M4 24A20 20 0 0 1 44 24" stroke="var(--muted)" stroke-dasharray="2 3" />
+                          <path d="M4 24A20 20 0 0 1 {24 + 20 * Math.cos(Math.PI * (1 - Math.min(90, p.max_elevation) / 90))} {24 - 20 * Math.sin(Math.PI * Math.min(90, p.max_elevation) / 90)}" stroke={colour} stroke-width="2" />
+                          <circle cx={24 + 20 * Math.cos(Math.PI * (1 - Math.min(90, p.max_elevation) / 90))} cy={24 - 20 * Math.sin(Math.PI * Math.min(90, p.max_elevation) / 90)} r="3" fill={colour} stroke="none" />
+                        </svg>
+                        <span class="big" style:color={colour}>{passWord(p.max_elevation)}</span>
+                        <small class="mono">{Math.round(p.max_elevation)}°</small>
+                      </span>
                     </div>
                   {/each}
                   <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
@@ -2027,21 +2051,22 @@
 
 {#snippet settings()}
   <label class="field">
-    <span class="lbl">Location</span>
+    <span class="lbl"><Icon name="pin" size={14} />Where you are</span>
     <input class="loc" bind:this={locationInput} value={location} placeholder="80302, Colorado, or 39.74, -104.99" class:bad={iss?.bad_location} onchange={(e) => setLocation(e.currentTarget.value)} />
-    <small class:err={iss?.bad_location}>{iss?.bad_location ? 'Not a US ZIP code, state or “lat, lon”.' : 'ZIP code, state, or lat, lon. Times space station passes and picks nearby repeaters.'}</small>
+    <small class:err={iss?.bad_location}>{iss?.bad_location ? 'Not a US ZIP code, state or “lat, lon”.' : 'A ZIP code, a state, or lat, lon. Sets the maps, nearby repeaters and stations, and space station times.'}</small>
   </label>
   <label class="field">
-    <span class="lbl">Gain</span>
+    <span class="lbl"><Icon name="zap" size={14} />Signal boost</span>
     <select bind:value={gain}>
       <option value="auto">Auto</option>
       {#each status?.gains ?? [] as g}
         <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
       {/each}
     </select>
+    <small>Auto suits most antennas. More helps a weak signal; less helps when strong stations bleed across the band.</small>
   </label>
   <label class="field">
-    <span class="lbl">Crystal correction, ppm</span>
+    <span class="lbl"><Icon name="gauge" size={14} />Tuning accuracy<small class="mono">ppm</small></span>
     <input class="loc" type="number" value={ppmByHand ? ppm : ''} placeholder={`${ppm} (measured)`} onchange={(e) => setPpmByHand(e.currentTarget.value)} />
     <small>{ppmByHand
       ? 'Set by hand. Clear it to measure again.'
@@ -2049,7 +2074,7 @@
         ? `Measured on ${fmtMHz(status.crystal.hz)} MHz: the dongle runs ${Math.abs(status.crystal.ppm).toFixed(0)} ppm ${status.crystal.ppm > 0 ? 'fast' : 'slow'}.`
         : ppm
           ? 'Measured earlier. A few seconds on a strong FM station measures it again.'
-          : 'Not measured yet. A few seconds on a strong FM station measures it.'}</small>
+          : 'Not measured yet. A few seconds on a strong FM station measures it.'} Every dongle's clock runs a little off; this is the correction.</small>
   </label>
   <label class="field toggle">
     <span>Show quiet bands<small>Data and tracking, MURS, railroad, military aircraft and ham except 2 m and 70 cm: bands that have given us nothing so far</small></span>
@@ -2072,13 +2097,23 @@
     {#if settingsPath}<small class="copy" title={settingsPath}>Settings in {settingsPath.replace(/^\/home\/[^/]+/, '~')}</small>{/if}
     <small>Colours: {theme.name ?? 'Omarchy theme'}</small>
   </div>
-  <div class="field keys mono">
+  <div class="field keys">
     <span class="lbl">Keys</span>
-    <small>1–9 band · ← → next signal</small>
-    <small>[ ] move · - + zoom · space listen</small>
-    <small>f panel takes the screen · Esc back</small>
-    <small>b every saved frequency, times to tune in</small>
-    <small>s settings · F11 full screen</small>
+    <dl>
+      <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>a band</dd>
+      <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>next signal</dd>
+      <dt><kbd>[</kbd><kbd>]</kbd></dt><dd>move the view</dd>
+      <dt><kbd>-</kbd><kbd>+</kbd></dt><dd>zoom</dd>
+      <dt><kbd>space</kbd></dt><dd>listen or pause</dd>
+      <dt><kbd>t</kbd></dt><dd>type a frequency</dd>
+      <dt><kbd>f</kbd></dt><dd>panel takes the screen</dd>
+      <dt><kbd>b</kbd></dt><dd>bookmarks</dd>
+      <dt><kbd>r</kbd></dt><dd>recordings</dd>
+      <dt><kbd>?</kbd></dt><dd>about this band</dd>
+      <dt><kbd>s</kbd></dt><dd>settings</dd>
+      <dt><kbd>F11</kbd></dt><dd>full screen</dd>
+      <dt><kbd>Esc</kbd></dt><dd>back</dd>
+    </dl>
   </div>
 {/snippet}
 
@@ -2098,8 +2133,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 10px 20px;
-    padding: 10px 16px;
+    gap: 8px 20px;
+    padding: 8px 16px;
     border-bottom: 1px solid var(--muted);
     background: linear-gradient(90deg, color-mix(in srgb, var(--hue) 13%, var(--bg-dark)), var(--bg-dark) 60%);
   }
@@ -2202,12 +2237,25 @@
     font-size: 15px;
     color: var(--fg-bright);
   }
+  /* a glyph, then at most two lines: never an ellipsis on the one line that says what is going on */
   .now .sub {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
     color: var(--fg-dim);
     font-size: 13px;
-    white-space: nowrap;
+    line-height: 1.3;
+  }
+  .now .sub > :global(svg) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .now .sub > span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
   .play {
     display: grid;
@@ -2288,6 +2336,16 @@
     color: var(--fg-dim);
     font-size: 11px;
   }
+  .ctl .lbl {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .ctl .lbl small {
+    margin-left: auto;
+    font-size: 10px;
+  }
   .ctl input {
     width: 100%;
     margin: 0;
@@ -2301,11 +2359,18 @@
   .levels .ctl {
     width: 170px;
   }
+  .corner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px 10px;
+    margin-left: auto;
+  }
   .clocks {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    margin-left: auto;
     font-size: 13px;
   }
   .clocks span + span {
@@ -2353,16 +2418,27 @@
     opacity: 0.45;
   }
   .chip {
-    padding: 2px 8px;
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 24px;
+    padding: 2px 9px;
+    border-radius: var(--r);
     border: 0;
     font-size: 12px;
     font-weight: 600;
   }
-  .chip.backair {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  /* the one way between a screen and the radio: always in the corner, always in the band's colour */
+  .chip.view {
+    min-height: 30px;
+    padding: 2px 12px 2px 9px;
+    color: var(--hue);
+    border: 1px solid color-mix(in srgb, var(--hue) 45%, transparent);
+    background: color-mix(in srgb, var(--hue) 14%, transparent);
     cursor: pointer;
+  }
+  .chip.view:hover {
+    background: color-mix(in srgb, var(--hue) 24%, transparent);
   }
   .chip.warn {
     color: var(--yellow);
@@ -2378,6 +2454,9 @@
     padding: 0;
   }
   .chip.remind button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     padding: 2px 8px;
     border: 0;
     background: transparent;
@@ -2390,7 +2469,7 @@
     place-items: center;
     min-width: 36px;
     min-height: 36px;
-    border-radius: 8px;
+    border-radius: var(--r);
     border: 0;
     background: transparent;
     color: var(--fg-dim);
@@ -2601,8 +2680,6 @@
     margin: 0;
     font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
     color: var(--fg-dim);
   }
   .item {
@@ -2748,6 +2825,21 @@
     font-weight: 400;
     color: var(--fg-dim);
   }
+  .arcline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .arcline small {
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .arc {
+    width: 48px;
+    height: 26px;
+    fill: none;
+    stroke-linecap: round;
+  }
   .over .list.passes {
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
@@ -2780,10 +2872,17 @@
     font-size: 13px;
   }
   .field .lbl {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--fg-dim);
+  }
+  .field .lbl small {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
   }
   .field small {
     font-size: 12px;
@@ -2817,6 +2916,25 @@
   }
   input.loc.bad {
     border-color: var(--red);
+  }
+  .keys dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    align-items: center;
+    margin: 0;
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .keys dt {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+  .keys dd {
+    margin: 0;
   }
   .keys small {
     font-size: 11px;
@@ -3203,10 +3321,8 @@
   }
   .chgroup {
     margin: 10px 8px 4px;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--fg-dim);
   }
   .chgroup:first-child {

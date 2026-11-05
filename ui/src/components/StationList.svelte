@@ -179,7 +179,7 @@
     font-weight: 500;
     padding: 0 3px;
     border: 1px solid var(--orange);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     color: var(--orange);
   }
   .l {

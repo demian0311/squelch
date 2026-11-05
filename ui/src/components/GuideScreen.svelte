@@ -64,26 +64,27 @@
     align-items: center;
     gap: 10px;
     margin: 0;
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg-bright);
   }
   .swatch {
     width: 10px;
     height: 10px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: var(--c);
   }
   .close {
+    flex: none;
     margin-left: auto;
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
     padding: 0;
-    border: 0;
-    border-radius: 6px;
-    background: none;
+    border: 1px solid var(--muted);
+    border-radius: var(--r);
+    background: transparent;
     color: var(--fg-dim);
     cursor: pointer;
   }
@@ -111,10 +112,8 @@
   }
   .body :global(h2) {
     margin: 0 0 6px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
     color: var(--c);
   }
   .body :global(p) {
@@ -159,7 +158,7 @@
     font-size: 12px;
     background: var(--bg-light);
     padding: 0 4px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
   }
   .body :global(figure) {
     margin: 4px 0 10px;
@@ -185,7 +184,7 @@
   .body :global(a[data-act='band']) {
     display: inline-block;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     padding: 2px 8px;
     margin: 2px 6px 2px 0;
     color: var(--fg);

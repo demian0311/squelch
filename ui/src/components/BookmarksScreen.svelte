@@ -76,13 +76,13 @@
   <div class="head">
     <h1><Icon name="bookmark" size={18} filled /> Bookmarks</h1>
     <input class="in find" bind:value={query} placeholder="Find a bookmark" title="Find by name, frequency or note" aria-label="Find a bookmark" />
-    <button class="close" onclick={onClose} aria-label="Back to the waterfall" title="Back to the waterfall (Esc)">×</button>
+    <button class="close" onclick={onClose} aria-label="Back to the waterfall" title="Back to the waterfall (Esc)"><Icon name="close" size={16} /></button>
   </div>
 
 
   {#each groups as g (g.group.id)}
     <div class="group" style:--c={hues[g.group.id]}>
-      <h2><span class="swatch"></span>{g.group.name}</h2>
+      <h2 class="sect"><span class="swatch"></span>{g.group.name}</h2>
       {#each g.bands as b (b.band.id)}
         <button class="band" onclick={() => onBand(b.band)} title="Go to this band on the waterfall">
           <span class="badge" class:txt={bandShort(b.band)}>{#if bandShort(b.band)}{bandShort(b.band)}{:else}<Icon name={b.band.icon} size={16} />{/if}</span>
@@ -96,7 +96,7 @@
             <input class="in name" value={m.name} aria-label="Name" onchange={(e) => save(m, { name: text(e) })} />
             <button class="ico" class:on={!!m.notes} class:open={isOpen(m, 'note')} aria-expanded={isOpen(m, 'note')} aria-label="Notes" onclick={() => toggle(m, 'note')} title={m.notes || 'Add a note'}><Icon name="note" size={16} /></button>
             <button class="ico" class:on={times.some(coming)} class:open={isOpen(m, 'clock')} aria-expanded={isOpen(m, 'clock')} aria-label="Times to tune in" onclick={() => toggle(m, 'clock')} title="Times to tune in: a cue appears a few minutes before each, while Squelch is running"><Icon name="clock" size={16} /></button>
-            <button class="ico del" onclick={() => onDelete(m.band.id, m.mhz)} aria-label="Delete {m.name}" title="Delete this bookmark"><Icon name="close" size={14} /></button>
+            <button class="ico del" onclick={() => onDelete(m.band.id, m.mhz)} aria-label="Delete {m.name}" title="Delete this bookmark"><Icon name="close" size={16} /></button>
           </div>
           {#if isOpen(m, 'note')}
             <div class="more">
@@ -119,7 +119,7 @@
 
   {#if lone.length}
     <div class="group" style:--c="var(--hue)">
-      <h2><Icon name="clock" size={13} /> Times with no bookmark</h2>
+      <h2 class="sect"><Icon name="clock" size={13} /> Times with no bookmark</h2>
       {#each lone as s (s.id)}
         <div class="more"><SlotForm slot={s} {now} {wakeError} full onChange={change} onDelete={() => onSlots(slots.filter((x) => x.id !== s.id))} onTune={() => onTuneAt(s)} /></div>
       {/each}
@@ -155,7 +155,7 @@
     align-items: center;
     gap: 8px;
     margin: 0;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg-bright);
   }
@@ -170,10 +170,13 @@
   .close {
     flex: none;
     margin-left: auto;
-    width: 28px;
-    height: 28px;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
     cursor: pointer;
@@ -190,16 +193,14 @@
     margin: 0 0 2px;
     padding-bottom: 4px;
     border-bottom: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
     color: var(--c);
   }
   .swatch {
     width: 7px;
     height: 7px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--c);
   }
   .band {
@@ -224,7 +225,7 @@
     place-items: center;
     width: 28px;
     height: 28px;
-    border-radius: 7px;
+    border-radius: var(--r);
     background: color-mix(in srgb, var(--c) 16%, var(--bg-dark));
     color: var(--c);
   }
@@ -242,7 +243,7 @@
     align-items: center;
     gap: 4px;
     padding: 2px 4px;
-    border-radius: 6px;
+    border-radius: var(--r);
   }
   .row:hover {
     background: var(--bg-light);
@@ -258,7 +259,7 @@
     height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
     opacity: 0.55;
@@ -301,7 +302,7 @@
   .in {
     min-height: 28px;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--r);
     border: 1px solid transparent;
     background: transparent;
     color: var(--fg);
@@ -332,7 +333,7 @@
     gap: 10px;
     margin: 2px 4px 6px;
     padding: 10px 12px;
-    border-radius: 8px;
+    border-radius: var(--r);
     border: 1px solid color-mix(in srgb, var(--c) 40%, var(--muted));
     background: var(--bg-light);
   }
@@ -340,7 +341,7 @@
     align-self: flex-start;
     min-height: 26px;
     padding: 2px 10px;
-    border-radius: 6px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: transparent;
     color: var(--fg-dim);

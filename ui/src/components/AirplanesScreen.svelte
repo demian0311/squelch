@@ -270,11 +270,11 @@
         <div class="strip">
           <i class="level" class:on={hearing.talking}></i>
           <div class="what">
-            <b>Listening to {listening.name} <span class="mono dim">{listening.channel.mhz.toFixed(3)} MHz</span></b>
+            <b><Icon name="headphones" size={16} /> Listening to {listening.name} <span class="mono dim">{listening.channel.mhz.toFixed(3)} MHz</span></b>
             <span>{listening.why}. {listening.follow ? '' : 'Every plane on this channel, not only that one. '}{hearingSay(hearing, nowMs)}.</span>
             {#if listening.follow}{@render chips(listening.airport)}{/if}
           </div>
-          <button class="stop" onclick={onStopListening}>Stop listening</button>
+          <button class="stop" onclick={onStopListening}><Icon name="stop" size={16} /> Stop listening</button>
         </div>
       {/if}
       <div class="mapbody">
@@ -285,8 +285,8 @@
       {/if}
       <div class="key">
         {#if frame}
-          <span class="heights">Height, ft
-            {#each HEIGHT_BANDS as b (b.label)}<i style="background:{b.color}"></i>{b.label}{/each}
+          <span class="heights"><span class="lead">Height, ft</span>
+            {#each HEIGHT_BANDS as b (b.label)}<span class="sw"><i style="background:{b.color}"></i>{b.label}</span>{/each}
           </span>
         {/if}
         {#if talk && !listening}<span><i class="dash"></i>Probably talking to {talk.name}</span>{/if}
@@ -299,9 +299,9 @@
     </div>
     <div class="side" class:watching={!listening}>
       <div class="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')} aria-label="Overhead now" title="Overhead now"><Icon name="plane" size={18} /></button>
-        <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')} aria-label="Messages" title="Messages"><Icon name="msg" size={18} /></button>
-        <button role="tab" aria-selected={tab === 'earlier'} onclick={() => goTab('earlier')} aria-label="Earlier" title="Earlier flights"><Icon name="clock" size={18} /></button>
+        <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')} title="Planes overhead right now"><Icon name="plane" size={16} />Overhead</button>
+        <button role="tab" aria-selected={tab === 'messages'} onclick={() => goTab('messages')} title="Messages between planes and the ground"><Icon name="msg" size={16} />Messages</button>
+        <button role="tab" aria-selected={tab === 'earlier'} onclick={() => goTab('earlier')} title="Flights heard earlier"><Icon name="clock" size={16} />Earlier</button>
       </div>
       <div class="scroll" bind:this={list_el}>
         {#if tab === 'now'}
@@ -310,7 +310,7 @@
               <button class="row picked" onclick={() => pickAirport(pickedAirport!.ident)}>
                 <b>{pickedAirport.name}</b>
                 <span class="r mono">{pickedAirport.iata || pickedAirport.ident}</span>
-                <span class="chev"><Icon name="chevronDown" size={14} /></span>
+                <span class="chev"><Icon name="chevronDown" size={16} /></span>
                 <small class="line">{pickedAirport.city}{nearAirport.length ? ` · ${nearAirport.length} ${nearAirport.length === 1 ? 'plane' : 'planes'} within ${NEAR_AIRPORT_KM} km` : ''}</small>
               </button>
               <div class="card">
@@ -327,7 +327,7 @@
               <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                 <b>{planeName(r.a)}</b>
                 {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
-                <span class="chev"><Icon name={r.a.icao === pickId ? 'chevronDown' : 'chevronRight'} size={14} /></span>
+                <span class="chev"><Icon name={r.a.icao === pickId ? 'chevronDown' : 'chevronRight'} size={16} /></span>
                 <!-- closed: height at the left, speed at the right; open: the whole line -->
                 <small class="line" class:brief={!open}>
                   {#if r.a.on_ground}<span><Icon name="level" size={13} />on the ground</span>
@@ -358,7 +358,7 @@
                 </div>
                 <div class="links">
                   {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
-                    <button class="linkish" onclick={() => api.openLink(l.url)} title="Opens in the browser">{l.label}<Icon name="external" size={12} /></button>
+                    <button class="linkish" onclick={() => api.openLink(l.url)} title="Opens in the browser">{l.label}<Icon name="external" size={16} /></button>
                   {/each}
                 </div>
               </div>
@@ -370,13 +370,13 @@
                   {@const t = (listening ?? talk)!}
                   <span class="ch">
                     <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back.' : `Listen. A guess: ${t.why.toLowerCase()}; planes do not say who they talk to.`}>
-                      <Icon name={listening && playing ? 'stop' : 'play'} size={12} />
+                      <Icon name={listening && playing ? 'stop' : 'play'} size={16} />
                     </button>
                     {listening ? 'Listening to' : 'Probably talking to'} {t.name} <span class="mono dim">{t.channel.mhz.toFixed(3)}</span>
                   </span>
                   {#if listening}
                     <button class="rec" class:on={recLit} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
-                      <Icon name="record" size={14} />
+                      <Icon name="record" size={16} />
                     </button>
                   {/if}
                 {:else}
@@ -387,7 +387,7 @@
                 {:else}
                   <span class="dim"><Icon name="msg" size={13} />no messages yet</span>
                 {/if}
-                <button class="fold more" class:on={moreOpen} onclick={() => (moreOpen = !moreOpen)}>More<Icon name={moreOpen ? 'chevronDown' : 'chevronRight'} size={13} /></button>
+                <button class="fold more" class:on={moreOpen} onclick={() => (moreOpen = !moreOpen)}>More<Icon name={moreOpen ? 'chevronDown' : 'chevronRight'} size={16} /></button>
               </div>
               {#if talk}{@render chips(talk.airport)}{/if}
               {#if msgsOpen && itsMessages.length}
@@ -411,7 +411,7 @@
             </div>
             {/if}
           {:else}
-              <p class="empty">None heard yet. A line of sight to the sky matters most, so try the antenna by a window.</p>
+              <div class="empty big"><Icon name="plane" size={44} /><p>None heard yet. Try the antenna by a window: a clear view of the sky matters most.</p></div>
           {/each}
         {:else if tab === 'messages'}
           <input class="find" bind:value={query} placeholder="Find a flight or a word" aria-label="Find a message" />
@@ -503,7 +503,7 @@
   .strip .level {
     width: 10px;
     height: 36px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--muted);
   }
   .strip .level.on {
@@ -515,6 +515,10 @@
     min-width: 0;
   }
   .strip .what b {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     font-size: 15px;
   }
   .strip .what span {
@@ -533,7 +537,7 @@
     gap: 5px;
     padding: 2px 8px;
     border: 1px solid var(--muted);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
@@ -573,8 +577,12 @@
     color: var(--fg);
     background: var(--bg);
     border: 1px solid var(--muted);
-    border-radius: 4px;
-    padding: 7px 12px;
+    border-radius: var(--r);
+    padding: 6px 12px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
   }
   .strip .stop:hover,
@@ -623,7 +631,7 @@
   }
   .about img {
     width: 96px;
-    border-radius: 4px;
+    border-radius: var(--r-sm);
   }
   .about .what {
     display: flex;
@@ -647,12 +655,21 @@
     align-items: center;
     gap: 3px;
   }
+  .heights {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+  }
+  .heights .sw {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
   .heights i {
-    display: inline-block;
-    width: 12px;
-    height: 3px;
-    margin: 0 4px 3px 10px;
-    border-radius: 2px;
+    width: 14px;
+    height: 4px;
+    border-radius: var(--r-sm);
   }
   .key {
     position: absolute;
@@ -661,7 +678,10 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px 14px;
-    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: var(--r);
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    font-size: 11px;
     color: var(--fg-dim);
   }
   .dash {
@@ -684,38 +704,47 @@
   .tabs {
     display: flex;
     gap: 3px;
-    padding: 7px;
+    padding: 6px 7px 0;
     border-bottom: 1px solid var(--muted);
   }
   .tabs button {
+    flex: 1;
     display: grid;
-    place-items: center;
-    padding: 5px 12px;
+    justify-items: center;
+    gap: 1px;
+    min-height: 36px;
+    padding: 4px 8px 2px;
     border: 0;
-    border-radius: 6px;
+    border-bottom: 2px solid transparent;
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
     background: none;
     color: var(--fg-dim);
-    font-size: 13px;
+    font-size: 11px;
     cursor: pointer;
+  }
+  .tabs button:hover {
+    background: var(--bg-light);
   }
   .tabs button[aria-selected='true'] {
     background: var(--bg-light);
-    color: var(--fg);
-    font-weight: 500;
+    color: var(--hue, var(--accent));
+    border-bottom-color: var(--hue, var(--accent));
+    font-weight: 600;
   }
   .scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
   }
-  /* while watching, the radio's waterfall takes what the list leaves and never shrinks past about two rows */
+  /* while watching, the list keeps about two rows and scrolls; the waterfall has a fixed height that holds its spectrum, picture and 22 px axis */
   .watching .scroll {
-    flex: 0 1 auto;
+    min-height: 104px;
   }
   .sidewf {
     position: relative;
-    flex: 1 1 0;
-    min-height: 118px;
+    flex: none;
+    height: 200px;
+    overflow: hidden;
     border-top: 1px solid var(--muted);
   }
   .row {
@@ -796,8 +825,8 @@
     gap: 5px;
   }
   .foot .ch .play {
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     border: 1.5px solid var(--accent);
     color: var(--accent);
   }
@@ -806,8 +835,8 @@
     color: var(--bg);
   }
   .foot .rec {
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     border: 1.5px solid var(--red);
     color: var(--red);
   }
@@ -816,6 +845,7 @@
     color: var(--bg);
   }
   .fold {
+    min-height: 28px;
     padding: 0;
     border: 0;
     background: none;
@@ -899,7 +929,7 @@
     width: 100%;
     padding: 8px 10px;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--r);
     background: var(--bg-light);
     color: var(--fg);
     font-size: 13.5px;
@@ -927,7 +957,7 @@
     margin: 10px 14px;
     padding: 5px 9px;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     background: var(--bg-dark);
     color: var(--fg);
     font-size: 13px;
@@ -940,8 +970,21 @@
   .empty {
     margin: 0;
     padding: 14px;
-    font-size: 13.5px;
+    font-size: 13px;
     color: var(--fg-dim);
+  }
+  .empty.big {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 36px 24px;
+    text-align: center;
+  }
+  .empty.big :global(svg) {
+    opacity: 0.3;
+  }
+  .empty.big p {
+    margin: 0;
   }
   .dim {
     color: var(--fg-dim);

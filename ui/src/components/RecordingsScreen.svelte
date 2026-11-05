@@ -87,29 +87,29 @@
     <input class="in find" bind:value={query} placeholder="Find a recording" title="Find by name, frequency, band or time" aria-label="Find a recording" />
     {#if total.n}
       <span class="tot mono">{total.n} · {clockLength(total.secs)} · {sizeLabel(total.bytes)}</span>
-      <button class="ico wide" class:on={copied === folder} onclick={() => copyPath(folder)} aria-label="Copy the folder's path" title={copied === folder ? `Copied ${folder}` : `Copy the folder's path: ${folder}`}><Icon name="folder" size={15} /></button>
+      <button class="ico wide" class:on={copied === folder} onclick={() => copyPath(folder)} aria-label="Copy the folder's path" title={copied === folder ? `Copied ${folder}` : `Copy the folder's path: ${folder}`}><Icon name="folder" size={16} /></button>
     {/if}
-    <button class="close" onclick={onClose} aria-label="Back to the waterfall" title="Back to the waterfall (Esc)">×</button>
+    <button class="close" onclick={onClose} aria-label="Back to the waterfall" title="Back to the waterfall (Esc)"><Icon name="close" size={16} /></button>
   </div>
 
   {#each days as d (d.label)}
     <div class="day">
-      <h2>{d.label}</h2>
+      <h2 class="sect">{d.label}</h2>
       {#each d.rows as r (r.file)}
         {#if pending[r.file] !== undefined}
           <div class="gone">Deleted the {timeOfDay(r.at)} recording of {nameFor(r)}. <button class="undo" onclick={() => undo(r)}>Undo</button></div>
         {:else}
           <div class="row" class:on={isPlaying(r)} class:sel={r.file === focus && !isPlaying(r)} style:--c={hueFor(r)} use:focusRow={r.file}>
             <button class="play" class:on={isPlaying(r) && !playing?.paused} onclick={() => toggle(r)} aria-label={isPlaying(r) && !playing?.paused ? 'Pause' : 'Play'} title={isPlaying(r) ? (playing?.paused ? 'Play on' : 'Pause') : 'Play this recording; the live sound pauses meanwhile'}>
-              <Icon name={isPlaying(r) && !playing?.paused ? 'pause' : 'play'} size={11} />
+              <Icon name={isPlaying(r) && !playing?.paused ? 'pause' : 'play'} size={16} />
             </button>
             <span class="t mono">{timeOfDay(r.at)}</span>
             <span class="n"><i class="dot"></i>{nameFor(r)}{#if bandOf(r.hz)}<small>{bandOf(r.hz)?.name}</small>{/if}</span>
             <span class="f mono">{fmtMHz(r.hz)}<b>{MODE_NAMES[r.mode]}</b></span>
             <span class="len mono">{clockLength(r.secs)}</span>
             <span class="acts">
-              <button class="ico" class:on={copied === r.file} onclick={() => copyPath(r.file)} aria-label="Copy the file's path" title={copied === r.file ? "Copied the file's path" : "Copy the file's path"}><Icon name="folder" size={14} /></button>
-              <button class="ico del" onclick={() => remove(r)} aria-label="Delete this recording" title="Delete this recording (Undo for a few seconds)"><Icon name="close" size={13} /></button>
+              <button class="ico" class:on={copied === r.file} onclick={() => copyPath(r.file)} aria-label="Copy the file's path" title={copied === r.file ? "Copied the file's path" : "Copy the file's path"}><Icon name="folder" size={16} /></button>
+              <button class="ico del" onclick={() => remove(r)} aria-label="Delete this recording" title="Delete this recording (Undo for a few seconds)"><Icon name="close" size={16} /></button>
             </span>
           </div>
           {#if isPlaying(r) && playing}
@@ -160,7 +160,7 @@
     align-items: center;
     gap: 8px;
     margin: 0;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg-bright);
   }
@@ -170,7 +170,7 @@
   .in {
     min-height: 28px;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: var(--bg-light);
     color: var(--fg);
@@ -193,10 +193,14 @@
   }
   .close {
     flex: none;
-    width: 28px;
-    height: 28px;
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
     cursor: pointer;
@@ -216,10 +220,8 @@
     margin: 0 0 2px;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--muted);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1px;
     color: var(--fg-dim);
   }
   .row {
@@ -228,7 +230,7 @@
     align-items: center;
     gap: 10px;
     padding: 3px 6px;
-    border-radius: 6px;
+    border-radius: var(--r);
   }
   .row:hover {
     background: var(--bg-light);
@@ -238,8 +240,8 @@
     background: color-mix(in srgb, var(--c) 16%, transparent);
   }
   .play {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border-radius: 50%;
     border: 1px solid var(--accent);
@@ -303,14 +305,14 @@
     flex: none;
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
-    opacity: 0.6;
+    opacity: 0.85;
     cursor: pointer;
   }
   .ico.wide {
@@ -336,7 +338,7 @@
   }
   .scrub {
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: var(--bg-darker);
     position: relative;
     cursor: pointer;
@@ -351,7 +353,7 @@
     top: 0;
     bottom: 0;
     background: var(--accent);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
   }
   .scrub b {
     position: absolute;

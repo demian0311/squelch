@@ -3,6 +3,7 @@
   // this tower is worth waiting on, the tower as a board of channels, ten minutes of calls, then the talkgroups.
   // Covers `main` on the EMS bands; App owns the radio. Mockup 2026-11-05: https://claude.ai/artifact/SNURAma44ZLDBp4hdziFgk
   import Icon from './Icon.svelte';
+  import Steps, { type Step } from './Steps.svelte';
   import Talkgroups from './Talkgroups.svelte';
   import type { P25, P25Talkgroup } from '../lib/api';
   import { LINE_SECS, voiceHeard, type LookLine } from '../lib/ems';
@@ -36,6 +37,17 @@
   const nameOf = (hz: number) => named.find((n) => Math.abs(n.mhz * 1e6 - hz) <= 7_000)?.name ?? null;
   const agoSay = (lineAgo: number) => (lineAgo === 0 ? 'in the last look' : sinceSay(lineAgo * LINE_SECS));
   let stepList = $derived(steps(p25, lockSecs));
+  const STEP_ICONS = ['search', 'tower', 'headphones'];
+  const STEP_WORDS_NOW = ['Finding a tower', 'Reading the tower', 'Hearing calls'];
+  /** A few words per step; the long sentence the library builds is the step's tooltip. */
+  let stepItems: Step[] = $derived(
+    stepList.map((s, i) => ({
+      icon: STEP_ICONS[i],
+      label: s.state === 'done' ? ['Found a tower', 'Read the tower', 'Hearing calls'][i] : STEP_WORDS_NOW[i],
+      state: s.state,
+      title: `${s.say}. ${i === 0 ? GLOSS.control : i === 1 ? GLOSS.tower : GLOSS.calls}`,
+    })),
+  );
   let said = $derived(verdict(p25, picks, lockSecs));
   let board = $derived(p25 ? channelBoard(p25) : []);
   let bars = $derived(p25 ? minuteBars(p25.groups) : []);
@@ -51,22 +63,13 @@
 
 <div class="ems">
   {#if analog}
-    <section class="steps" aria-label="What the receiver is doing">
-      <span class="step now" title={GLOSS.plain}><b><Icon name="play" size={11} /></b>Listening to plain voice · {fmtMHz(analog.tuned)} MHz{nameOf(analog.tuned) ? ` · ${nameOf(analog.tuned)}` : ''}</span>
-    </section>
+    <Steps steps={[{ icon: 'headphones', label: 'Listening to plain voice', state: 'now', title: `${fmtMHz(analog.tuned)} MHz${nameOf(analog.tuned) ? ` · ${nameOf(analog.tuned)}` : ''}. ${GLOSS.plain}` }]} />
     <p class="verdict">
       {analog.open ? 'Someone is talking.' : 'Quiet. Plain FM dispatch comes in short bursts; the squelch opens when someone keys up.'}
       <button class="act" onclick={onTowers} title="Back to the trunked towers">Back to the towers</button>
     </p>
   {:else}
-    <section class="steps" aria-label="Where the receiver is">
-      {#each stepList as s, i (s.n)}
-        {#if i}<span class="arrow">→</span>{/if}
-        <span class="step" class:done={s.state === 'done'} class:now={s.state === 'now'} title={s.n === 1 ? GLOSS.control : s.n === 2 ? GLOSS.tower : GLOSS.calls}>
-          <b>{s.state === 'done' ? '✓' : s.n}</b>{s.say}
-        </span>
-      {/each}
-    </section>
+    <Steps steps={stepItems} label="Where the receiver is" />
     <p class="verdict">
       {said.say}
       {#if said.action === 'other-band' && otherBand}
@@ -77,8 +80,14 @@
 
   <div class="body">
     <div class="left">
+      {#if !analog && !board.length}
+        <div class="state" title={said.say}>
+          <Icon name={p25 && p25.state !== 'searching' ? 'tower' : 'search'} size={44} />
+          <span>{p25 && p25.state !== 'searching' ? 'Tower found' : 'Finding a tower'}</span>
+        </div>
+      {/if}
       {#if !analog && board.length}
-        <h2 title={GLOSS.tower}>This tower's channels <span class="dim">· lit while a call is on</span></h2>
+        <h2 class="sect" title={GLOSS.tower}>This tower’s channels <span class="dim">· lit while a call is on</span></h2>
         <div class="board">
           {#each board as c (c.hz)}
             <div class="ch" class:cc={c.kind === 'control'} class:lit={c.lit && c.kind === 'voice'} class:lock={c.kind === 'voice' && !c.playable} title={c.kind === 'control' ? GLOSS.control : c.playable ? 'A voice channel this tower used; the receiver plays a call here when it is in the clear' : 'A voice channel whose last call was encrypted or Phase 2'}>
@@ -97,7 +106,7 @@
         </div>
       {/if}
       {#if !analog && p25 && p25.state !== 'searching'}
-        <h2 title={GLOSS.calls}>Calls <span class="dim">· last {WINDOW_MIN} min · a column a minute</span></h2>
+        <h2 class="sect" title={GLOSS.calls}>Calls <span class="dim">· last {WINDOW_MIN} min</span></h2>
         <div class="timeline" role="img" aria-label="Calls per minute: those you can hear and those that are locked">
           {#each bars as b, i (i)}
             <div class="col" title="{b.playable} you can hear, {b.locked} locked">
@@ -108,7 +117,7 @@
         </div>
         <div class="axis"><span>−{WINDOW_MIN} min</span><span class="legend"><i class="play"></i> you can hear <i class="locked"></i> encrypted or Phase 2</span><span>now</span></div>
       {/if}
-      <h2 title={GLOSS.plain}>Plain voice heard <span class="dim">· the whole band looked at every {LINE_SECS} s</span></h2>
+      <h2 class="sect" title="{GLOSS.plain} The whole band is looked at every {LINE_SECS} s.">Plain voice heard</h2>
       {#if voices.length}
         <div class="voices">
           {#each voices as v (v.hz)}
@@ -121,14 +130,17 @@
           {/each}
         </div>
       {:else}
-        <p class="small">{lines.length < 3 ? `Looking: ${lines.length} of 3 looks so far.` : 'Nothing that comes and goes like voice in the last looks. Plain FM dispatch is rare near big cities; towns and counties still use it.'}</p>
+        <div class="state small" title="Plain FM dispatch is rare near big cities; towns and counties still use it.">
+          <Icon name="quiet" size={40} />
+          <span>{lines.length < 3 ? `Looking: ${lines.length} of 3 looks` : 'No plain voice heard'}</span>
+        </div>
       {/if}
     </div>
     <div class="side">
       {#if p25 && !analog}
         <Talkgroups {p25} {picks} {rows} {fold} {onHold} {onSkip} />
       {:else if analog}
-        <h2 title={GLOSS.plain}>Named channels on this band</h2>
+        <h2 class="sect" title={GLOSS.plain}>Named channels on this band</h2>
         <div class="voices">
           {#each named.filter((n) => n.mhz * 1e6 >= analog.lo && n.mhz * 1e6 <= analog.hi) as n (n.mhz)}
             <button class="voice" class:sel={Math.abs(analog.tuned - n.mhz * 1e6) < 7_000} onclick={() => onListen(n.mhz * 1e6)} title="Listen here as plain FM">
@@ -141,7 +153,7 @@
       {/if}
     </div>
   </div>
-  <p class="foot"><button class="link" onclick={onSeeRadio}>See the radio</button> · the waterfall and the whole band. A click there tunes by hand and leaves the tower.</p>
+  <p class="foot"><button class="link" onclick={onSeeRadio} title="The waterfall and the whole band. A click there tunes by hand and leaves the tower.">See the radio</button> · the waterfall</p>
 </div>
 
 <style>
@@ -157,54 +169,6 @@
     overflow: auto;
     container-type: inline-size;
   }
-  .steps {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 0;
-  }
-  .step {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 4px 11px 4px 6px;
-    border-radius: 999px;
-    border: 1px solid var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
-    color: var(--fg-dim);
-  }
-  .step b {
-    display: inline-flex;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    border: 1.5px solid var(--fg-dim);
-  }
-  .step.done {
-    color: var(--fg);
-  }
-  .step.done b {
-    background: var(--green);
-    border-color: var(--green);
-    color: var(--bg);
-  }
-  .step.now {
-    color: var(--fg);
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-  }
-  .step.now b {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .arrow {
-    color: var(--fg-dim);
-    padding: 0 7px;
-  }
   .verdict {
     margin: 0;
     font-size: 15px;
@@ -216,7 +180,7 @@
     border: 1px solid var(--accent);
     color: var(--accent);
     background: none;
-    border-radius: 5px;
+    border-radius: var(--r-sm);
     padding: 1px 8px;
     margin-left: 6px;
     cursor: pointer;
@@ -234,19 +198,24 @@
       grid-template-columns: minmax(0, 1fr);
     }
   }
-  h2 {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--fg-dim);
+  .dim {
+    font-weight: 400;
+  }
+  .sect {
     margin: 10px 0 6px;
   }
-  .dim {
+  .state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 18px 0;
     color: var(--fg-dim);
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
+    opacity: 0.8;
+    font-size: 13px;
+  }
+  .state.small {
+    padding: 8px 0;
   }
   .board {
     display: grid;
@@ -258,9 +227,9 @@
     flex-direction: column;
     gap: 3px;
     border: 1px solid var(--muted);
-    border-radius: 7px;
+    border-radius: var(--r);
     padding: 7px 9px;
-    font-size: 12.5px;
+    font-size: 12px;
     background: var(--bg-light);
     min-height: 44px;
   }
@@ -272,7 +241,7 @@
   }
   .ch .f {
     font-family: var(--mono);
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--fg-dim);
   }
   .ch.cc {
@@ -352,7 +321,7 @@
     gap: 8px;
     padding: 6px 9px;
     border: 1px solid var(--muted);
-    border-radius: 7px;
+    border-radius: var(--r);
     background: var(--bg-light);
     color: var(--fg);
     font: inherit;
@@ -372,9 +341,11 @@
     font-weight: 600;
     flex: 1;
     min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .voice .dim {
     font-size: 12px;

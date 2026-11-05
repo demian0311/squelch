@@ -51,7 +51,7 @@
   </div>
 {/each}
 
-<h2>Calls <span class="dim">· newest first</span></h2>
+<h2 class="sect">Calls <span class="dim">· newest first</span></h2>
 {#each recent as c, i (i)}
   <div class="row">
     <span class="what" title={c.group ? GLOSS.talkgroup : GLOSS.radio}>{#if c.encrypted}<span class="ic" title="Encrypted"><Icon name="lock" size={12} /></span>{/if}{#if c.emergency}<span class="ic alarm" title="Emergency"><Icon name="siren" size={12} /></span>{/if}{callSay(c)}</span>
@@ -64,10 +64,8 @@
 
 <style>
   h2 {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--fg-dim);
     margin: 10px 0 6px;
   }
@@ -92,7 +90,7 @@
     flex-direction: column;
     gap: 3px;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: var(--bg-light);
     text-align: left;

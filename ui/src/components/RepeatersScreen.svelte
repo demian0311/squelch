@@ -5,6 +5,7 @@
   // on the ham bands; App owns the radio. Mockup 2026-11-05: https://claude.ai/artifact/P4XjQ1zc3Bg5BS71oJxeFM
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import Steps, { type Step } from './Steps.svelte';
   import { fmtMHz } from '../lib/radio';
   import type { RepRow, RepStep } from '../lib/repscreen';
   interface Props {
@@ -18,10 +19,17 @@
     map: Snippet;
   }
   let { rows, steps, verdict, onRow, onSeeRadio, map }: Props = $props();
+  const STEP_ICONS = ['pin', 'radio', 'headphones'];
+  const STEP_WHY = ['Repeaters in reach, from RepeaterBook and a guess of how far this band carries.', 'Every repeater inside the radio’s 2.4 MHz capture is heard at the same time, like a scanner with no gaps.', 'The receiver plays the held row, else whoever talks first.'];
+  let stepList: Step[] = $derived(steps.map((s, i) => ({ icon: STEP_ICONS[i] ?? 'radio', label: s.say, state: s.state, title: STEP_WHY[i] })));
+  /** A row's state as a glyph and a few words; the sentence behind it is the row's second line. */
+  const STATE_ICON = { playing: 'speaker', talking: 'zap', quiet: 'quiet', away: 'arrowRight' } as const;
+  const stateWords = (r: RepRow) => (r.state === 'away' ? 'Outside capture' : r.say);
+  /** The second line: the click hint lives in the row's tooltip. */
+  const detailOf = (r: RepRow) => r.detail.replace(/^click to move there · /, '');
   let near = $derived(rows.filter((r) => r.p.reach));
   let far = $derived(rows.filter((r) => !r.p.reach));
   const GLOSS = {
-    steps: 'Repeaters in reach are listed from RepeaterBook. Every one inside the radio’s 2.4 MHz capture is heard at the same time, like a scanner with no gaps.',
     dmr: 'DMR: digital voice. The repeater is silent between calls, so a quiet row is normal; a call fills it and plays. Two conversations fit at once, one per slot.',
     fm: 'Plain FM voice. A carrier on the frequency means someone is keyed up.',
     hold: 'Click a row to stay on it: only it plays. Click it again and the radio goes back to playing whoever talks first.',
@@ -30,12 +38,7 @@
 </script>
 
 <div class="rep">
-  <section class="steps" aria-label="What the receiver is doing" title={GLOSS.steps}>
-    {#each steps as s, i (s.n)}
-      {#if i}<span class="arrow">→</span>{/if}
-      <span class="step" class:done={s.state === 'done'} class:now={s.state === 'now'}><b>{s.state === 'done' ? '✓' : s.n}</b>{s.say}</span>
-    {/each}
-  </section>
+  <Steps steps={stepList} />
   <p class="verdict">{verdict}</p>
 
   <div class="body">
@@ -48,15 +51,15 @@
           <span class="chip" class:isdmr={r.dmr} title={r.dmr ? GLOSS.dmr : GLOSS.fm}>{r.dmr ? 'DMR' : 'FM'}</span>
           <span class="now">
             <span class="say">
-              {#if r.state === 'playing'}<span class="ic"><Icon name="speaker" size={13} /></span>{:else if r.held}<span class="ic"><Icon name="lock" size={12} /></span>{/if}{r.say}
+              <span class="ic"><Icon name={STATE_ICON[r.state]} size={16} /></span>{stateWords(r)}{#if r.held}<span class="ic" title="Held"><Icon name="lock" size={12} /></span>{/if}
             </span>
-            <small>{r.detail}</small>
+            <small>{#if r.state === 'quiet'}<Icon name="clock" size={11} /> {/if}{detailOf(r)}</small>
           </span>
         </button>
       {/snippet}
       {#each near as r (r.p.id)}{@render row(r)}{/each}
       {#if far.length}
-        <p class="divider" title={GLOSS.far}>Probably too far · {far.length}</p>
+        <h3 class="sect divider" title={GLOSS.far}>Probably too far <span class="dim">· {far.length}</span></h3>
         {#each far as r (r.p.id)}{@render row(r)}{/each}
       {/if}
       {#if !rows.length}
@@ -67,7 +70,7 @@
   </div>
 
   <p class="foot">
-    <span>Every row inside the capture is heard at once. The held row plays; with none held, whoever talks first.</span>
+    <span title="Every row inside the capture is heard at once. The held row plays; with none held, whoever talks first.">All rows in the capture play at once.</span>
     <button class="act" onclick={onSeeRadio} title="The waterfall and the whole band">See the radio</button>
   </p>
 </div>
@@ -84,54 +87,6 @@
     background: var(--bg);
     overflow: hidden;
     container-type: inline-size;
-  }
-  .steps {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 0;
-  }
-  .step {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 4px 11px 4px 6px;
-    border-radius: 999px;
-    border: 1px solid var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
-    color: var(--fg-dim);
-  }
-  .step b {
-    display: inline-flex;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    border: 1.5px solid var(--fg-dim);
-  }
-  .step.done {
-    color: var(--fg);
-  }
-  .step.done b {
-    background: var(--green);
-    border-color: var(--green);
-    color: var(--bg);
-  }
-  .step.now {
-    color: var(--fg);
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-  }
-  .step.now b {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .arrow {
-    color: var(--fg-dim);
-    padding: 0 7px;
   }
   .verdict {
     margin: 0;
@@ -164,7 +119,7 @@
     gap: 10px;
     align-items: center;
     padding: 7px 10px;
-    border-radius: 8px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: var(--bg-light);
     color: var(--fg);
@@ -212,13 +167,13 @@
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
     color: var(--fg-dim);
-    font-size: 12.5px;
+    font-size: 12px;
   }
   .chip {
     font-family: var(--mono);
     font-size: 11px;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     text-align: center;
     background: var(--green);
     color: var(--bg);
@@ -242,17 +197,17 @@
   .now small {
     color: var(--fg-dim);
     font-size: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .divider {
     margin: 8px 2px 2px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--fg-dim);
+  }
+  .dim {
+    font-weight: 400;
   }
   .empty {
     color: var(--fg-dim);
@@ -262,7 +217,7 @@
     position: relative;
     min-height: 0;
     overflow: hidden;
-    border-radius: 8px;
+    border-radius: var(--r);
     background: var(--bg-darker);
   }
   .foot {
@@ -271,7 +226,7 @@
     align-items: center;
     gap: 12px;
     margin: 0;
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--fg-dim);
   }
   .act {
@@ -280,7 +235,7 @@
     border: 1px solid var(--accent);
     color: var(--accent);
     background: none;
-    border-radius: 6px;
+    border-radius: var(--r-sm);
     padding: 3px 10px;
     cursor: pointer;
     white-space: nowrap;

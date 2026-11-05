@@ -15,7 +15,7 @@
   let { p25, picks, rows, fold, onHold, onSkip }: Props = $props();
 </script>
 
-<h2>Talkgroups <span class="dim">· last {WINDOW_MIN} min</span></h2>
+<h2 class="sect">Talkgroups <span class="dim">· last {WINDOW_MIN} min</span></h2>
 {#each rows as r (r.group)}
   {@const live = p25.call?.group === r.group}
   {@const held = picks.hold === r.group}
@@ -49,10 +49,8 @@
 
 <style>
   h2 {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
     color: var(--fg-dim);
     margin: 0 0 6px;
   }
@@ -64,7 +62,7 @@
     flex-direction: column;
     gap: 3px;
     padding: 8px 12px;
-    border-radius: 8px;
+    border-radius: var(--r);
     border: 1px solid var(--muted);
     background: var(--bg-light);
     text-align: left;
@@ -120,7 +118,7 @@
     color: var(--fg-dim);
     background: none;
     border: 1px solid var(--muted);
-    border-radius: 5px;
+    border-radius: var(--r-sm);
     padding: 1px 6px;
     cursor: pointer;
   }

@@ -136,7 +136,7 @@
     top: 1px;
     bottom: 1px;
     border: 1.5px solid var(--hue);
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--hue) 14%, transparent);
     cursor: grab;
   }

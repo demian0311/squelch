@@ -125,7 +125,7 @@
     min-width: 0;
     padding: 0 0 3px;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     background: var(--bg-light);
     color: var(--fg);
     font: 600 14px var(--mono);
@@ -156,7 +156,7 @@
     min-height: 0;
     padding: 2px;
     border: 1px solid var(--muted);
-    border-radius: 6px;
+    border-radius: var(--r);
     background: var(--bg-light);
   }
   .num {
@@ -170,7 +170,7 @@
     position: relative;
     padding: 1px 0 7px;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--r-sm);
     background: none;
     color: var(--fg-dim);
     font-size: 10px;
@@ -214,7 +214,7 @@
     right: 5px;
     bottom: 4px;
     height: 3px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--muted);
     overflow: hidden;
   }
@@ -240,7 +240,7 @@
   .busy {
     width: 12px;
     height: 3px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--green);
   }
   .dotkey {

@@ -51,7 +51,7 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    border-radius: 10px;
+    border-radius: var(--r-lg);
     border: 1px solid var(--muted);
     background: var(--bg-dark);
     overflow: hidden;
@@ -80,7 +80,7 @@
   .swatch {
     width: 8px;
     height: 8px;
-    border-radius: 2px;
+    border-radius: var(--r-sm);
     background: var(--pane);
   }
   .sum {
@@ -109,7 +109,7 @@
     min-width: 28px;
     padding: 0 8px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--r);
     background: transparent;
     color: var(--fg-dim);
     font-size: 12px;

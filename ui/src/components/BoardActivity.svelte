@@ -21,7 +21,7 @@
 
 <div class="activity">
   {#each groups as [name, rows] (name)}
-    <h3>{name}</h3>
+    <h3 class="sect">{name}</h3>
     {#each rows as r (r.channel.key)}
       <button class="row" class:sel={r.channel.key === tunedKey} onclick={() => onTune(r.channel.hz)}>
         <span class="num" class:rpt={r.channel.dot}>{r.channel.key}</span>
@@ -48,10 +48,8 @@
   }
   h3 {
     margin: 10px 0 3px 5ch;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     color: var(--fg-dim);
   }
   h3:first-child {
@@ -65,7 +63,7 @@
     min-height: 14px;
     padding: 1px 4px;
     border: 0;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: transparent;
     color: var(--fg);
     cursor: pointer;

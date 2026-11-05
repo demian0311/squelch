@@ -202,8 +202,10 @@
     line-height: 16px;
     padding-inline: 6px;
     color: var(--fg-dim);
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 </style>
