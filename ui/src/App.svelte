@@ -1436,7 +1436,7 @@
         <span class="titleline">
           <span class="title">{typing ? 'Type a frequency' : nowTitle}</span>
           <button class="keep" class:on={tunedMark} aria-pressed={!!tunedMark} disabled={!tunedMark && !bandAt(plan, tuned)} onclick={toggleBookmark} aria-label={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency'} title={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency (b lists them all)'}><Icon name="bookmark" size={14} filled={!!tunedMark} /></button>
-          <button class="keep about" class:on={guideOpen} aria-pressed={guideOpen} disabled={!guideDoc} onclick={toggleGuide} aria-label={guideDoc ? `About ${guideDoc.title}` : 'No guide for this band'} title={guideDoc ? `About ${guideDoc.title}: what it is for, the band plan, the rules (?)` : 'No guide for this band'}><Icon name="book" size={14} /></button>
+          <button class="keep about" class:on={guideOpen} aria-pressed={guideOpen} disabled={!guideDoc} onclick={toggleGuide} aria-label={guideDoc ? `About ${guideDoc.title}` : 'No guide for this band'} title={guideOpen ? 'Back to the radio (Esc)' : guideDoc ? `About ${guideDoc.title}: what it is for, the band plan, the rules (?)` : 'No guide for this band'}><Icon name="book" size={14} /></button>
         </span>
         <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span>
       </div>
@@ -2046,8 +2046,12 @@
   .keep.on {
     color: var(--orange);
   }
+  /* the guide is open: the glyph wears a ring in the band's colour, so the way back is plain to see */
   .keep.about.on {
     color: var(--hue);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--hue);
+    background: color-mix(in srgb, var(--hue) 18%, transparent);
   }
   .keep:disabled {
     opacity: 0.35;
