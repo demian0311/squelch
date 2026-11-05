@@ -731,15 +731,15 @@ fn run(
             }
             prof.lap("hd fill");
         }
-        // a recording takes the live sound's place at the speaker; the recorder still gets the live sound
-        if let Some(p) = &mut player {
+        // a recording playing takes the live sound's place at the speaker; paused or ended it keeps its
+        // place and the live sound comes back. The recorder always gets the live sound.
+        let rolling = player.as_ref().is_some_and(|p| !p.paused && !p.done);
+        if let (true, Some(p)) = (rolling, &mut player) {
             play_buf.clear();
-            if !p.paused && !p.done {
-                let want = iq.len() as f64 * AUDIO_RATE as f64 / rate as f64 + play_frac;
-                let n = want.floor() as usize;
-                play_frac = want - n as f64;
-                p.fill(&mut play_buf, n);
-            }
+            let want = iq.len() as f64 * AUDIO_RATE as f64 / rate as f64 + play_frac;
+            let n = want.floor() as usize;
+            play_frac = want - n as f64;
+            p.fill(&mut play_buf, n);
             if let Some(a) = &audio {
                 a.push(&play_buf, volume);
             }
