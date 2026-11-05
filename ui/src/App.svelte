@@ -9,7 +9,7 @@
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
   import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
-  import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, passWord, RECEPTION_DB, until, upcoming } from './lib/iss';
+  import { ageDays, ageLabel, clock, compass, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, passColour, passWhy, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
@@ -97,6 +97,9 @@
   let recFocus = $state<string | null>(null);
   // the recording playing in place of the live sound, and the one already played on from when it ended
   let play = $derived(status?.play ?? null);
+  // the top bar, space and the sub-line are the recording's while it plays or its screen is open
+  let recOwns = $derived(!!play && (!play.paused || recordingsOpen));
+  let barPlay = $derived(recOwns ? play : null);
   let playedOn = $state<string | null>(null);
   /** How long the saved file's copy icon stays after a recording ends. */
   const SAVED_FOR_S = 5 * 60;
@@ -301,7 +304,7 @@
     // the one EMS entry goes back to the side of EMS last tuned
     const b = isEms(picked) ? (plan.bands.find((x) => x.id === emsSide) ?? picked) : picked;
     bookmarksOpen = false;
-    recordingsOpen = false;
+    leaveRecordings();
     seeRadio = false;
     airListen = null;
     bandId = b.id;
@@ -769,15 +772,16 @@
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
   let playTitle = $derived.by(() => {
-    if (!play) return null;
+    if (!recOwns || !play) return null;
     const p = parseRecordingName(play.file);
     return p ? (recordingName(p.hz, p.mode) ?? `${fmtMHz(p.hz)} MHz`) : 'Recording';
   });
   let playSub = $derived.by(() => {
-    if (!play) return null;
+    if (!recOwns || !play) return null;
     const p = parseRecordingName(play.file);
     const when = p ? `${timeOfDay(p.at)} ${dayWord(p.at)}` : 'a recording';
-    return `Playing the recording from ${when} · ${clockLength(play.secs)} of ${clockLength(play.len_secs)}${play.done ? ' · ended' : play.paused ? ' · paused' : ''} · live sound waits · Esc stops`;
+    const state = play.done ? 'ended' : play.paused ? 'paused · the live sound plays meanwhile' : 'playing · live sound waits';
+    return `The recording from ${when} · ${clockLength(play.secs)} of ${clockLength(play.len_secs)} · ${state} · Esc stops`;
   });
   function dayWord(at: number) {
     const d = new Date(at * 1000);
@@ -954,7 +958,7 @@
   /** The top bar's frequency: back to the waterfall with it in the middle. */
   function showTuned() {
     bookmarksOpen = false;
-    recordingsOpen = false;
+    leaveRecordings();
     tuneCentered(tuned);
   }
   // the one bookmark control: saved under the name this frequency already has, else its number
@@ -1147,7 +1151,7 @@
 
   function togglePlay() {
     // while a recording plays, the play button is its
-    if (play) return void api.playPause(!play.paused);
+    if (recOwns && play) return void api.playPause(!play.paused);
     // pausing a tower is leaving it: the map and the messages come back
     if (airListen && playing) return stopListening();
     playing = !playing;
@@ -1186,6 +1190,11 @@
     recordingsOpen = true;
     loadRecordings();
   }
+  /** Closes the screen; a recording playing pauses where it is, and the live sound comes back. */
+  function leaveRecordings() {
+    if (play && !play.paused) api.playPause(true);
+    recordingsOpen = false;
+  }
   async function removeRecording(file: string) {
     try {
       await api.deleteRecording(file);
@@ -1200,7 +1209,7 @@
     const b = bandAt(plan, hz);
     if (b && b.id !== bandId) pickBand(b);
     tuneSaved(hz, m);
-    recordingsOpen = false;
+    leaveRecordings();
   }
   const recordingName = (hz: number, m: Mode) => bookmarkNear(named, hz, 1_000)?.name ?? (m === 'wfm' ? stationName(hz) : undefined);
   // when one ends, the next older one plays; none left, the live sound comes back
@@ -1228,17 +1237,17 @@
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleMax('panel');
     else if (e.key === 'b') {
-      recordingsOpen = false;
+      leaveRecordings();
       bookmarksOpen = !bookmarksOpen;
     } else if (e.key === 'r') {
-      if (recordingsOpen) recordingsOpen = false;
+      if (recordingsOpen) leaveRecordings();
       else openRecordings();
     }
     else if (e.key === 'F11') toggleFull();
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
     else if (e.key === 'Escape' && bookmarksOpen) bookmarksOpen = false;
-    else if (e.key === 'Escape' && recordingsOpen) recordingsOpen = false;
-    else if (e.key === 'Escape' && play) api.playRecording(null);
+    else if (e.key === 'Escape' && recordingsOpen) leaveRecordings();
+    else if (e.key === 'Escape' && recOwns) api.playRecording(null);
     else if (e.key === 'Escape' && maxPane) maxed = null;
     else if (e.key === ' ') togglePlay();
     else if (e.key === 's') settingsOpen = !settingsOpen;
@@ -1350,7 +1359,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bookmarksOpen || recordingsOpen ? null : railId(railPlan, bandId)} {recordingsOpen} recordingCount={recordingsList.length} onRecordings={() => (recordingsOpen ? (recordingsOpen = false) : openRecordings())} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => { recordingsOpen = false; bookmarksOpen = !bookmarksOpen; }} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen || recordingsOpen ? null : railId(railPlan, bandId)} {recordingsOpen} recordingCount={recordingsList.length} onRecordings={() => (recordingsOpen ? (leaveRecordings()) : openRecordings())} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => { leaveRecordings(); bookmarksOpen = !bookmarksOpen; }} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -1367,8 +1376,8 @@
         </span>
         <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{nowSub}</span>
       </div>
-      <button class="play" class:on={play ? !play.paused : playing && !airWatching} disabled={airWatching && !play} onclick={togglePlay} aria-label={(play ? !play.paused : playing) ? 'Pause' : 'Play'} title={play ? `${play.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
-        <Icon name={(play ? !play.paused : playing && !airWatching) ? 'pause' : 'play'} size={20} />
+      <button class="play" class:on={barPlay ? !barPlay.paused : playing && !airWatching} disabled={airWatching && !barPlay} onclick={togglePlay} aria-label={(barPlay ? !barPlay.paused : playing) ? 'Pause' : 'Play'} title={barPlay ? `${barPlay.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press barPlay on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
+        <Icon name={(barPlay ? !barPlay.paused : playing && !airWatching) ? 'pause' : 'play'} size={20} />
       </button>
       <button class="rec" class:on={recLit} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
         <Icon name="record" size={18} />
@@ -1730,10 +1739,10 @@
             <div class="split over">
               <div class="mapbox issmap">
                 <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} pass={issHover} />
-                {#if issHover}<span class="mapcap">{issHover === issUp ? 'Overhead now' : `${dayLabel(issHover.rise, nowS)} ${clock(issHover.rise)}`} · {Math.round(issHover.max_elevation)}° high · {passWord(issHover.max_elevation).toLowerCase()}</span>{/if}
+                {#if issHover}<span class="mapcap">{issHover === issUp ? 'Overhead now' : `${dayLabel(issHover.rise, nowS)} ${clock(issHover.rise)}`} · {Math.round(issHover.max_elevation)}° high</span>{/if}
                 <span class="maplabel" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
               </div>
-              <div class="list">
+              <div class="list passes">
                 {#if iss?.bad_location}<p class="empty err">Your location in Settings is not a US ZIP code, state or “lat, lon”.</p>{/if}
                 {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
                 <p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>
@@ -1743,11 +1752,9 @@
                   {#each issNext as p (p.rise)}
                     {@const now = p === issUp}
                     {@const colour = passColour(p.max_elevation)}
-                    <div class="item pass" class:sel={now} role="button" tabindex="0" title={passWhy(p.max_elevation)} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
-                      <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`}</span>
+                    <div class="item pass" class:sel={now} role="button" tabindex="0" title={`${passWhy(p.max_elevation)} ${Math.round((p.set - p.rise) / 60)} min above the horizon, rises ${compass(p.rise_az)}, sets ${compass(p.set_az)}.`} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
+                      <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`} <small>– {clock(p.set)}</small></span>
                       <span class="big" style:color={colour}>{Math.round(p.max_elevation)}° high</span>
-                      <span class="dim">{now ? `sets ${until(p.set, nowS)}` : until(p.rise, nowS)} · {Math.round((p.set - p.rise) / 60)} min above the horizon · rises {compass(p.rise_az)}, sets {compass(p.set_az)}</span>
-                      <span class="meter"><span class="bar"><i style:width="{(Math.max(0, p.max_elevation) / 90) * 100}%" style:background={colour}></i></span><b style:color={colour}>{passWord(p.max_elevation)}</b></span>
                     </div>
                   {/each}
                   <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
@@ -1798,7 +1805,7 @@
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
       {/if}
       {#if recordingsOpen}
-        <RecordingsScreen recordings={recordingsList} playing={play} now={nowS} focus={recFocus} {hues} nameOf={recordingName} bandOf={(hz) => bandAt(plan, hz)} onPlay={(f) => api.playRecording(f)} onPause={(p) => api.playPause(p)} onSeek={(s) => api.playSeek(s)} onDelete={removeRecording} onLive={hearLive} onClose={() => (recordingsOpen = false)} />
+        <RecordingsScreen recordings={recordingsList} playing={play} now={nowS} focus={recFocus} {hues} nameOf={recordingName} bandOf={(hz) => bandAt(plan, hz)} onPlay={(f) => api.playRecording(f)} onPause={(p) => api.playPause(p)} onSeek={(s) => api.playSeek(s)} onDelete={removeRecording} onLive={hearLive} onClose={() => (leaveRecordings())} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
@@ -2485,45 +2492,24 @@
       border-left: 1px solid var(--muted);
     }
   }
+  /* Pass cards: short, so every pass in the next two days fits without scrolling. The colour says how well it will be heard. */
   .item.pass {
     cursor: default;
     outline: none;
+    padding: 7px 10px;
+    gap: 1px;
   }
   .item.pass:hover,
   .item.pass:focus-visible {
     border-color: var(--fg-dim);
   }
-  /* How well a pass will be heard: a bar to 90°, the mark where hearing starts (10°), and a word. */
-  .meter {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    align-items: center;
+  .item.pass .name small {
     font-size: 12px;
-    margin-top: 2px;
+    font-weight: 400;
+    color: var(--fg-dim);
   }
-  .meter .bar {
-    position: relative;
-    height: 6px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--fg) 12%, transparent);
-    overflow: hidden;
-  }
-  .meter .bar i {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 3px;
-  }
-  .meter .bar::after {
-    content: '';
-    position: absolute;
-    left: 11.1%;
-    top: 0;
-    bottom: 0;
-    border-left: 1px solid var(--bg-darker);
-  }
-  .meter b {
-    font-weight: 600;
+  .over .list.passes {
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
   .mapcap {
     position: absolute;
