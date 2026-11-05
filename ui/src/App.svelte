@@ -1303,10 +1303,10 @@
       {:else if rec?.error}
         <span class="rec-note err copy" title={rec.error}>Not recording: {rec.error}</span>
       {:else if rec?.file && nowS - recEndS < SAVED_FOR_S}
-        <button class="rec-file" onclick={copyRecording} aria-label="Copy where the recording was saved" title={recCopied ? `Copied ${rec.file}` : `Copy where it was saved: ${rec.file}`}>
+        <button class="rec-file" onclick={copyRecording} aria-label="Copy where the recording was saved" title={recCopied ? 'Copied the file\'s path' : 'Copy the file\'s path'}>
           <Icon name="folder" size={16} />
         </button>
-        <span class="rec-note copy" title={rec.file}>{recCopied ? 'Copied' : 'Saved'} {rec.file.split('/').pop()}</span>
+        <span class="rec-note mono">{recCopied ? 'Copied' : 'Saved'} {Math.floor(rec.secs / 60)}:{String(Math.floor(rec.secs) % 60).padStart(2, '0')}</span>
       {/if}
       <div class="levels">
         <div class="ctl">
