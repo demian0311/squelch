@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Band, Repeater } from './api';
-import { heldOutputs, kmBetween, liveOutputs, repeaterPoints, ringReach, townLabels } from './repeaters';
+import { clampView, heldOutputs, hueOf, kmBetween, liveOutputs, mapMarks, NEAREST_KM, readView, repeaterPoints, ringReach, townLabels, WIDEST_KM, zoomView, type RepeaterPoint } from './repeaters';
 
 const twoM: Band = { id: '2m', group: 'ham', name: '2 m', icon: 'tower', mode: 'nfm', low_mhz: 144, high_mhz: 148, start_mhz: 146.52, bookmarks: [] };
 const rep = (call: string, city: string, mhz: number, lat: number, lon: number, modes: string[] = []): Repeater => ({ id: `${call}-${mhz}`, call, city, mhz, lat, lon, shift: '-', tone: '100.0', modes });
@@ -74,5 +74,67 @@ describe('heldOutputs', () => {
 describe('ringReach', () => {
   it('goes up in steps with the signal', () => {
     expect([8, 15, 24, 25, 35, 60].map(ringReach)).toEqual([0.5, 0.75, 0.75, 1, 1.3, 1.3]);
+  });
+});
+
+describe('map view', () => {
+  it('never goes closer, wider, or further off than the widest view', () => {
+    expect(clampView({ x: 500, y: -500, halfKm: 1000 })).toEqual({ x: WIDEST_KM, y: -WIDEST_KM, halfKm: WIDEST_KM });
+    expect(clampView({ x: 0, y: 0, halfKm: 0.1 }).halfKm).toBe(NEAREST_KM);
+  });
+  it('zooms around the place under the pointer, which stays put', () => {
+    const v = { x: 0, y: 0, halfKm: 40 };
+    const at = { x: 10, y: -20 };
+    const z = zoomView(v, 0.5, at);
+    expect(z.halfKm).toBe(20);
+    // the pointer's place was 10 km right of centre in a 40 km view: still a quarter of the view right of the new centre
+    expect((at.x - z.x) / z.halfKm).toBeCloseTo((at.x - v.x) / v.halfKm);
+    expect((at.y - z.y) / z.halfKm).toBeCloseTo((at.y - v.y) / v.halfKm);
+  });
+  it('reads a saved view and falls back on nonsense', () => {
+    expect(readView({ x: 1, y: 2, halfKm: 30 })).toEqual({ x: 1, y: 2, halfKm: 30 });
+    expect(readView(75)).toEqual({ x: 0, y: 0, halfKm: WIDEST_KM });
+    expect(readView({ x: 'a' })).toEqual({ x: 0, y: 0, halfKm: WIDEST_KM });
+  });
+});
+
+describe('marks', () => {
+  const pt = (id: string, x: number, y: number, more: Partial<RepeaterPoint> = {}): RepeaterPoint => ({ id, hz: 146e6, call: id, city: 'Miami', x, y, km: Math.hypot(x, y), reach: true, digital: null, ...more });
+  it('says green for reach, blue for maybe digital, red for too far', () => {
+    expect(hueOf({ reach: true, digital: null })).toBe('green');
+    expect(hueOf({ reach: true, digital: 'DMR' })).toBe('blue');
+    expect(hueOf({ reach: false, digital: null })).toBe('red');
+  });
+  it('folds neighbours on screen into one badge around the nearest', () => {
+    const marks = mapMarks([pt('a', 0, 0), pt('b', 1, 0), pt('c', 30, 0, { reach: false })], 0.1, false);
+    expect(marks.map((m) => m.kind)).toEqual(['many', 'one']);
+    const badge = marks[0] as Extract<(typeof marks)[number], { kind: 'many' }>;
+    expect(badge.points.map((p) => p.id)).toEqual(['a', 'b']);
+    expect(badge.x).toBe(0.5);
+    expect(badge.hue).toBe('green');
+  });
+  it('a badge is blue only when none of it is plain FM in reach, red when none is in reach', () => {
+    const blue = mapMarks([pt('a', 0, 0, { digital: 'DMR' }), pt('b', 1, 0, { reach: false })], 0.1, false)[0];
+    expect(blue.kind === 'many' && blue.hue).toBe('blue');
+    const red = mapMarks([pt('a', 0, 0, { reach: false }), pt('b', 1, 0, { reach: false })], 0.1, false)[0];
+    expect(red.kind === 'many' && red.hue).toBe('red');
+  });
+  it('the tuned repeater and those on air never fold into a badge', () => {
+    const marks = mapMarks([pt('a', 0, 0), pt('b', 1, 0), pt('c', 1, 1)], 0.1, false, new Set(['b']));
+    expect(marks.map((m) => (m.kind === 'one' ? m.p.id : m.points.map((p) => p.id).join('+')))).toEqual(['a+c', 'b']);
+  });
+  it('a badge on the tuned tower moves beside it, on a line back to the tower', () => {
+    const marks = mapMarks([pt('t', 0, 0), pt('a', 0, 0), pt('b', 0.1, 0)], 0.1, false, new Set(['t']));
+    const badge = marks.find((m) => m.kind === 'many') as Extract<(typeof marks)[number], { kind: 'many' }>;
+    expect(badge.from).toEqual({ x: 0.05, y: 0 });
+    expect(badge.x).toBeGreaterThan(2);
+    expect(badge.y).toBe(0);
+  });
+  it('at the nearest zoom nothing folds, and a shared tower fans out', () => {
+    const marks = mapMarks([pt('a', 0, 0), pt('b', 0, 0), pt('c', 0.5, 0)], 0.01, true);
+    expect(marks.every((m) => m.kind === 'one')).toBe(true);
+    const fanned = marks.filter((m) => m.kind === 'one' && m.from);
+    expect(fanned.map((m) => (m as { p: RepeaterPoint }).p.id)).toEqual(['a', 'b']);
+    expect(fanned.map((m) => m.x)).not.toEqual([0, 0]);
   });
 });

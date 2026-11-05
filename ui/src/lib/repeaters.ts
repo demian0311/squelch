@@ -10,9 +10,17 @@ export const REACH_KM: Record<string, number> = { '6m': 60, '2m': 50, '125': 40,
 // squelch plays analog FM only; a repeater also listed in one of these may be digital only
 const DIGITAL = ['DMR', 'P25', 'NXDN', 'D-STAR', 'M17'];
 
-/** How far the map can show around the listener, in km: the slider's stops. */
-export const RANGES_KM = [25, 50, 75, 100, 150, 200, 300];
-export const DEFAULT_RANGE_KM = 75;
+/** Zoomed all the way out the map shows this far above and below the listener, in km: past it there is nothing to hear. */
+export const WIDEST_KM = 75;
+/** Zoomed all the way in: repeaters sharing one tower are the only ones still on top of each other. */
+export const NEAREST_KM = 1.5;
+/** Marks nearer than this on screen fold into one badge. */
+export const BUNCH_PX = 22;
+/** How far a fanned-out mark sits from the tower it shares, in pixels. */
+export const FAN_PX = 24;
+/** A badge's radius on screen for this many repeaters, and the radius of a mark kept apart (the tuned one is drawn twice a dot). */
+export const badgeRadius = (n: number) => 11 + Math.min(7, n);
+export const APART_PX = 12;
 
 // a signal this close to a repeater's output is taken to be that repeater
 const ON_AIR_HZ = 5_000;
@@ -100,6 +108,105 @@ export function heldOutputs(prev: Map<number, HeardOutput>, live: Map<number, nu
     held.set(hz, { snr: was ? Math.max(snr, was.snr - (FALL_DB_PER_SEC * (now - was.at)) / 1000) : snr, at: now });
   }
   return held;
+}
+
+/** Where the map looks: its centre in km east and south of the listener, and how far it shows above and below the centre. */
+export interface MapView {
+  x: number;
+  y: number;
+  halfKm: number;
+}
+export const DEFAULT_VIEW: MapView = { x: 0, y: 0, halfKm: WIDEST_KM };
+
+/** The view kept between runs, or the default when what was saved is not one. */
+export function readView(saved: unknown): MapView {
+  const v = saved as Partial<MapView> | null;
+  if (!v || typeof v !== 'object' || ![v.x, v.y, v.halfKm].every((n) => typeof n === 'number' && Number.isFinite(n))) return DEFAULT_VIEW;
+  return clampView({ x: v.x!, y: v.y!, halfKm: v.halfKm! });
+}
+
+/** Never closer than `NEAREST_KM`, never wider than `WIDEST_KM`, and the centre never leaves the widest view. */
+export function clampView(v: MapView): MapView {
+  const halfKm = Math.min(WIDEST_KM, Math.max(NEAREST_KM, v.halfKm));
+  const lim = WIDEST_KM;
+  return { x: Math.min(lim, Math.max(-lim, v.x)), y: Math.min(lim, Math.max(-lim, v.y)), halfKm };
+}
+
+/**
+ * The view zoomed by `factor` (under 1 = closer) so that the place `at` (km) stays where it was on screen,
+ * the way a street map zooms around the pointer. Without `at` it zooms around the centre.
+ */
+export function zoomView(v: MapView, factor: number, at?: { x: number; y: number }): MapView {
+  const halfKm = Math.min(WIDEST_KM, Math.max(NEAREST_KM, v.halfKm * factor));
+  const f = halfKm / v.halfKm;
+  const a = at ?? { x: v.x, y: v.y };
+  return clampView({ x: a.x + (v.x - a.x) * f, y: a.y + (v.y - a.y) * f, halfKm });
+}
+
+/** What a repeater's colour says: can it be heard here. */
+export type Hue = 'green' | 'blue' | 'red';
+/** Green: the band should reach it. Blue: also listed under a digital mode, so it may carry no analog FM. Red: probably too far. */
+export function hueOf(p: Pick<RepeaterPoint, 'reach' | 'digital'>): Hue {
+  return p.digital ? 'blue' : p.reach ? 'green' : 'red';
+}
+
+/** One thing drawn on the map: a repeater, or a count badge standing for several too close to tell apart. */
+export type Mark =
+  | { kind: 'one'; p: RepeaterPoint; x: number; y: number; /** the tower it shares, when fanned out */ from?: { x: number; y: number } }
+  | { kind: 'many'; points: RepeaterPoint[]; x: number; y: number; hue: Hue; /** the tower it shares with a mark kept apart, when moved off it */ from?: { x: number; y: number } };
+
+/**
+ * Repeaters folded into badges wherever two sit within `bunchPx` of each other on screen, nearest first so a
+ * badge forms around the nearest. At the nearest zoom nothing folds: repeaters on one tower fan out around it
+ * instead, each a target of its own. Those in `apart` (the tuned one, those on air) never fold: they are what
+ * the map is showing. Positions are in km.
+ */
+export function mapMarks(points: RepeaterPoint[], kmPerPx: number, nearest: boolean, apart: Set<string | null> = new Set(), bunchPx = BUNCH_PX, fanPx = FAN_PX): Mark[] {
+  const out: Mark[] = [];
+  const used = new Set<number>();
+  const cell = bunchPx * kmPerPx;
+  for (let i = 0; i < points.length; i++) {
+    if (used.has(i)) continue;
+    const a = points[i];
+    const group = [a];
+    used.add(i);
+    const sameSite = (b: RepeaterPoint) => Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05;
+    for (let j = i + 1; j < points.length && !apart.has(a.id); j++) {
+      if (used.has(j)) continue;
+      const b = points[j];
+      if (apart.has(b.id)) continue;
+      if (nearest ? sameSite(b) : Math.hypot(a.x - b.x, a.y - b.y) < cell) {
+        group.push(b);
+        used.add(j);
+      }
+    }
+    if (group.length === 1) out.push({ kind: 'one', p: a, x: a.x, y: a.y });
+    else if (nearest) {
+      const r = fanPx * kmPerPx;
+      group.forEach((p, k) => {
+        const ang = -Math.PI / 2 + (k * 2 * Math.PI) / group.length;
+        out.push({ kind: 'one', p, x: a.x + r * Math.cos(ang), y: a.y + r * Math.sin(ang), from: { x: a.x, y: a.y } });
+      });
+    } else {
+      const x = group.reduce((s, p) => s + p.x, 0) / group.length;
+      const y = group.reduce((s, p) => s + p.y, 0) / group.length;
+      const hue: Hue = group.some((p) => p.reach && !p.digital) ? 'green' : group.some((p) => p.digital) ? 'blue' : 'red';
+      out.push({ kind: 'many', points: group, x, y, hue });
+    }
+  }
+  // a badge on the tower of a mark kept apart would hide under it: it moves beside it, on a line to the tower
+  const kept = points.filter((p) => apart.has(p.id));
+  for (const m of out) {
+    if (m.kind !== 'many') continue;
+    const r = badgeRadius(m.points.length);
+    const under = kept.find((p) => Math.hypot(p.x - m.x, p.y - m.y) < (r + APART_PX) * kmPerPx);
+    if (under) {
+      m.from = { x: m.x, y: m.y };
+      m.x = under.x + (r + APART_PX + 4) * kmPerPx;
+      m.y = under.y;
+    }
+  }
+  return out;
 }
 
 /** How far a repeater's on-air circles travel for a signal this many dB above the noise. */

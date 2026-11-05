@@ -286,7 +286,8 @@ export function placeLabels(items: LabelItem[], unit: number, charPx = 6.2, heig
     else if (it.r) taken.push([it.x - it.r * unit, it.y - it.r * unit, it.x + it.r * unit, it.y + it.r * unit]);
   }
   for (const it of items) {
-    if (it.fixed) continue;
+    // no text: in the way of the others, with nothing of its own to place
+    if (it.fixed || !it.text) continue;
     const w = it.text.length * charPx * unit;
     const off = (it.r ? it.r + 2 : offsetPx) * unit;
     const d = off;

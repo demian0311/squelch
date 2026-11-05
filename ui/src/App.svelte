@@ -32,7 +32,7 @@
   import AircraftMap from './components/AircraftMap.svelte';
   import { ADSB_CENTRE_HZ, TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
-  import { DEFAULT_RANGE_KM, REACH_KM, RANGES_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput } from './lib/repeaters';
+  import { REACH_KM, WIDEST_KM, heldOutputs, liveOutputs, readView, repeaterPoints, type HeardOutput, type MapView } from './lib/repeaters';
   import Icon from './components/Icon.svelte';
   import ChannelBoard from './components/ChannelBoard.svelte';
   import BoardActivity from './components/BoardActivity.svelte';
@@ -519,20 +519,19 @@
     repHeard = heldOutputs(untrack(() => repHeard), live, Date.now());
   });
   let repLive = $derived(new Map([...repHeard].map(([hz, h]) => [hz, h.snr])));
-  // the map's range, kept between runs; a stop that no longer exists falls back
-  const savedRange = store.getState('repeaters.range', DEFAULT_RANGE_KM);
-  let repRange = $state(RANGES_KM.includes(savedRange) ? savedRange : DEFAULT_RANGE_KM);
-  function setRepRange(km: number) {
-    repRange = km;
-    store.setState('repeaters.range', km);
+  // where the map looks, kept between runs
+  let repView = $state<MapView>(readView(store.getState('repeaters.view', null)));
+  function setRepView(v: MapView) {
+    repView = v;
+    store.setState('repeaters.view', v);
   }
   let repSummary = $derived.by(() => {
     if (!iss?.site) return 'Set your location to see which are near';
     if (!repInBand.length) return 'None near your location';
-    const shown = repPoints.filter((p) => p.km <= repRange);
-    const near = shown.filter((p) => p.reach).length;
+    const shown = repPoints.filter((p) => p.km <= WIDEST_KM);
+    const hear = shown.filter((p) => p.reach && !p.digital).length;
     const maybe = shown.filter((p) => p.digital).length;
-    return `${shown.length} within ${repRange} km · filled: ${near} in reach · ${repLive.size} on air` + (maybe ? ` · dashed: ${maybe} may be digital only` : '');
+    return `${shown.length} within ${WIDEST_KM} km · green: ${hear} you should hear · ${repLive.size} on air` + (maybe ? ` · blue: ${maybe} may be digital only` : '');
   });
   let locationInput = $state<HTMLInputElement | undefined>();
   /** The map title's pin: Settings, with the location ready to type over. */
@@ -1786,7 +1785,7 @@
             {:else if iss?.site}
               <div class="split">
                 <div class="mapbox repmap">
-                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, 'nfm')} range={repRange} onRange={setRepRange} site={iss.site} palette={mapPalette} />
+                  <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, 'nfm')} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
                   {#if repTuned}
                     <span class="maplabel">{repTuned.call} · {channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km{repTuned.digital ? ` · may be ${repTuned.digital} only` : ''}</span>
                   {/if}
