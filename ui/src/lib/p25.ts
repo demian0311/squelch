@@ -2,7 +2,7 @@
 import type { P25, P25Call } from './api';
 import { fmtMHz } from './radio';
 
-/** The top bar's chip while the radio hops across the band: where it is and how far along. */
+/** The sub-line under the band name while the radio hops across the band: where it is and how far along. */
 export function scanSay(s: NonNullable<P25['scan']>): string {
   return `Scanning for a control channel · hop ${s.hop} of ${s.hops} · ${fmtMHz(s.lo_hz)}–${fmtMHz(s.hi_hz)} MHz`;
 }

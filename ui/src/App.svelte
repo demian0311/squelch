@@ -7,7 +7,7 @@
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { callAge, callGlyph, p25Site, p25Summary, scanSay } from './lib/p25';
+  import { callAge, callGlyph, p25Site, p25Summary } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
@@ -689,6 +689,7 @@
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
+    p25 && p25.state === 'searching' ? p25Summary(p25) :
     muted ? 'Muted — signal is below the squelch level' :
     airListen ? 'Every plane on this channel, not only one' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
@@ -1209,7 +1210,7 @@
           <span class="title">{nowTitle}</span>
           <button class="keep" class:on={tunedMark} aria-pressed={!!tunedMark} disabled={!tunedMark && !bandAt(plan, tuned)} onclick={toggleBookmark} aria-label={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency'} title={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency (b lists them all)'}><Icon name="bookmark" size={14} filled={!!tunedMark} /></button>
         </span>
-        <span class="sub copy">{nowSub}</span>
+        <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{nowSub}</span>
       </div>
       <button class="play" class:on={playing && !airWatching} disabled={airWatching} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title={airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
         <Icon name={playing && !airWatching ? 'pause' : 'play'} size={20} />
@@ -1259,7 +1260,6 @@
           <button onclick={() => (dismissed = new Set(dismissed).add(r.key))} aria-label="Dismiss" title="Dismiss">×</button>
         </span>
       {/each}
-      {#if p25?.scan}<span class="chip" title="The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.">{scanSay(p25.scan)}</span>{/if}
       {#if status?.simulated}<span class="chip warn" title={status.device}>Simulated</span>{/if}
       {#if status?.error || bandsError || fileError}<button class="chip err" onclick={() => (settingsOpen = true)} title={status?.error ?? bandsError ?? fileError ?? ''}>Problem · details</button>{/if}
       <button class="iconbtn" onclick={toggleFull} title={full ? 'Exit full screen (F11)' : 'Full screen (F11)'} aria-label={full ? 'Exit full screen' : 'Full screen'}>
