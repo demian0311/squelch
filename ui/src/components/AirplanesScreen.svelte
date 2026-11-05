@@ -23,13 +23,15 @@
     listening: Talk | null;
     playing: boolean;
     recording: boolean;
+    /** The record button's blink: lit on even seconds while recording. */
+    recLit: boolean;
     palette: Palette;
     onListen: (t: Talk) => void;
     onStopListening: () => void;
     onRecord: () => void;
     onSettings: () => void;
   }
-  let { live, messages, waterfall, trails, site, listening, playing, recording, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, playing, recording, recLit, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -300,7 +302,7 @@
                     {t.name} <span class="mono dim">{t.channel.mhz.toFixed(3)}</span>
                   </span>
                   {#if listening}
-                    <button class="rec" class:on={recording} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
+                    <button class="rec" class:on={recLit} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
                       <Icon name="record" size={14} />
                     </button>
                   {/if}

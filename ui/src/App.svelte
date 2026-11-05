@@ -86,6 +86,11 @@
   // recording: what the engine says, and the moment it started on the clock below
   let rec = $state<api.Recording | null>(null);
   let recAt = $state(0);
+  // when the last recording ended, and whether its path was copied since
+  let recEndS = $state(0);
+  let recCopied = $state(false);
+  /** How long the saved file's copy icon stays after a recording ends. */
+  const SAVED_FOR_S = 5 * 60;
   let volume = $state(0.7);
   let gain = $state<string>('auto');
   // crystal correction: measured unless typed in by hand
@@ -447,6 +452,8 @@
 
   let iss = $state.raw<Iss | null>(null);
   let nowS = $state(Date.now() / 1000);
+  // the record button blinks once a second while recording: a steady style per tick, not an animation
+  let recLit = $derived(!!rec?.recording && Math.floor(nowS) % 2 === 0);
   let issAge = $derived(ageDays(iss?.tle_epoch ?? null, nowS));
   let issUp = $derived(overhead(iss?.passes ?? [], nowS, issAge));
   let issNext = $derived(upcoming(iss?.passes ?? [], nowS).slice(0, 8));
@@ -1130,7 +1137,16 @@
     setTimeout(async () => {
       rec = await api.recording();
       recAt = Date.now() / 1000 - rec.secs;
+      if (!on && rec.file) {
+        recEndS = Date.now() / 1000;
+        recCopied = false;
+      }
     }, 250);
+  }
+  async function copyRecording() {
+    if (!rec?.file) return;
+    await navigator.clipboard.writeText(rec.file);
+    recCopied = true;
   }
 
   function onKey(e: KeyboardEvent) {
@@ -1279,15 +1295,18 @@
       <button class="play" class:on={playing && !airWatching} disabled={airWatching} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title={airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
         <Icon name={playing && !airWatching ? 'pause' : 'play'} size={20} />
       </button>
-      <button class="rec" class:on={rec?.recording} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
+      <button class="rec" class:on={recLit} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
         <Icon name="record" size={18} />
       </button>
       {#if rec?.recording}
         <span class="rec-note mono">{Math.floor(Math.max(0, nowS - recAt) / 60)}:{String(Math.floor(Math.max(0, nowS - recAt)) % 60).padStart(2, '0')}</span>
       {:else if rec?.error}
         <span class="rec-note err copy" title={rec.error}>Not recording: {rec.error}</span>
-      {:else if rec?.file}
-        <span class="rec-note copy" title={rec.file}>Saved {rec.file.split('/').pop()}</span>
+      {:else if rec?.file && nowS - recEndS < SAVED_FOR_S}
+        <button class="rec-file" onclick={copyRecording} aria-label="Copy where the recording was saved" title={recCopied ? `Copied ${rec.file}` : `Copy where it was saved: ${rec.file}`}>
+          <Icon name="folder" size={16} />
+        </button>
+        <span class="rec-note copy" title={rec.file}>{recCopied ? 'Copied' : 'Saved'} {rec.file.split('/').pop()}</span>
       {/if}
       <div class="levels">
         <div class="ctl">
@@ -1695,7 +1714,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if emsScreen && !bookmarksOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
@@ -1908,6 +1927,21 @@
   }
   .rec-note.err {
     color: var(--red);
+  }
+  .rec-file {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg-dim);
+    cursor: pointer;
+  }
+  .rec-file:hover {
+    color: var(--fg);
+    background: var(--bg-darker);
   }
   .ctl {
     display: flex;
