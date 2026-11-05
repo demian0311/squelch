@@ -184,11 +184,33 @@ export interface Talk {
 const KIND_WORD: Record<string, string> = { TWR: 'Tower', GND: 'Ground', APP: 'Approach', DEP: 'Departure', 'A/D': 'Approach', CTAF: 'traffic channel', UNIC: 'traffic channel' };
 const titleCase = (s: string) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
-/** "MIAMI APP" names who answers on a Fort Lauderdale channel; a bare "APP" says nothing, so the city does. */
+/**
+ * A tower, ground or traffic channel is the airport's own, so it carries the airport's name: three airports in the
+ * city of Miami all read "Miami Tower" before 2026-11-05. "MIAMI APP" names who answers on a Fort Lauderdale
+ * approach channel; a bare "APP" says nothing, so the city does.
+ */
 function talkName(a: Airport, c: AirportChannel): string {
   const word = KIND_WORD[c.kind] ?? c.kind;
+  if (c.kind === 'TWR' || c.kind === 'GND' || c.kind === 'CTAF' || c.kind === 'UNIC') return `${airportShort(a)} ${word}`;
   const said = c.name.match(/^([A-Z][A-Z .'-]*?)\s+(APP|DEP|A\/D|APP\/DEP)\b/);
   return `${said ? titleCase(said[1]) : a.city || a.name} ${word}`;
+}
+/** "Miami International", "Miami-Opa Locka Executive": the list's name without the word every airport shares. */
+export const airportShort = (a: Airport) => a.name.replace(/\s+(airport|airfield|air field|aerodrome|airpark)$/i, '') || a.city;
+
+/** What the radio has heard on the channel: a call is the squelch opening. */
+export interface Hearing {
+  talking: boolean;
+  calls: number;
+  lastAt: number | null;
+}
+/** One line under the channel's name, honest about silence: a tower is quiet most of the time. */
+export function hearingSay(h: Hearing, nowMs: number): string {
+  if (h.talking) return 'Someone is talking now';
+  if (!h.calls || h.lastAt === null) return 'Quiet so far';
+  const s = Math.max(0, Math.round((nowMs - h.lastAt) / 1000));
+  const ago = s < 60 ? `${s} s ago` : `${Math.round(s / 60)} min ago`;
+  return `${h.calls} ${h.calls === 1 ? 'call' : 'calls'} heard, the last ${ago}`;
 }
 
 /** Above this planes talk to en-route controllers, and which one depends on sectors the list does not hold. */

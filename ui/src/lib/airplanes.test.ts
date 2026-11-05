@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AcarsMessage, Aircraft, Airport, BandPlan } from './api';
 import { planeKind } from './adsb';
-import { airportLabel, airportsFor, lookupLinks, flightOf, friendlyCallsign, isFrom, messageReading, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
+import { airportLabel, airportShort, airportsFor, hearingSay, lookupLinks, flightOf, friendlyCallsign, isFrom, messageReading, messageSender, messageTitle, oneAirplanes, placeLabels, positionsIn, routeIn, routeText, talkGuess } from './airplanes';
 
 const plane = (o: Partial<Aircraft> = {}): Aircraft => ({ icao: 'A00001', callsign: null, alt_ft: null, speed_kt: null, heading_deg: null, airspeed: false, vrate_fpm: null, lat: null, lon: null, age_s: 0, pos_age_s: 0, messages: 1, snr_db: 10, registration: null, country: null, category: null, squawk: null, emergency: null, advisory: false, alert: false, spi: false, on_ground: null, gnss_alt_ft: null, selected_alt_ft: null, selected_alt_fms: false, selected_heading_deg: null, baro_hpa: null, modes: [], adsb_version: null, ...o } as Aircraft);
 const msg = (o: Partial<AcarsMessage>): AcarsMessage => ({ id: 1, at_ms: 1, hz: 1, mode: '2', registration: 'N1', ack: null, label: 'H1', block_id: '1', more: false, msn: 'M01A', flight: 'XX1', text: '', ...o });
@@ -80,6 +80,9 @@ describe('who a plane is probably talking to', () => {
   });
   it('gives the tower to a low plane close in, departure to a climbing one', () => {
     expect(talkGuess(plane({ lat: 25.8, lon: -80.28, alt_ft: 900, category: 'Large' }), airports, null)?.channel.kind).toBe('TWR');
+    // a tower is one airport's, so it carries that airport's name, not the city's: Miami has three towers
+    expect(talkGuess(plane({ lat: 25.908, lon: -80.278, alt_ft: 900, category: 'Light' }), airports, null)?.name).toBe('Opa-locka Tower');
+    expect(talkGuess(plane({ lat: 25.8, lon: -80.28, alt_ft: 900, category: 'Large' }), airports, null)?.name).toBe('Miami International Tower');
     expect(talkGuess(plane({ lat: 25.9, lon: -80.5, alt_ft: 6000, vrate_fpm: 1500, category: 'Large' }), airports, null)?.channel.kind).toBe('DEP');
     expect(talkGuess(plane({ lat: 25.796, lon: -80.29, on_ground: true, alt_ft: 0, category: 'Large' }), airports, null)?.channel.kind).toBe('GND');
   });
@@ -211,5 +214,18 @@ describe('messageReading, on messages heard 2026-11-03', () => {
   it('owns up to what cannot be read', () => {
     expect(read('48', "0141_l~b_~EE'(nl(lAE(bll?bd*1CbHy1yb#@CsSAllsALl(Alb#@CsyH_s52Gsl'LbL?").title).toBe('Coded data');
     expect(read('H1', '#DFB19458,16725,08713,D3/N101,00,00').note).toBeTruthy();
+  });
+});
+
+describe('what the channel strip says', () => {
+  it('drops the word every airport shares', () => {
+    expect(airportShort(MIA)).toBe('Miami International');
+    expect(airportShort(OPF)).toBe('Opa-locka');
+  });
+  it('owns up to silence and counts calls', () => {
+    expect(hearingSay({ talking: false, calls: 0, lastAt: null }, 1000)).toBe('Quiet so far');
+    expect(hearingSay({ talking: true, calls: 2, lastAt: 900 }, 1000)).toBe('Someone is talking now');
+    expect(hearingSay({ talking: false, calls: 1, lastAt: 1_000 }, 11_000)).toBe('1 call heard, the last 10 s ago');
+    expect(hearingSay({ talking: false, calls: 3, lastAt: 0 }, 200_000)).toBe('3 calls heard, the last 3 min ago');
   });
 });

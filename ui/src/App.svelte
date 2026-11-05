@@ -28,7 +28,7 @@
   import EmsScreen from './components/EmsScreen.svelte';
   import Talkgroups from './components/Talkgroups.svelte';
   import DmrPanel from './components/DmrPanel.svelte';
-  import { AIR_TURNS, oneAirplanes, type Talk } from './lib/airplanes';
+  import { AIR_TURNS, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
@@ -560,6 +560,14 @@
   // listening, it sits on one channel and the screen says the map is paused; `seeRadio` is the ordinary voice band.
   let seeRadio = $state(false);
   let airListen = $state<Talk | null>(null);
+  /** What the channel has given since Listen: the squelch opening is a call. The screen's strip and the sub-line say it. */
+  let airHearing = $state<Hearing>({ talking: false, calls: 0, lastAt: null });
+  $effect(() => {
+    const open = !!airListen && playing && status?.squelch_open === true;
+    const h = untrack(() => airHearing);
+    if (open && !h.talking) airHearing = { talking: true, calls: h.calls + 1, lastAt: Date.now() };
+    else if (!open && h.talking) airHearing = { ...h, talking: false };
+  });
   let planesScreen = $derived(band?.id === 'air' && !seeRadio);
   // The EMS screen: the receiver's steps, a verdict, the tower's channels and the talkgroups; `seeRadio` is the waterfall.
   let emsScreen = $derived(isEms(band) && !seeRadio);
@@ -584,6 +592,7 @@
   });
   function listenTo(t: Talk) {
     airListen = t;
+    airHearing = { talking: false, calls: 0, lastAt: null };
     tuned = Math.round(t.channel.mhz * 1e6);
     mode = 'am';
     vs = tuned - span / 2;
@@ -799,8 +808,8 @@
     p25 && p25.state === 'searching' ? p25Summary(p25) :
     p25 && !p25.call && picks.hold !== null ? holdSay(p25, picks.hold) :
     dmr ? dmrSummary(dmr) :
+    airListen ? hearingSay(airHearing, nowS * 1000) :
     muted ? 'Muted — signal is below the squelch level' :
-    airListen ? 'Every plane on this channel, not only one' :
     hd?.digital && hd.title ? [hd.title, hd.artist].filter(Boolean).join(' — ') :
     rds && rdsNow(rds) ? rdsNow(rds)! : listening ? listening.sub : listeningMark ? 'Quiet right now' : 'Between signals — press → for the next one',
   );
@@ -1431,8 +1440,8 @@
         </span>
         <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span>
       </div>
-      <button class="play" class:on={barPlay ? !barPlay.paused : playing && !airWatching} disabled={airWatching && !barPlay} onclick={togglePlay} aria-label={(barPlay ? !barPlay.paused : playing) ? 'Pause' : 'Play'} title={barPlay ? `${barPlay.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press barPlay on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
-        <Icon name={(barPlay ? !barPlay.paused : playing && !airWatching) ? 'pause' : 'play'} size={20} />
+      <button class="play" class:on={barPlay ? !barPlay.paused : playing && !airWatching} disabled={airWatching && !barPlay} onclick={togglePlay} aria-label={barPlay ? (barPlay.paused ? 'Play' : 'Pause') : airListen && playing ? 'Stop listening' : playing ? 'Pause' : 'Play'} title={barPlay ? `${barPlay.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press Listen on its card' : airListen && playing ? 'Stop listening: the map comes back (space)' : `${playing ? 'Pause' : 'Play'} (space)`}>
+        <Icon name={barPlay ? (barPlay.paused ? 'play' : 'pause') : airListen && playing ? 'stop' : playing && !airWatching ? 'pause' : 'play'} size={20} />
       </button>
       <button class="rec" class:on={recLit} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
         <Icon name="record" size={18} />
@@ -1858,7 +1867,7 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if emsScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />

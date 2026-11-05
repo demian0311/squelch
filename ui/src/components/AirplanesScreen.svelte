@@ -10,17 +10,19 @@
   import { acarsTime, filterMessages } from '../lib/acars';
   import { compassLetters, compassWord } from '../lib/radio';
   import { HEIGHT_BANDS, aircraftFacts, fmtClimb, aircraftRows, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, planeKind, tracksToDraw, trailPiecesKept, type Trails } from '../lib/adsb';
-  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, type Talk } from '../lib/airplanes';
+  import { airportLabel, airportsFor, friendlyCallsign, isFrom, lookupLinks, messageReading, messageSender, messageTitle, planeName, positionsIn, routeOf, routeText, talkGuess, hearingSay, type Hearing, type Talk } from '../lib/airplanes';
   import { toKm, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
     live: Aircraft[];
-    /** the radio's waterfall, shown in the map's place while listening */
+    /** the radio's waterfall, under the list while watching */
     waterfall?: Snippet;
     messages: AcarsMessage[];
     trails: Trails;
     site: Site | null;
     listening: Talk | null;
+    /** what the channel has given since Listen */
+    hearing: Hearing;
     playing: boolean;
     recording: boolean;
     /** The record button's blink: lit on even seconds while recording. */
@@ -31,7 +33,7 @@
     onRecord: () => void;
     onSettings: () => void;
   }
-  let { live, messages, waterfall, trails, site, listening, playing, recording, recLit, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, hearing, playing, recording, recLit, palette, onListen, onStopListening, onRecord, onSettings }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -72,6 +74,13 @@
     return [...named, ...carried.filter((c) => carriedIds.has(c.icao))];
   });
   let rows = $derived(aircraftRows(list, site, true));
+  // the strip's "last call N s ago" ticks while listening
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    if (!listening) return;
+    const t = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => clearInterval(t);
+  });
   let picked = $derived(rows.find((r) => r.a.icao === pickId) ?? null);
 
   // ── airports ────────────────────────────────────
@@ -218,8 +227,16 @@
 <div class="air">
   <div class="body">
     <div class="map" class:paused={!!listening}>
-      {#if listening && waterfall}
-        <div class="wf">{@render waterfall()}</div>
+      {#if listening}
+        <!-- the listening strip: who, why, what has been heard, and the one way out -->
+        <div class="strip">
+          <i class="level" class:on={hearing.talking}></i>
+          <div class="what">
+            <b>Listening to {listening.name} <span class="mono dim">{listening.channel.mhz.toFixed(3)} MHz</span></b>
+            <span>{listening.why}. Every plane on this channel, not only that one. {hearingSay(hearing, nowMs)}.</span>
+          </div>
+          <button class="stop" onclick={onStopListening}>Stop listening</button>
+        </div>
       {/if}
       <div class="mapbody">
       {#if frame}
@@ -233,10 +250,10 @@
             {#each HEIGHT_BANDS as b (b.label)}<i style="background:{b.color}"></i>{b.label}{/each}
           </span>
         {/if}
-        {#if talk}<span><i class="dash"></i>Probably talking to {talk.name}</span>{/if}
+        {#if talk && !listening}<span><i class="dash"></i>Probably talking to {talk.name}</span>{/if}
         {#if pins.length}<span class="pinkey">● Where its message said it was</span>{/if}
         {#if flight}<span>Path of {friendlyCallsign(flightName(flight))}</span>{/if}
-        {#if listening}<span>Map paused while you listen</span>{/if}
+        {#if listening}<span>Map paused while you listen: the radio can only do one thing at a time</span>{/if}
         {#if !site}<button class="linkish" onclick={onSettings}>Set your location to see distances</button>{/if}
       </div>
       </div>
@@ -296,10 +313,10 @@
                 {#if listening || talk}
                   {@const t = (listening ?? talk)!}
                   <span class="ch">
-                    <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back. Every plane on this channel, not only this one.' : `Listen. A guess: ${t.why.toLowerCase()}; planes do not say who they talk to.`}>
-                      <Icon name={listening && playing ? 'pause' : 'play'} size={12} />
+                    <button class="play" class:on={!!listening && playing} onclick={() => { if (listening) onStopListening(); else { frozen = live; onListen(t); } }} aria-label={listening ? 'Stop listening' : 'Listen'} title={listening ? 'Stop listening: the map comes back.' : `Listen. A guess: ${t.why.toLowerCase()}; planes do not say who they talk to.`}>
+                      <Icon name={listening && playing ? 'stop' : 'play'} size={12} />
                     </button>
-                    {t.name} <span class="mono dim">{t.channel.mhz.toFixed(3)}</span>
+                    {listening ? 'Listening to' : 'Probably talking to'} {t.name} <span class="mono dim">{t.channel.mhz.toFixed(3)}</span>
                   </span>
                   {#if listening}
                     <button class="rec" class:on={recLit} onclick={onRecord} aria-label={recording ? 'Stop recording' : 'Record'} title={recording ? 'Stop recording' : 'Record what you hear to a file'}>
@@ -416,17 +433,52 @@
   .map.paused :global(svg) {
     opacity: 0.45;
   }
-  /* the waterfall takes the top of the map's column; the paused map keeps the rest */
-  .wf {
-    position: relative;
-    flex: 0 0 42%;
-    min-height: 160px;
-    border-bottom: 1px solid var(--muted);
+  /* the listening strip sits across the top of the paused map: who, why, what was heard, Stop */
+  .strip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg));
+    border-bottom: 1px solid var(--accent);
   }
-  /* the waterfall fills its box; left to size itself, the canvas would set its own height */
-  .wf > :global(*) {
-    position: absolute;
-    inset: 0;
+  .strip .level {
+    width: 10px;
+    height: 36px;
+    border-radius: 2px;
+    background: var(--muted);
+  }
+  .strip .level.on {
+    background: var(--green);
+  }
+  .strip .what {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .strip .what b {
+    font-size: 15px;
+  }
+  .strip .what span {
+    font-size: 12px;
+    color: var(--fg-dim);
+  }
+  .strip .stop {
+    font: inherit;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--muted);
+    border-radius: 4px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .strip .stop:hover,
+  .strip .stop:focus-visible {
+    border-color: var(--accent);
+    outline: none;
   }
   .play,
   .rec {
