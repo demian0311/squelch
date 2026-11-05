@@ -1,0 +1,11 @@
+<svg viewBox="0 0 320 120" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.t{font-size:9px;opacity:.75}.w{fill:var(--c);opacity:.25}</style>
+  <path class="w" d="M12 90 Q40 80 68 90 T124 90 T180 90 T236 90 T292 90 L308 90 V110 H12Z"/>
+  <path d="M40 86 l8-16 h30 l6 16Z" fill="currentColor" opacity=".8"/>
+  <rect x="250" y="40" width="40" height="46" fill="currentColor" opacity=".6"/><path class="l" d="M270 40V18"/>
+  <path class="l" d="M86 60 C140 20 200 20 250 36"/><text x="168" y="26" text-anchor="middle">ship side: 157.200 (ch 24)</text>
+  <path class="l" d="M248 50 C200 60 140 70 90 70" stroke-dasharray="3 3"/><text x="168" y="82" text-anchor="middle">coast side: 161.800</text>
+  <text class="t" x="64" y="104" text-anchor="middle">a boat</text>
+  <text class="t" x="270" y="104" text-anchor="middle">a coast station</text>
+  <text class="t" x="12" y="14">A duplex channel is two frequencies. Simplex ones (16, 9, 13, 68…) are one, and you hear both sides.</text>
+</svg>

@@ -1,0 +1,12 @@
+<svg viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.t{font-size:9px;opacity:.75}</style>
+  <path class="l" d="M12 110h296"/>
+  <path class="l" d="M40 108 C60 80 90 40 140 22" />
+  <circle cx="140" cy="20" r="7" fill="var(--c)" opacity=".5"/><text x="140" y="12" text-anchor="middle">burst, 20–35 km up</text>
+  <path class="l" d="M146 26 C200 50 240 80 270 108" stroke-dasharray="3 3"/>
+  <path class="l" d="M200 54 q8-8 16 0" /><text class="t" x="222" y="52">parachute</text>
+  <circle cx="40" cy="108" r="3" fill="currentColor"/><text class="t" x="40" y="124" text-anchor="middle">launch 00Z and 12Z</text>
+  <text class="t" x="270" y="124" text-anchor="middle">lands 50–150 miles away</text>
+  <text class="t" x="70" y="48" text-anchor="end">up at 5 m/s, ~90 min</text>
+  <text class="t" x="12" y="14">it reports GPS position, temperature, humidity and pressure every second, in the clear</text>
+</svg>

@@ -1,0 +1,13 @@
+<svg viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.h{fill:var(--c);opacity:.35}.t{font-size:9px;opacity:.75}</style>
+  <path class="l" d="M12 100h296"/>
+  <path class="h" d="M12 100 L12 40 L90 40 L100 100Z"/>
+  <path class="h" d="M132 100 L140 48 L200 48 L208 100Z"/>
+  <path class="h" d="M226 100 L228 72 L240 72 L242 100Z"/>
+  <path class="l" d="M118 100V32" stroke-width="2"/>
+  <text x="50" y="30" text-anchor="middle">left + right</text>
+  <text x="118" y="24" text-anchor="middle">19 kHz pilot</text>
+  <text x="170" y="40" text-anchor="middle">left − right (stereo)</text>
+  <text x="234" y="64" text-anchor="middle">RDS</text>
+  <g class="t"><text x="12" y="114">0</text><text x="100" y="114" text-anchor="middle">15</text><text x="118" y="124" text-anchor="middle">19</text><text x="208" y="114" text-anchor="middle">53</text><text x="234" y="114" text-anchor="middle">57 kHz</text></g>
+</svg>

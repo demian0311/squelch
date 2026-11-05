@@ -1,0 +1,9 @@
+<svg viewBox="0 0 320 100" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.t{font-size:9px;opacity:.75}.b{fill:var(--c);opacity:.3}</style>
+  <path class="l" d="M12 60h296"/>
+  <rect class="b" x="120" y="36" width="40" height="24"/>
+  <text x="140" y="30" text-anchor="middle">2.4 MHz heard at once</text>
+  <path class="l" d="M12 56v8M308 56v8"/>
+  <text class="t" x="12" y="78">225 MHz</text><text class="t" x="308" y="78" text-anchor="end">400 MHz</text>
+  <text class="t" x="160" y="94" text-anchor="middle">this band is 175 MHz wide: drag the waterfall, or type a frequency, to look elsewhere</text>
+</svg>

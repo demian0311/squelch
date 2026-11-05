@@ -1,0 +1,14 @@
+<svg viewBox="0 0 320 120" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.b{fill:var(--c);opacity:.25}.t{font-size:9px;opacity:.75}</style>
+  <path class="l" d="M20 96 C80 40 240 40 300 96"/>
+  <path class="l" d="M12 100h296"/>
+  <g>
+    <rect class="b" x="6" y="68" width="44" height="14" rx="3"/><text x="28" y="78" text-anchor="middle">ground</text>
+    <rect class="b" x="54" y="48" width="44" height="14" rx="3"/><text x="76" y="58" text-anchor="middle">tower</text>
+    <rect class="b" x="102" y="30" width="52" height="14" rx="3"/><text x="128" y="40" text-anchor="middle">departure</text>
+    <rect class="b" x="158" y="14" width="44" height="14" rx="3"/><text x="180" y="24" text-anchor="middle">center</text>
+    <rect class="b" x="206" y="30" width="50" height="14" rx="3"/><text x="231" y="40" text-anchor="middle">approach</text>
+    <rect class="b" x="258" y="48" width="44" height="14" rx="3"/><text x="280" y="58" text-anchor="middle">tower</text>
+  </g>
+  <g class="t"><text x="28" y="114" text-anchor="middle">121.6–121.9</text><text x="128" y="114" text-anchor="middle">118–128</text><text x="180" y="114" text-anchor="middle">132–136</text><text x="280" y="114" text-anchor="middle">118–121</text></g>
+</svg>

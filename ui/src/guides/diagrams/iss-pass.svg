@@ -1,0 +1,14 @@
+<svg viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.t{font-size:9px;opacity:.75}</style>
+  <path class="l" d="M12 110h296"/>
+  <path class="l" d="M30 110 C80 20 240 20 290 110" stroke-dasharray="3 3"/>
+  <circle cx="160" cy="43" r="4" fill="var(--c)"/>
+  <circle cx="160" cy="110" r="3" fill="currentColor"/><text class="t" x="160" y="124" text-anchor="middle">you</text>
+  <path class="l" d="M160 106 L160 47"/>
+  <text x="166" y="80">highest point: the loudest minute</text>
+  <text class="t" x="30" y="124" text-anchor="middle">rises (west or north)</text>
+  <text class="t" x="290" y="124" text-anchor="middle">sets, ~10 min later</text>
+  <text class="t" x="60" y="40" text-anchor="middle">sounds 3 kHz high</text>
+  <text class="t" x="262" y="40" text-anchor="middle">3 kHz low</text>
+  <text class="t" x="160" y="24" text-anchor="middle">250 miles up, 17,000 mph · the passes list says how high each one climbs</text>
+</svg>

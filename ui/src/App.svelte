@@ -20,6 +20,8 @@
   import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
+  import GuideScreen from './components/GuideScreen.svelte';
+  import { guide, guideFor } from './lib/guide';
   import RecordingsScreen from './components/RecordingsScreen.svelte';
   import { clockLength, nextAfter, parseRecordingName, timeOfDay } from './lib/recordings';
   import AirplanesScreen from './components/AirplanesScreen.svelte';
@@ -831,6 +833,19 @@
   let panelPick = $state<PanelId | null>(null);
   // every saved frequency, over the waterfall and its panel
   let bookmarksOpen = $state(false);
+  // the category's guide (`?`), under the top bar; it follows the rail while open
+  let guideOpen = $state(false);
+  let guideDoc = $derived.by(() => {
+    const id = guideFor(bandId);
+    return id ? guide(id) : null;
+  });
+  function toggleGuide() {
+    if (!guideOpen) {
+      bookmarksOpen = false;
+      leaveRecordings();
+    }
+    guideOpen = !guideOpen;
+  }
 
   // Times to tune in. The list is kept in schedule.toml; a reminder shows in the header from LEAD_MS
   // before a start until it is dismissed or a grace period after, and goes to the desktop once per start.
@@ -1214,6 +1229,7 @@
   function openRecordings(file: string | null = null) {
     recFocus = file;
     bookmarksOpen = false;
+    guideOpen = false;
     recordingsOpen = true;
     loadRecordings();
   }
@@ -1266,12 +1282,15 @@
     else if (e.key === 't') startTyping();
     else if (e.key === 'b') {
       leaveRecordings();
+      guideOpen = false;
       bookmarksOpen = !bookmarksOpen;
     } else if (e.key === 'r') {
       if (recordingsOpen) leaveRecordings();
       else openRecordings();
     }
+    else if (e.key === '?') toggleGuide();
     else if (e.key === 'F11') toggleFull();
+    else if (e.key === 'Escape' && guideOpen) guideOpen = false;
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
     else if (e.key === 'Escape' && bookmarksOpen) bookmarksOpen = false;
     else if (e.key === 'Escape' && recordingsOpen) leaveRecordings();
@@ -1387,7 +1406,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bookmarksOpen || recordingsOpen ? null : railId(railPlan, bandId)} {recordingsOpen} recordingCount={recordingsList.length} onRecordings={() => (recordingsOpen ? (leaveRecordings()) : openRecordings())} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => { leaveRecordings(); bookmarksOpen = !bookmarksOpen; }} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen || recordingsOpen ? null : railId(railPlan, bandId)} {recordingsOpen} recordingCount={recordingsList.length} onRecordings={() => (recordingsOpen ? (leaveRecordings()) : openRecordings())} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => { leaveRecordings(); guideOpen = false; bookmarksOpen = !bookmarksOpen; }} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -1408,6 +1427,7 @@
         <span class="titleline">
           <span class="title">{typing ? 'Type a frequency' : nowTitle}</span>
           <button class="keep" class:on={tunedMark} aria-pressed={!!tunedMark} disabled={!tunedMark && !bandAt(plan, tuned)} onclick={toggleBookmark} aria-label={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency'} title={tunedMark ? 'Remove this bookmark' : 'Bookmark this frequency (b lists them all)'}><Icon name="bookmark" size={14} filled={!!tunedMark} /></button>
+          <button class="keep about" class:on={guideOpen} aria-pressed={guideOpen} disabled={!guideDoc} onclick={toggleGuide} aria-label={guideDoc ? `About ${guideDoc.title}` : 'No guide for this band'} title={guideDoc ? `About ${guideDoc.title}: what it is for, the band plan, the rules (?)` : 'No guide for this band'}><Icon name="book" size={14} /></button>
         </span>
         <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{typing ? `Enter tunes · Esc keeps ${fmtHz(shownHz)}` : nowSub}</span>
       </div>
@@ -1837,14 +1857,17 @@
           {/if}
         </Pane>
       {/if}
-      {#if planesScreen && !bookmarksOpen && !recordingsOpen}
+      {#if planesScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
-      {#if emsScreen && !bookmarksOpen && !recordingsOpen}
+      {#if emsScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
       {/if}
       {#if recordingsOpen}
         <RecordingsScreen recordings={recordingsList} playing={play} now={nowS} focus={recFocus} {hues} nameOf={recordingName} bandOf={(hz) => bandAt(plan, hz)} onPlay={(f) => api.playRecording(f)} onPause={(p) => api.playPause(p)} onSeek={(s) => api.playSeek(s)} onDelete={removeRecording} onLive={hearLive} onClose={() => (leaveRecordings())} />
+      {/if}
+      {#if guideOpen && guideDoc}
+        <GuideScreen guide={guideDoc} {hue} onTune={(hz, m) => { tuneSaved(hz, m); guideOpen = false; }} onBand={(id) => { const b = plan.bands.find((x) => x.id === id); if (b) pickBand(b); }} onOpen={(u) => api.openLink(u)} onClose={() => (guideOpen = false)} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
@@ -2013,6 +2036,13 @@
   }
   .keep.on {
     color: var(--orange);
+  }
+  .keep.about.on {
+    color: var(--hue);
+  }
+  .keep:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .now .title {
     font-weight: 600;

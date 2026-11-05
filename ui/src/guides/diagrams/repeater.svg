@@ -1,0 +1,15 @@
+<svg viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.h{fill:var(--c);opacity:.25}.t{font-size:9px;opacity:.75}</style>
+  <path class="h" d="M100 110 L160 30 L220 110Z"/>
+  <path class="l" d="M160 30V14"/><circle cx="160" cy="12" r="3" fill="var(--c)"/>
+  <path class="l" d="M12 110h296"/>
+  <circle cx="40" cy="100" r="5" fill="currentColor"/><path class="l" d="M40 105v-0"/>
+  <circle cx="280" cy="100" r="5" fill="currentColor"/>
+  <path class="l" d="M46 94 C90 50 130 30 152 18" stroke-dasharray="3 3"/>
+  <path class="l" d="M168 18 C200 40 240 70 274 94"/>
+  <text x="80" y="44" text-anchor="middle">input (what the handheld sends)</text>
+  <text x="240" y="44" text-anchor="middle">output (what you hear)</text>
+  <text class="t" x="12" y="124">a handheld in a valley</text>
+  <text class="t" x="308" y="124" text-anchor="end">everyone for 30 miles</text>
+  <text class="t" x="160" y="90" text-anchor="middle">repeater on a hill</text>
+</svg>

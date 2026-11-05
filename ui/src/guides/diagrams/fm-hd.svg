@@ -1,0 +1,11 @@
+<svg viewBox="0 0 320 120" xmlns="http://www.w3.org/2000/svg" font-size="10" fill="currentColor">
+  <style>.l{stroke:currentColor;stroke-width:1;fill:none}.a{fill:var(--c);opacity:.35}.d{fill:var(--c);opacity:.8}.t{font-size:9px;opacity:.75}</style>
+  <path class="l" d="M12 96h296"/>
+  <path class="a" d="M90 96 C110 40 150 20 160 20 C170 20 210 40 230 96Z"/>
+  <rect class="d" x="52" y="70" width="34" height="26"/>
+  <rect class="d" x="234" y="70" width="34" height="26"/>
+  <text x="160" y="14" text-anchor="middle">the FM station you hear</text>
+  <text x="69" y="62" text-anchor="middle">digital</text>
+  <text x="251" y="62" text-anchor="middle">digital</text>
+  <g class="t"><text x="69" y="110" text-anchor="middle">−200 kHz</text><text x="160" y="110" text-anchor="middle">e.g. 101.1 MHz</text><text x="251" y="110" text-anchor="middle">+200 kHz</text></g>
+</svg>
