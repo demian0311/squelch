@@ -248,22 +248,25 @@
       <div class="scroll" bind:this={list_el}>
         {#if tab === 'now'}
           {#each pickedFirst(rows, pickId) as r (r.a.icao)}
+              {@const open = r.a.icao === pickId}
               <button class="row" class:picked={r.a.icao === pickId} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                 <b>{planeName(r.a)}</b>
                 {#if r.km !== null}<span class="r mono">{Math.round(r.km)} km</span>{/if}
                 <span class="chev"><Icon name={r.a.icao === pickId ? 'chevronDown' : 'chevronRight'} size={14} /></span>
-                <!-- one glyph line, open or not: height, climb, speed, heading, messages -->
-                <small class="line">
+                <!-- closed: height at the left, speed at the right; open: the whole line -->
+                <small class="line" class:brief={!open}>
                   {#if r.a.on_ground}<span><Icon name="level" size={13} />on the ground</span>
                   {:else if r.a.alt_ft !== null}
                     <span><Icon name="arrowUp" size={13} />{height(r.a)}</span>
-                    {#if (r.a.vrate_fpm ?? 0) > 200}<span class="up"><Icon name="climb" size={13} />{fpm(r.a.vrate_fpm!)}</span>
-                    {:else if (r.a.vrate_fpm ?? 0) < -200}<span class="down"><Icon name="descend" size={13} />{fpm(r.a.vrate_fpm!)}</span>
-                    {:else}<span><Icon name="level" size={13} />level</span>{/if}
+                    {#if open}
+                      {#if (r.a.vrate_fpm ?? 0) > 200}<span class="up"><Icon name="climb" size={13} />{fpm(r.a.vrate_fpm!)}</span>
+                      {:else if (r.a.vrate_fpm ?? 0) < -200}<span class="down"><Icon name="descend" size={13} />{fpm(r.a.vrate_fpm!)}</span>
+                      {:else}<span><Icon name="level" size={13} />level</span>{/if}
+                    {/if}
                   {/if}
-                  {#if r.a.speed_kt !== null}<span><Icon name="gauge" size={13} />{Math.round(r.a.speed_kt * MPH_PER_KT)} mph</span>{/if}
-                  {#if r.a.heading_deg !== null}<span title={compassWord(r.a.heading_deg)}><i class="arrow" style:transform={`rotate(${Math.round(r.a.heading_deg)}deg)`}><Icon name="arrowUp" size={13} /></i>{compassLetters(r.a.heading_deg)}</span>{/if}
-                  {#if msgCount(r.a)}<span><Icon name="msg" size={13} />{msgCount(r.a)}</span>{/if}
+                  {#if r.a.speed_kt !== null}<span class="speed"><Icon name="gauge" size={13} />{Math.round(r.a.speed_kt * MPH_PER_KT)} mph</span>{/if}
+                  {#if open && r.a.heading_deg !== null}<span title={compassWord(r.a.heading_deg)}><i class="arrow" style:transform={`rotate(${Math.round(r.a.heading_deg)}deg)`}><Icon name="arrowUp" size={13} /></i>{compassLetters(r.a.heading_deg)}</span>{/if}
+                  {#if open && msgCount(r.a)}<span><Icon name="msg" size={13} />{msgCount(r.a)}</span>{/if}
                   {#if carriedIds.has(r.a.icao)}<span class="note">from before you listened</span>{:else if r.a.lat === null}<span class="note">no location yet</span>{/if}
                 </small>
               </button>
@@ -274,7 +277,9 @@
                 {#if info?.photo}<img src={info.photo} alt="" />{/if}
                 <div class="what">
                   {#if info?.known}<b>{[info.maker, info.model].filter(Boolean).join(' ')}</b>{/if}
-                  <span class="dim sub copy">{[info?.owner, a.callsign, a.registration, planeKind(a.category)].filter((x) => x && x !== planeName(a)).join(' · ')}</span>
+                  <ul class="bits dim copy">
+                    {#each [info?.owner, a.callsign, a.registration, planeKind(a.category)].filter((x) => x && x !== planeName(a)) as bit (bit)}<li>{bit}</li>{/each}
+                  </ul>
                 </div>
                 <div class="links">
                   {#each lookupLinks(a.icao, a.registration ?? info?.registration) as l (l.label)}
@@ -469,6 +474,12 @@
     flex-direction: column;
     min-width: 0;
   }
+  .bits {
+    margin: 2px 0 0;
+    padding-left: 16px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
   .links {
     display: grid;
     gap: 5px;
@@ -612,6 +623,10 @@
     font-family: inherit;
     font-style: italic;
   }
+  .line.brief .speed {
+    order: 1;
+    margin-left: auto;
+  }
   .foot {
     display: flex;
     flex-wrap: wrap;
@@ -686,14 +701,11 @@
   }
   .card {
     display: grid;
+    grid-template-columns: minmax(0, 1fr); /* auto would size to the about row's max-content and run off the panel */
     gap: 12px;
     padding: 4px 14px 14px;
     background: var(--bg-light);
     border-bottom: 1px solid var(--bg-light);
-  }
-  .sub {
-    margin: 0;
-    font-size: 13px;
   }
   .route {
     margin: 0;
