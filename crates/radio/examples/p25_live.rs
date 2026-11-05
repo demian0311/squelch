@@ -60,8 +60,8 @@ fn main() -> anyhow::Result<()> {
             );
         }
     }
-    for c in p25.info().recent {
-        println!("call TG {} src {} {:.5} MHz enc {} tdma {} at {:.0} s", c.group, c.source, c.hz / 1e6, c.encrypted, c.tdma, c.at_secs);
+    for g in p25.info().groups {
+        println!("talkgroup {} calls {} src {} {:.5} MHz enc {} tdma {} last at {:.0} s", g.group, g.calls, g.source, g.hz / 1e6, g.encrypted, g.tdma, g.last_secs);
     }
     if let Some(e) = p25.info().voice_error {
         println!("voice: {e}");

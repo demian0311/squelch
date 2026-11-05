@@ -130,6 +130,24 @@ export interface P25Call {
   /** Receiver clock (`P25.now_secs`) when granted. */
   at_secs: number;
 }
+/** A talkgroup heard on this site in the last `WINDOW_MIN` minutes. */
+export interface P25Talkgroup {
+  group: number;
+  /** Calls in the window. */
+  calls: number;
+  /** Receiver clock (`P25.now_secs`) of the last call. */
+  last_secs: number;
+  /** Voice channel and talker of the last call. */
+  hz: number;
+  source: number;
+  /** The last call was encrypted, or on a Phase 2 channel: this receiver cannot play it. */
+  encrypted: boolean;
+  tdma: boolean;
+  /** An emergency call in the window. */
+  emergency: boolean;
+  /** Calls per minute across the window, oldest first. */
+  minutes: number[];
+}
 export interface P25 {
   state: 'searching' | 'control' | 'voice';
   now_secs: number;
@@ -143,7 +161,8 @@ export interface P25 {
   ppm: number | null;
   messages_per_sec: number;
   call: P25Call | null;
-  recent: P25Call[];
+  /** Talkgroups heard in the window, busiest first. */
+  groups: P25Talkgroup[];
   /** Why voice cannot play (mbelib missing). */
   voice_error: string | null;
   voice_errors_pct: number;
@@ -436,6 +455,8 @@ export const airTracks = (sinceMs: number) => invoke<Record<string, TrackPoint[]
 export const airMessages = (days: number, max: number) => invoke<AcarsMessage[]>('air_messages', { days, max });
 /** Decode HD Radio on the tuned FM station: 0 = HD1, null = off. */
 export const setHd = (program: number | null) => invoke('set_hd', { program });
+/** P25: only `hold` plays (null: any talkgroup), and nothing in `skip` does. */
+export const setP25Picks = (hold: number | null, skip: number[]) => invoke('set_p25_picks', { hold, skip });
 export const setSquelch = (db: number | null) => invoke('set_squelch', { db });
 /** Correct the dongle's crystal by `ppm`, positive when it runs fast. */
 export const setPpm = (ppm: number) => invoke('set_ppm', { ppm });

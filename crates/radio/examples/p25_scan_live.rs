@@ -39,7 +39,7 @@ fn main() {
             "{:6.1}s  centre {:.3}  {:9}  {}  tried {:2} trying {}  nac {}  control {}  {}  {} calls",
             t0.elapsed().as_secs_f64(), s.center_hz / 1e6, p.state, scan, p.tried.len(), p.trying_hz.map(|h| format!("{:.4}", h / 1e6)).unwrap_or("-".into()),
             p.nac.map(|n| format!("{n:03X}")).unwrap_or("-".into()),
-            p.control_hz.map(|h| format!("{:.4}", h / 1e6)).unwrap_or("-".into()), site, p.recent.len()
+            p.control_hz.map(|h| format!("{:.4}", h / 1e6)).unwrap_or("-".into()), site, p.groups.iter().map(|g| g.calls).sum::<u32>()
         );
         // one line per change of anything but the clock
         let key = line[8..].to_string();
@@ -47,7 +47,7 @@ fn main() {
             println!("{line}");
             shown = key;
         }
-        calls = p.recent.len();
+        calls = p.groups.iter().map(|g| g.calls).sum::<u32>();
     }
     println!("done: {} calls seen", calls);
 }

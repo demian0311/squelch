@@ -62,6 +62,8 @@ pub enum Command {
     SetSite(Option<(f64, f64)>),
     /// Decode HD Radio on the tuned FM station: `Some(0)` is HD1, `Some(1)` HD2, `None` off.
     SetHd(Option<u32>),
+    /// P25: only `hold` plays (None: any talkgroup), and nothing in `skip` does.
+    P25Picks { hold: Option<u16>, skip: Vec<u16> },
     /// Crystal correction, librtlsdr's sign: positive means the crystal runs fast.
     SetPpm(i32),
     Stop,
@@ -304,16 +306,18 @@ fn run(
     let hd_for = |program: Option<u32>, mode: Mode, center: f64, tuned: f64| -> Option<Hd> {
         program.filter(|_| mode == Mode::Wfm).map(|p| Hd::new(tuned - center, rate, p, true))
     };
-    let p25_for = |mode: Mode, tuned: f64, ranges: Option<&[(f64, f64)]>| {
+    let p25_for = |mode: Mode, tuned: f64, ranges: Option<&[(f64, f64)]>, picks: &(Option<u16>, Vec<u16>)| {
         (mode == Mode::P25).then(|| {
             let mut p = P25::new(rate, tuned);
             if let Some(r) = ranges {
                 p.set_ranges(r);
             }
+            p.set_picks(picks.0, &picks.1);
             p
         })
     };
     let mut p25: Option<P25> = None;
+    let mut p25_picks: (Option<u16>, Vec<u16>) = (None, Vec::new());
     let mut last_status = Instant::now() - Duration::from_secs(1);
     let mut recorder: Option<Recorder> = None;
     let mut prof = Prof::new();
@@ -369,7 +373,7 @@ fn run(
                                 p.set_tuned(tuned);
                                 Some(p)
                             }
-                            _ => p25_for(mode, tuned, look.as_ref().map(BandLook::ranges)),
+                            _ => p25_for(mode, tuned, look.as_ref().map(BandLook::ranges), &p25_picks),
                         };
                         hd = hd_for(hd_program, mode, center, tuned);
                         hd_sidebands = false;
@@ -378,7 +382,7 @@ fn run(
                 Ok(Command::SetMode(m)) => {
                     mode = m;
                     demod = Demodulator::new(mode, rate);
-                    p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges));
+                    p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges), &p25_picks);
                     hd = hd_for(hd_program, mode, center, tuned);
                 }
                 Ok(Command::SetGain(g)) => {
@@ -445,6 +449,16 @@ fn run(
                         a.set_site(s);
                     }
                 }
+                Ok(Command::P25Picks { hold, skip }) => {
+                    p25_picks = (hold, skip);
+                    if let Some(c) = p25.as_mut().and_then(|p| p.set_picks(p25_picks.0, &p25_picks.1)) {
+                        center = c;
+                        if let Err(e) = src.set_center(center as u32) {
+                            error = Some(e.to_string());
+                        }
+                        recent.clear();
+                    }
+                }
                 Ok(Command::SetHd(p)) => {
                     match (&hd, p) {
                         (Some(h), Some(p)) => {
@@ -467,7 +481,7 @@ fn run(
                         demod.offset_n = 0;
                         // its own measurement was against the old correction
                         if p25.is_some() {
-                            p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges));
+                            p25 = p25_for(mode, tuned, look.as_ref().map(BandLook::ranges), &p25_picks);
                         }
                     }
                 }

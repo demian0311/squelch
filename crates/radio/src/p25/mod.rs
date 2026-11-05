@@ -16,7 +16,7 @@ use crate::detect::Detected;
 use crate::dsp::{lowpass, Agc, C32, Decimate, Decimator, Mixer};
 use phy::{Frame, Phy};
 use serde::Serialize;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tsbk::Message;
 
 /// Audio out, matching the other demodulators.
@@ -42,7 +42,11 @@ const HANG_SECS: f64 = 1.0;
 const EDGE_HZ: f64 = 100_000.0;
 /// Where the dongle centre goes relative to a voice channel it had to move for.
 const RETUNE_OFFSET_HZ: f64 = 300_000.0;
-const RECENT_CALLS: usize = 30;
+/// Calls are tallied per talkgroup over this window, one bar a minute.
+pub const WINDOW_MIN: usize = 10;
+const WINDOW_SECS: f64 = WINDOW_MIN as f64 * 60.0;
+/// Calls kept for the tally, however busy the window.
+const RECENT_CALLS: usize = 400;
 /// After a terminator, how long to stay for a reply on the same channel.
 const AFTER_TDU_SECS: f64 = 0.5;
 /// Updates for a call that just ended are ignored this long; a new grant still follows.
@@ -67,6 +71,26 @@ pub struct Call {
     pub emergency: bool,
     /// Seconds since the receiver started that the call was granted.
     pub at_secs: f64,
+}
+
+/// A talkgroup heard on this site in the last `WINDOW_MIN` minutes.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Talkgroup {
+    pub group: u16,
+    /// Calls in the window.
+    pub calls: u32,
+    /// Receiver clock of the last call.
+    pub last_secs: f64,
+    /// Voice channel and talker of the last call.
+    pub hz: f64,
+    pub source: u32,
+    /// The last call was encrypted, or on a Phase 2 channel: this receiver cannot play it.
+    pub encrypted: bool,
+    pub tdma: bool,
+    /// An emergency call in the window.
+    pub emergency: bool,
+    /// Calls per minute across the window, oldest first.
+    pub minutes: Vec<u8>,
 }
 
 /// One hop of a scan across the band for a control channel.
@@ -98,7 +122,8 @@ pub struct Info {
     pub messages_per_sec: f32,
     /// The call being played.
     pub call: Option<Call>,
-    pub recent: Vec<Call>,
+    /// Talkgroups heard in the last `WINDOW_MIN` minutes, busiest first.
+    pub groups: Vec<Talkgroup>,
     /// Why voice cannot play (mbelib missing).
     pub voice_error: Option<String>,
     /// Voice frames the codec found badly damaged, percent, this call.
@@ -173,6 +198,10 @@ pub struct P25 {
     /// Talkgroups seen in grants, and whether they were in the clear.
     clear_groups: HashMap<u16, bool>,
     recent: VecDeque<Call>,
+    /// Only this talkgroup plays.
+    hold: Option<u16>,
+    /// Talkgroups that never play.
+    skip: HashSet<u16>,
     voice: Option<Voice>,
     /// Talkgroup, channel and time of the call that ended last.
     ended: Option<(u16, f64, f64)>,
@@ -219,6 +248,8 @@ impl P25 {
             rate_since: 0.0,
             clear_groups: HashMap::new(),
             recent: VecDeque::new(),
+            hold: None,
+            skip: HashSet::new(),
             voice: None,
             ended: None,
             nacs: HashMap::new(),
@@ -277,7 +308,7 @@ impl P25 {
         i.now_secs = self.now;
         i.tried = self.tried.clone();
         i.trying_hz = (self.voice.is_none() && !self.locked).then_some(self.control_raw);
-        i.recent = self.recent.iter().cloned().collect();
+        i.groups = self.groups();
         i.call = self.voice.as_ref().map(|v| v.call.clone());
         i.state = match (&self.voice, self.locked) {
             (Some(_), _) => "voice",
@@ -296,6 +327,52 @@ impl P25 {
     /// Following a call now.
     pub fn in_call(&self) -> bool {
         self.voice.is_some()
+    }
+
+    /// Only `hold` plays (None: any talkgroup), and nothing in `skip` does. A call that is no
+    /// longer allowed ends now; the returned centre is where the dongle goes back to, as in `process`.
+    pub fn set_picks(&mut self, hold: Option<u16>, skip: &[u16]) -> Option<f64> {
+        self.hold = hold;
+        self.skip = skip.iter().copied().collect();
+        match &self.voice {
+            Some(v) if !self.allowed(v.call.group) => self.end_call(),
+            _ => None,
+        }
+    }
+
+    fn allowed(&self, group: u16) -> bool {
+        !self.skip.contains(&group) && self.hold.is_none_or(|h| h == group)
+    }
+
+    /// The window's calls folded per talkgroup, busiest first; the last call gives the fields.
+    fn groups(&self) -> Vec<Talkgroup> {
+        let mut by: Vec<Talkgroup> = Vec::new();
+        for c in self.recent.iter().rev() {
+            let age = self.now - c.at_secs;
+            if age >= WINDOW_SECS {
+                continue;
+            }
+            let minute = WINDOW_MIN - 1 - ((age.max(0.0) / 60.0) as usize).min(WINDOW_MIN - 1);
+            let g = match by.iter_mut().position(|g| g.group == c.group) {
+                Some(i) => &mut by[i],
+                None => {
+                    by.push(Talkgroup { group: c.group, calls: 0, last_secs: c.at_secs, hz: c.hz, source: c.source, encrypted: c.encrypted, tdma: c.tdma, emergency: false, minutes: vec![0; WINDOW_MIN] });
+                    by.last_mut().unwrap()
+                }
+            };
+            g.calls += 1;
+            g.minutes[minute] = g.minutes[minute].saturating_add(1);
+            g.emergency |= c.emergency;
+            if c.at_secs >= g.last_secs {
+                g.last_secs = c.at_secs;
+                g.hz = c.hz;
+                g.source = c.source;
+                g.encrypted = c.encrypted;
+                g.tdma = c.tdma;
+            }
+        }
+        by.sort_by(|a, b| b.calls.cmp(&a.calls).then(b.last_secs.total_cmp(&a.last_secs)));
+        by
     }
 
     pub fn process(&mut self, iq: &[C32], center: f64, signals: &[Detected], pcm: &mut Vec<f32>) -> Option<f64> {
@@ -444,7 +521,7 @@ impl P25 {
                 }
             }
             None => {
-                if self.recent.len() == RECENT_CALLS {
+                while self.recent.len() >= RECENT_CALLS || self.recent.back().is_some_and(|c| now - c.at_secs >= WINDOW_SECS) {
                     self.recent.pop_back();
                 }
                 self.recent.push_front(call.clone());
@@ -452,7 +529,7 @@ impl P25 {
         }
         // updates keep announcing a call for a moment after it ends
         let just_ended = self.ended.is_some_and(|(g, h, at)| g == group && h == hz && now - at < REFOLLOW_SECS);
-        if encrypted || tdma || self.info.voice_error.is_some() || (just_ended && !granted) {
+        if encrypted || tdma || !self.allowed(group) || self.info.voice_error.is_some() || (just_ended && !granted) {
             return None;
         }
         let raw_hz = hz * self.scale()?;
@@ -676,5 +753,46 @@ mod tests {
         p.locked = true;
         assert!(p.on_control(strong.hz + 1_000.0));
         assert!(!p.on_control(strong.hz + 12_500.0));
+    }
+
+    #[test]
+    fn talkgroups_are_tallied_over_the_window_and_hold_and_skip_pick_what_plays() {
+        let mut p = P25::new(2_400_000, 852.5e6);
+        p.idens[0] = Some(Iden { base_hz: 851e6, spacing_hz: 12_500.0, tdma: false });
+        p.control_channel = Some(0);
+        p.control_raw = 851e6;
+        p.info.voice_error = None;
+        p.now = 100.0;
+        p.grant(10, 2024, 1, false, false, true, 852.5e6);
+        assert!(p.in_call(), "a clear grant inside the capture plays");
+        p.end_call();
+        p.now = 130.0;
+        p.grant(11, 2001, 2, true, false, true, 852.5e6);
+        assert!(!p.in_call(), "an encrypted grant is tallied, not played");
+        p.now = 400.0;
+        p.grant(10, 2024, 3, false, true, true, 852.5e6);
+        let g = p.groups();
+        assert_eq!(g.iter().map(|g| (g.group, g.calls, g.encrypted, g.emergency, g.source)).collect::<Vec<_>>(), vec![(2024, 2, false, true, 3), (2001, 1, true, false, 2)]);
+        assert_eq!(g[0].minutes.len(), WINDOW_MIN);
+        assert_eq!(g[0].minutes[WINDOW_MIN - 1], 1, "the call just now is in the newest minute");
+        assert_eq!(g[0].minutes[WINDOW_MIN - 1 - 5], 1, "the call 300 s ago is five minutes back");
+        // skipping the talkgroup playing ends its call, and it never plays again
+        assert!(p.in_call());
+        p.set_picks(None, &[2024]);
+        assert!(!p.in_call());
+        p.now = 420.0;
+        p.grant(10, 2024, 3, false, false, true, 852.5e6);
+        assert!(!p.in_call());
+        // a hold lets only that talkgroup play
+        p.set_picks(Some(2001), &[]);
+        p.now = 440.0;
+        p.grant(10, 2024, 3, false, false, true, 852.5e6);
+        assert!(!p.in_call());
+        p.grant(12, 2001, 4, false, false, true, 852.5e6);
+        assert!(p.in_call());
+        assert_eq!(p.groups()[0].calls, 4, "skipped and held calls are still tallied");
+        // calls older than the window leave the tally
+        p.now = 440.0 + WINDOW_SECS + 1.0;
+        assert!(p.groups().is_empty());
     }
 }
