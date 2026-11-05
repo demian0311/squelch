@@ -141,7 +141,7 @@ export function dialRows(hasList: boolean, local: Map<number, FmStation>, heard:
   return rows.sort((a, b) => a.hz - b.hz);
 }
 
-export type DialSort = 'freq' | 'call' | 'city' | 'signal';
+export type DialSort = 'freq' | 'type' | 'city' | 'call' | 'signal';
 /** Sorting by signal uses a held reading per station: it follows the live one only once that has moved this far, so a row stays put while its reading wanders. */
 export const HOLD_DB = 3;
 
@@ -162,11 +162,12 @@ export const firstDesc = (key: DialSort) => key === 'signal';
 export function sortDial(rows: DialRow[], key: DialSort, desc: boolean, held?: Map<number, number | null>): DialRow[] {
   const sign = desc ? -1 : 1;
   const db = (r: DialRow) => held?.get(r.hz) ?? r.snrDb;
-  const missing = (r: DialRow) => (key === 'signal' ? db(r) === null : key === 'city' ? !r.city : false);
+  const missing = (r: DialRow) => (key === 'signal' ? db(r) === null : key === 'city' ? !r.city : key === 'type' ? !r.type : false);
+  const word = (r: DialRow) => (key === 'city' ? (r.city ?? '') : key === 'type' ? (r.type ?? '') : r.title);
   const by = (a: DialRow, b: DialRow) => {
     if (key === 'freq') return a.hz - b.hz;
     if (key === 'signal') return (db(a) ?? 0) - (db(b) ?? 0);
-    return (key === 'city' ? (a.city ?? '') : a.title).localeCompare(key === 'city' ? (b.city ?? '') : b.title);
+    return word(a).localeCompare(word(b));
   };
   return [...rows].sort((a, b) => Number(missing(a)) - Number(missing(b)) || sign * by(a, b) || a.hz - b.hz);
 }

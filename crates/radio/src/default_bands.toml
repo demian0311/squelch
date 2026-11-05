@@ -11,7 +11,7 @@
 
 [[group]]
 id = "listen"
-name = "Listen"
+name = "Everyday"
 
 [[group]]
 id = "safety"
@@ -19,7 +19,7 @@ name = "Public safety"
 
 [[group]]
 id = "ham"
-name = "Ham"
+name = "Ham radio"
 
 [[group]]
 id = "data"

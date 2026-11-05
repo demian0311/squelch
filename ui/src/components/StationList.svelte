@@ -1,5 +1,6 @@
 <script lang="ts">
-  // The dial as a table, sorted by a column head. A blue edge marks stations in the waterfall's view; a grey bar is the last reading.
+  // The dial as a table, sorted by a column head: what a station plays and where it is come first, since a newcomer knows
+  // "Top 40 · Miami" long before "WLYF". A blue edge marks stations in the waterfall's view; a grey bar is the last reading.
   import Level from './Level.svelte';
   import { fmChannel } from '../lib/radio';
   import { firstDesc, holdSignals, sortDial, type DialRow, type DialSort } from '../lib/stations';
@@ -50,18 +51,18 @@
 <div class="stations" style:--c={hue} bind:this={list}>
   <div class="head" bind:this={head}>
     {@render sortHead('freq', 'MHz', 'f')}
-    {@render sortHead('call', 'Call sign', 'n')}
+    {@render sortHead('type', 'Plays', 't')}
     {@render sortHead('city', 'City', 'c')}
-    <span class="hc t">Type</span>
+    {@render sortHead('call', 'Call sign', 'n')}
     <span class="hc h">HD</span>
     {@render sortHead('signal', 'Signal', 'l')}
   </div>
   {#each sorted as r (r.hz)}
     <button class="row" class:view={r.hz >= vs && r.hz <= ve} class:tuned={r.hz === channel} data-hz={r.hz} onclick={() => onTune(r.hz)} title="Tune to {r.title}">
       <span class="f">{(r.hz / 1e6).toFixed(1)}</span>
-      <span class="n">{r.title}</span>
+      <span class="t" class:unknown={!r.type}>{r.type ?? (r.onAir || r.snrDb !== null ? 'Not said yet' : '')}</span>
       <span class="c">{r.city ?? ''}</span>
-      <span class="t">{r.type ?? ''}</span>
+      <span class="n">{r.title}</span>
       <span class="h">{#if r.hd}<b title="Also broadcasts digitally (HD Radio)">HD</b>{/if}</span>
       <span class="l" class:old={!r.onAir}>{#if r.snrDb !== null}<Level pct={(r.snrDb / meterDb) * 100} width="100%" height="5px" />{/if}</span>
     </button>
@@ -70,7 +71,7 @@
 
 <style>
   .stations {
-    --cols: 44px 72px minmax(0, 1fr) 92px 24px 56px;
+    --cols: 44px minmax(0, 1.3fr) minmax(0, 1fr) 62px 24px 56px;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -157,8 +158,12 @@
   .tuned .f {
     color: inherit;
   }
-  .row .n {
+  .row .t {
     font-weight: 500;
+  }
+  .row .t.unknown {
+    font-weight: 400;
+    font-style: italic;
   }
   .n,
   .c,
@@ -169,9 +174,13 @@
     text-overflow: ellipsis;
   }
   .row .c,
-  .row .t {
+  .row .n,
+  .row .t.unknown {
     font-size: 12px;
     color: var(--fg-dim);
+  }
+  .row .n {
+    font-family: var(--mono);
   }
   .h b {
     font-family: var(--mono);
@@ -189,13 +198,13 @@
     filter: grayscale(1);
     opacity: 0.6;
   }
-  /* Type goes first: the three columns that sort stay */
+  /* narrow: the call sign goes first, what plays and where stay */
   @container (max-width: 400px) {
     .head,
     .row {
-      grid-template-columns: 44px 62px minmax(0, 1fr) 24px 44px;
+      grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1fr) 24px 44px;
     }
-    .t {
+    .n {
       display: none;
     }
   }

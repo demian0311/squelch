@@ -101,6 +101,10 @@ impl BandPlan {
             std::fs::write(&path, &merged)?;
             text = merged;
         }
+        if let Some(renamed) = rename_groups(&text, DEFAULT_BANDS) {
+            std::fs::write(&path, &renamed)?;
+            text = renamed;
+        }
         let ids = default_ids(DEFAULT_BANDS);
         if let (Some(p), true) = (&seen_path, seen.as_ref() != Some(&ids.iter().cloned().collect())) {
             if let Some(dir) = p.parent() {
@@ -294,6 +298,26 @@ fn blocks(text: &str) -> Vec<(String, String)> {
     out.into_iter().map(|(k, b)| (k, b.trim_end().to_string() + "\n")).collect()
 }
 
+/// Group names the defaults once shipped, by id. A user's group still wearing one takes the name the
+/// defaults carry now (2026-11-05: "Listen" and "Ham" meant little to someone new to radio); a group
+/// the user renamed is left alone.
+const OLD_GROUP_NAMES: &[(&str, &str)] = &[("listen", "Listen"), ("ham", "Ham")];
+
+/// Rename groups still carrying a name from `OLD_GROUP_NAMES` to the defaults' current name.
+/// Returns the new text, or `None` when nothing changes.
+pub fn rename_groups(user: &str, defaults: &str) -> Option<String> {
+    let defs = BandPlan::parse(defaults).ok()?;
+    let mut out = user.to_string();
+    for (id, old) in OLD_GROUP_NAMES {
+        let Some(now) = defs.groups.iter().find(|g| g.id == *id).map(|g| g.name.as_str()) else { continue };
+        let was = format!("[[group]]\nid = \"{id}\"\nname = \"{old}\"\n");
+        if now != *old && out.contains(&was) {
+            out = out.replace(&was, &format!("[[group]]\nid = \"{id}\"\nname = \"{now}\"\n"));
+        }
+    }
+    (out != user).then_some(out)
+}
+
 /// Add groups and bands that newer defaults have and the user's file lacks. A missing entry is
 /// added when `seen` (what earlier runs offered) does not list it; before any record exists,
 /// only whole groups the file lacks are added, since a lone missing band was likely deleted.
@@ -407,6 +431,18 @@ mod tests {
         assert!(plan.bands.iter().any(|b| b.id == "ps700" && b.group == "safety"));
         assert!(plan.bands.iter().any(|b| b.name == "Trains"), "user edits kept");
         assert_eq!(add_new_defaults(&new, DEFAULT_BANDS, None), None, "second run changes nothing");
+    }
+
+    #[test]
+    fn old_group_names_take_the_new_ones_once() {
+        let old = DEFAULT_BANDS.replace("name = \"Everyday\"", "name = \"Listen\"").replace("name = \"Ham radio\"", "name = \"Ham\"");
+        let new = rename_groups(&old, DEFAULT_BANDS).unwrap();
+        let plan = BandPlan::parse(&new).unwrap();
+        assert_eq!(plan.groups.iter().find(|g| g.id == "listen").unwrap().name, "Everyday");
+        assert_eq!(plan.groups.iter().find(|g| g.id == "ham").unwrap().name, "Ham radio");
+        assert_eq!(rename_groups(&new, DEFAULT_BANDS), None, "second run changes nothing");
+        let mine = old.replace("name = \"Ham\"", "name = \"My repeaters\"");
+        assert!(rename_groups(&mine, DEFAULT_BANDS).unwrap().contains("My repeaters"), "a renamed group stays");
     }
 
     #[test]

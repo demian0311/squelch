@@ -1286,11 +1286,6 @@
   }
 
   // drag, zoom and tune are shown once, until dismissed
-  let hintSeen = $state(store.getState('hint.seen', false));
-  function dismissHint() {
-    hintSeen = true;
-    store.setState('hint.seen', true);
-  }
 
   // ── squelch on the signal meter ─────────────────────
   // the mark is the squelch level, and far left turns it off
@@ -1750,14 +1745,6 @@
           <div class="wf">
             {#if !planesScreen && !emsScreen}{@render wfView()}{/if}
           </div>
-          {#if maxPane !== 'panel'}
-            {#if !hintSeen}
-              <div class="hint">
-                <span>Drag sideways to move · scroll to zoom · click a signal to tune</span>
-                <button onclick={dismissHint}>Got it</button>
-              </div>
-            {/if}
-          {/if}
         </div>
       </Pane>
 
@@ -2590,29 +2577,6 @@
     display: flex;
     flex-direction: column;
     background: var(--bg-darker);
-  }
-  .hint {
-    position: absolute;
-    left: 50%;
-    bottom: 36px;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 7px 8px 7px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--muted);
-    background: color-mix(in srgb, var(--bg-light) 94%, transparent);
-    font-size: 13px;
-    white-space: nowrap;
-  }
-  .hint button {
-    border: 0;
-    border-radius: 6px;
-    padding: 4px 12px;
-    background: var(--hue);
-    color: var(--bg-darker);
-    font-weight: 600;
   }
   .ptab {
     padding: 2px 8px;

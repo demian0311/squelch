@@ -143,6 +143,11 @@ describe('sortDial', () => {
     expect(order('call', false)).toEqual(['WDNA', 'WFEZ', 'WHYI', 'WKIS']);
   });
 
+  it('sorts by what a station plays, the unknown ones last', () => {
+    const typed = rows.map((r, i) => ({ ...r, type: ['Top 40', undefined, 'Classic rock', 'Adult hits'][i] }));
+    expect(sortDial(typed, 'type', false).map((r) => r.title)).toEqual(['WFEZ', 'WHYI', 'WKIS', 'WDNA']);
+  });
+
   it('keeps rows with nothing in the column last, both ways', () => {
     expect(order('city', false)).toEqual(['WFEZ', 'WKIS', 'WDNA', 'WHYI']);
     expect(order('city', true)).toEqual(['WDNA', 'WKIS', 'WFEZ', 'WHYI']);
