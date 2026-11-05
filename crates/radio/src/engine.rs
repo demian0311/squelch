@@ -4,8 +4,9 @@ use anyhow::{bail, Result};
 use crate::acars::Acars;
 use crate::adsb::Adsb;
 use crate::audio::AudioOut;
+use crate::playback::Player;
 use crate::record::Recorder;
-use crate::demod::{Demodulator, Mode};
+use crate::demod::{Demodulator, Mode, AUDIO_RATE};
 use crate::detect::{detect, Detected};
 use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
 use crate::dsp::{u8_to_iq, Mixer, C32};
@@ -46,6 +47,11 @@ pub enum Command {
     SetPlaying(bool),
     /// Start or stop recording what is heard to a file (`record::info` says which).
     Record(bool),
+    /// Play this recording from the start in place of the live sound, or `None` to stop and let it back.
+    Play(Option<std::path::PathBuf>),
+    PlayPause(bool),
+    /// Jump to this many seconds into the recording being played.
+    PlaySeek(f64),
     /// Mute below this many dB above the floor; `None` turns squelch off.
     SetSquelch(Option<f32>),
     /// Run the radiosonde decoders on every narrow signal in the capture.
@@ -123,6 +129,8 @@ pub struct Status {
     /// Correction applied now.
     pub ppm: i32,
     pub crystal: Option<Crystal>,
+    /// A recording being played in place of the live sound.
+    pub play: Option<crate::playback::Playing>,
 }
 
 pub struct Engine {
@@ -320,6 +328,10 @@ fn run(
     let mut p25_picks: (Option<u16>, Vec<u16>) = (None, Vec::new());
     let mut last_status = Instant::now() - Duration::from_secs(1);
     let mut recorder: Option<Recorder> = None;
+    // a recording plays in place of the live sound: its audio per block, and the fraction of a sample carried over
+    let mut player: Option<Player> = None;
+    let mut play_buf: Vec<f32> = Vec::new();
+    let mut play_frac = 0.0f64;
     let mut prof = Prof::new();
 
     loop {
@@ -495,6 +507,37 @@ fn run(
                         }
                     }
                 }
+                Ok(Command::Play(path)) => {
+                    player = path.and_then(|p| match Player::open(&p) {
+                        Ok(p) => Some(p),
+                        Err(e) => {
+                            error = Some(format!("playing {}: {e:#}", p.display()));
+                            None
+                        }
+                    });
+                    play_frac = 0.0;
+                    if let Some(a) = &audio {
+                        a.clear();
+                    }
+                }
+                Ok(Command::PlayPause(paused)) => {
+                    if let Some(p) = &mut player {
+                        p.paused = paused;
+                    }
+                    if let (true, Some(a)) = (paused, &audio) {
+                        a.clear();
+                    }
+                }
+                Ok(Command::PlaySeek(secs)) => {
+                    if let Some(p) = &mut player {
+                        if let Err(e) = p.seek(secs) {
+                            error = Some(format!("seeking: {e:#}"));
+                        }
+                        if let Some(a) = &audio {
+                            a.clear();
+                        }
+                    }
+                }
                 Ok(Command::SetPlaying(p)) => {
                     playing = p;
                     if let (false, Some(a)) = (p, &audio) {
@@ -513,7 +556,7 @@ fn run(
                 if let Some(l) = &mut look {
                     l.abort();
                 }
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -563,7 +606,7 @@ fn run(
             }
             if last_status.elapsed() >= Duration::from_millis(200) {
                 last_status = Instant::now();
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
             }
             prof.report();
             continue;
@@ -688,7 +731,19 @@ fn run(
             }
             prof.lap("hd fill");
         }
-        if let (true, Some(a)) = (playing, &audio) {
+        // a recording takes the live sound's place at the speaker; the recorder still gets the live sound
+        if let Some(p) = &mut player {
+            play_buf.clear();
+            if !p.paused && !p.done {
+                let want = iq.len() as f64 * AUDIO_RATE as f64 / rate as f64 + play_frac;
+                let n = want.floor() as usize;
+                play_frac = want - n as f64;
+                p.fill(&mut play_buf, n);
+            }
+            if let Some(a) = &audio {
+                a.push(&play_buf, volume);
+            }
+        } else if let (true, Some(a)) = (playing, &audio) {
             a.push(&pcm, volume);
         }
         if let Some(r) = &recorder {
@@ -717,7 +772,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal);
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
         }
         prof.lap("status");
         prof.report();
@@ -815,6 +870,7 @@ fn send_status(
     acars: Option<crate::acars::Info>,
     ppm: i32,
     crystal: Option<Crystal>,
+    play: Option<crate::playback::Playing>,
 ) {
     on_status(Status {
         device: device.to_string(),
@@ -843,6 +899,7 @@ fn send_status(
         acars,
         ppm,
         crystal,
+        play,
     });
 }
 

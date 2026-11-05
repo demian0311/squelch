@@ -21,6 +21,7 @@ pub mod rds;
 pub mod repeaters;
 pub mod sonde;
 pub mod record;
+pub mod playback;
 pub mod spectrum;
 pub mod squelch;
 pub mod terrain;

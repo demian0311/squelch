@@ -220,6 +220,9 @@ fn write(file: BufWriter<File>, mut opus: Opus, rx: Receiver<Vec<f32>>) -> Resul
         total += pending.len() as u64;
         put(&mut ogg, &mut held, (opus.encode(&frame, &mut out)?, granule))?;
     }
+    // one silent frame flushes the encoder's lookahead; the granule stays, so a player trims it off again
+    frame.fill(0.0);
+    put(&mut ogg, &mut held, (opus.encode(&frame, &mut out)?, granule))?;
     // nothing heard: one silent packet, so the stream still has an end
     let (data, at) = match held.take() {
         Some(last) => last,

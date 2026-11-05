@@ -19,6 +19,8 @@
   import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
+  import RecordingsScreen from './components/RecordingsScreen.svelte';
+  import { clockLength, nextAfter, parseRecordingName, timeOfDay } from './lib/recordings';
   import AirplanesScreen from './components/AirplanesScreen.svelte';
   import EmsScreen from './components/EmsScreen.svelte';
   import Talkgroups from './components/Talkgroups.svelte';
@@ -89,6 +91,13 @@
   // when the last recording ended, and whether its path was copied since
   let recEndS = $state(0);
   let recCopied = $state(false);
+  // the Recordings screen: every saved file, and the row it opens on
+  let recordingsOpen = $state(false);
+  let recordingsList = $state.raw<api.SavedRecording[]>([]);
+  let recFocus = $state<string | null>(null);
+  // the recording playing in place of the live sound, and the one already played on from when it ended
+  let play = $derived(status?.play ?? null);
+  let playedOn = $state<string | null>(null);
   /** How long the saved file's copy icon stays after a recording ends. */
   const SAVED_FOR_S = 5 * 60;
   let volume = $state(0.7);
@@ -292,6 +301,7 @@
     // the one EMS entry goes back to the side of EMS last tuned
     const b = isEms(picked) ? (plan.bands.find((x) => x.id === emsSide) ?? picked) : picked;
     bookmarksOpen = false;
+    recordingsOpen = false;
     seeRadio = false;
     airListen = null;
     bandId = b.id;
@@ -758,9 +768,27 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived(airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let playTitle = $derived.by(() => {
+    if (!play) return null;
+    const p = parseRecordingName(play.file);
+    return p ? (recordingName(p.hz, p.mode) ?? `${fmtMHz(p.hz)} MHz`) : 'Recording';
+  });
+  let playSub = $derived.by(() => {
+    if (!play) return null;
+    const p = parseRecordingName(play.file);
+    const when = p ? `${timeOfDay(p.at)} ${dayWord(p.at)}` : 'a recording';
+    return `Playing the recording from ${when} · ${clockLength(play.secs)} of ${clockLength(play.len_secs)}${play.done ? ' · ended' : play.paused ? ' · paused' : ''} · live sound waits · Esc stops`;
+  });
+  function dayWord(at: number) {
+    const d = new Date(at * 1000);
+    const t = new Date(nowS * 1000);
+    const same = d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+    return same ? 'today' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  }
+  let nowTitle = $derived(playTitle ?? airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
+    playSub ? playSub :
     airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
     p25 && p25.state === 'searching' ? p25Summary(p25) :
     p25 && !p25.call && picks.hold !== null ? holdSay(p25, picks.hold) :
@@ -926,6 +954,7 @@
   /** The top bar's frequency: back to the waterfall with it in the middle. */
   function showTuned() {
     bookmarksOpen = false;
+    recordingsOpen = false;
     tuneCentered(tuned);
   }
   // the one bookmark control: saved under the name this frequency already has, else its number
@@ -1117,6 +1146,8 @@
   }
 
   function togglePlay() {
+    // while a recording plays, the play button is its
+    if (play) return void api.playPause(!play.paused);
     // pausing a tower is leaving it: the map and the messages come back
     if (airListen && playing) return stopListening();
     playing = !playing;
@@ -1142,9 +1173,43 @@
       if (!on && rec.file) {
         recEndS = Date.now() / 1000;
         recCopied = false;
+        loadRecordings();
       }
     }, 250);
   }
+  async function loadRecordings() {
+    recordingsList = await api.recordings();
+  }
+  function openRecordings(file: string | null = null) {
+    recFocus = file;
+    bookmarksOpen = false;
+    recordingsOpen = true;
+    loadRecordings();
+  }
+  async function removeRecording(file: string) {
+    try {
+      await api.deleteRecording(file);
+    } catch (e) {
+      console.error(e);
+    }
+    loadRecordings();
+  }
+  /** Stops the recording and tunes the radio where it was made. */
+  function hearLive(hz: number, m: Mode) {
+    api.playRecording(null);
+    const b = bandAt(plan, hz);
+    if (b && b.id !== bandId) pickBand(b);
+    tuneSaved(hz, m);
+    recordingsOpen = false;
+  }
+  const recordingName = (hz: number, m: Mode) => bookmarkNear(named, hz, 1_000)?.name ?? (m === 'wfm' ? stationName(hz) : undefined);
+  // when one ends, the next older one plays; none left, the live sound comes back
+  $effect(() => {
+    if (!play?.done || playedOn === play.file) return;
+    playedOn = play.file;
+    const next = nextAfter(recordingsList, play.file);
+    api.playRecording(next ? next.file : null);
+  });
   async function copyRecording() {
     if (!rec?.file) return;
     await navigator.clipboard.writeText(rec.file);
@@ -1162,10 +1227,18 @@
     else if (e.key === '-') zoom(1.5);
     else if (e.key === '=' || e.key === '+') zoom(1 / 1.5);
     else if (e.key === 'f') toggleMax('panel');
-    else if (e.key === 'b') bookmarksOpen = !bookmarksOpen;
+    else if (e.key === 'b') {
+      recordingsOpen = false;
+      bookmarksOpen = !bookmarksOpen;
+    } else if (e.key === 'r') {
+      if (recordingsOpen) recordingsOpen = false;
+      else openRecordings();
+    }
     else if (e.key === 'F11') toggleFull();
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
     else if (e.key === 'Escape' && bookmarksOpen) bookmarksOpen = false;
+    else if (e.key === 'Escape' && recordingsOpen) recordingsOpen = false;
+    else if (e.key === 'Escape' && play) api.playRecording(null);
     else if (e.key === 'Escape' && maxPane) maxed = null;
     else if (e.key === ' ') togglePlay();
     else if (e.key === 's') settingsOpen = !settingsOpen;
@@ -1277,7 +1350,7 @@
 
 <div class="app" style:--accent={hue} style:--hue={hue} style:--ramp={ramp}>
   {#if !full}
-    <BandRail plan={railPlan} current={bookmarksOpen ? null : railId(railPlan, bandId)} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => (bookmarksOpen = !bookmarksOpen)} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
+    <BandRail plan={railPlan} current={bookmarksOpen || recordingsOpen ? null : railId(railPlan, bandId)} {recordingsOpen} recordingCount={recordingsList.length} onRecordings={() => (recordingsOpen ? (recordingsOpen = false) : openRecordings())} {bookmarksOpen} bookmarkCount={saved.filter((m) => bookmarkPlan.bands.some((b) => b.id === m.band.id)).length} onBookmarks={() => { recordingsOpen = false; bookmarksOpen = !bookmarksOpen; }} {outside} open={railOpen} onPick={pickBand} onToggle={toggleRail} {hues} marks={railMarks} {settingsOpen} onSettings={() => (settingsOpen = !settingsOpen)} {settings} />
   {/if}
 
   <div class="right">
@@ -1294,8 +1367,8 @@
         </span>
         <span class="sub copy" title={p25?.scan ? 'The radio hops across the whole band; every carrier that stays on is tested for P25 frames. Click a frequency to stop and tune by hand.' : undefined}>{nowSub}</span>
       </div>
-      <button class="play" class:on={playing && !airWatching} disabled={airWatching} onclick={togglePlay} aria-label={playing ? 'Pause' : 'Play'} title={airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
-        <Icon name={playing && !airWatching ? 'pause' : 'play'} size={20} />
+      <button class="play" class:on={play ? !play.paused : playing && !airWatching} disabled={airWatching && !play} onclick={togglePlay} aria-label={(play ? !play.paused : playing) ? 'Pause' : 'Play'} title={play ? `${play.paused ? 'Play' : 'Pause'} the recording (space)` : airWatching ? 'Pick a plane on the map and press play on its card' : `${playing ? 'Pause' : 'Play'} (space)`}>
+        <Icon name={(play ? !play.paused : playing && !airWatching) ? 'pause' : 'play'} size={20} />
       </button>
       <button class="rec" class:on={recLit} onclick={toggleRecord} aria-label={rec?.recording ? 'Stop recording' : 'Record'} title={rec?.recording ? 'Stop recording' : 'Record what you hear to a file'}>
         <Icon name="record" size={18} />
@@ -1308,7 +1381,7 @@
         <button class="rec-file" onclick={copyRecording} aria-label="Copy where the recording was saved" title={recCopied ? 'Copied the file\'s path' : 'Copy the file\'s path'}>
           <Icon name="folder" size={16} />
         </button>
-        <span class="rec-note mono">{recCopied ? 'Copied' : 'Saved'} {Math.floor(rec.secs / 60)}:{String(Math.floor(rec.secs) % 60).padStart(2, '0')}</span>
+        <button class="rec-note mono link" onclick={() => openRecordings(rec!.file)} title="Open the recordings list on this one (R)">{recCopied ? 'Copied' : 'Saved'} {clockLength(rec.secs)}</button>
       {/if}
       <div class="levels">
         <div class="ctl">
@@ -1718,11 +1791,14 @@
           {/if}
         </Pane>
       {/if}
-      {#if planesScreen && !bookmarksOpen}
+      {#if planesScreen && !bookmarksOpen && !recordingsOpen}
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
-      {#if emsScreen && !bookmarksOpen}
+      {#if emsScreen && !bookmarksOpen && !recordingsOpen}
         <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} lines={emsLines} {named} analog={emsAnalog} onListen={listenPlain} onTowers={backToTowers} />
+      {/if}
+      {#if recordingsOpen}
+        <RecordingsScreen recordings={recordingsList} playing={play} now={nowS} focus={recFocus} {hues} nameOf={recordingName} bandOf={(hz) => bandAt(plan, hz)} onPlay={(f) => api.playRecording(f)} onPause={(p) => api.playPause(p)} onSeek={(s) => api.playSeek(s)} onDelete={removeRecording} onLive={hearLive} onClose={() => (recordingsOpen = false)} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
@@ -1932,6 +2008,15 @@
   }
   .rec-note.err {
     color: var(--red);
+  }
+  .rec-note.link {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline dotted;
+    cursor: pointer;
   }
   .rec-file {
     display: grid;

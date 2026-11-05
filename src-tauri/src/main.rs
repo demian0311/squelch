@@ -472,6 +472,33 @@ fn recording() -> radio::record::Info {
     radio::record::info()
 }
 
+/// Every recording saved, newest first.
+#[tauri::command]
+fn recordings() -> Vec<radio::playback::Recording> {
+    radio::playback::list(&radio::record::dir())
+}
+
+#[tauri::command]
+fn delete_recording(file: String) -> Result<(), String> {
+    radio::playback::delete(&radio::record::dir(), &file).map_err(|e| format!("{e:#}"))
+}
+
+/// Play this recording from the start in place of the live sound; null stops and lets the live sound back.
+#[tauri::command]
+fn play_recording(app: State<App>, file: Option<String>) {
+    send(&app, Command::Play(file.map(Into::into)));
+}
+
+#[tauri::command]
+fn play_pause(app: State<App>, paused: bool) {
+    send(&app, Command::PlayPause(paused));
+}
+
+#[tauri::command]
+fn play_seek(app: State<App>, secs: f64) {
+    send(&app, Command::PlaySeek(secs));
+}
+
 #[tauri::command]
 fn set_playing(app: State<App>, playing: bool) {
     send(&app, Command::SetPlaying(playing));
@@ -552,7 +579,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, plane_info, open_link, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_band_look, set_hd, set_p25_picks, iss, iss_track, terrain_tile, ground, save_ground])
+        .invoke_handler(tauri::generate_handler![set_site, air_flights, air_track, air_tracks, air_messages, setup, bands, save_bookmark, delete_bookmark, schedule, save_schedule, set_wake, wake_setup_command, hold_awake, settings, save_settings, read_state, save_state, notify, repeaters, repeaters_map, fm_stations, airports_near, airports_by_code, plane_info, open_link, theme, start, feed, tune, set_mode, set_gain, set_volume, set_playing, record, recording, recordings, delete_recording, play_recording, play_pause, play_seek, set_squelch, set_ppm, set_sondes, set_acars, set_adsb, set_air_turns, set_band_look, set_hd, set_p25_picks, iss, iss_track, terrain_tile, ground, save_ground])
         .run(tauri::generate_context!())
         .expect("error while running the receiver");
 }

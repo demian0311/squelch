@@ -20,11 +20,14 @@
     bookmarksOpen: boolean;
     bookmarkCount: number;
     onBookmarks: () => void;
+    recordingsOpen: boolean;
+    recordingCount: number;
+    onRecordings: () => void;
     settingsOpen: boolean;
     onSettings: () => void;
     settings: Snippet;
   }
-  let { plan, current, outside = false, open, onPick, onToggle, hues, marks = {}, bookmarksOpen, bookmarkCount, onBookmarks, settingsOpen, onSettings, settings }: Props = $props();
+  let { plan, current, outside = false, open, onPick, onToggle, hues, marks = {}, bookmarksOpen, bookmarkCount, onBookmarks, recordingsOpen, recordingCount, onRecordings, settingsOpen, onSettings, settings }: Props = $props();
 
   let folded = $state<Record<string, boolean>>({});
 
@@ -46,6 +49,16 @@
 
 <nav aria-label="Bands" class:closed={!open}>
   <div class="list">
+    <button class="band marks tapes" class:sel={recordingsOpen} onclick={onRecordings} title="Recordings: everything saved with the record button, played back here (R)" aria-label="Recordings" aria-expanded={recordingsOpen}>
+      <span class="icon"><Icon name="tape" size={18} /></span>
+      {#if open}
+        <span class="text">
+          <span class="name">Recordings</span>
+          <span class="range mono">{recordingCount ? `${recordingCount} saved` : 'none yet'}</span>
+        </span>
+        <span class="key mono">R</span>
+      {/if}
+    </button>
     <button class="band marks" class:sel={bookmarksOpen} onclick={onBookmarks} title="Bookmarks: every saved frequency, and times to tune in (B)" aria-label="Bookmarks" aria-expanded={bookmarksOpen}>
       <span class="icon"><Icon name="bookmark" size={18} filled={bookmarksOpen} /></span>
       {#if open}
@@ -132,6 +145,10 @@
     --c: var(--accent);
     flex: none;
     margin-bottom: 6px;
+  }
+  .tapes {
+    --c: var(--red);
+    margin-bottom: 1px;
   }
   .group {
     display: flex;
