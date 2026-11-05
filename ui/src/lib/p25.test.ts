@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NO_PICKS, barPx, folded, groupRows, holdSay, p25Site, p25Summary, sinceSay, systemKey } from './p25';
+import { NO_PICKS, QUIET_SECS, barPx, channelBoard, folded, groupRows, holdSay, minuteBars, p25Site, p25Summary, sinceSay, steps, systemKey, verdict } from './p25';
 import type { P25, P25Call, P25Talkgroup } from './api';
 
 const call: P25Call = { group: 9100, source: 352783, hz: 769_418_750, encrypted: false, tdma: false, emergency: false, at_secs: 100 };
@@ -72,5 +72,53 @@ describe('bars', () => {
   it('count seconds, then minutes', () => {
     expect(sinceSay(12)).toBe('12 s ago');
     expect(sinceSay(170)).toBe('3 min ago');
+  });
+});
+
+describe('steps', () => {
+  it('light the search first', () => {
+    expect(steps({ ...base, state: 'searching', control_hz: null, site: null }, 0).map((s) => s.state)).toEqual(['now', 'todo', 'todo']);
+  });
+  it('tick the control channel and the tower once read', () => {
+    const [a, b, c] = steps(base, 30);
+    expect([a.state, b.state, c.state]).toEqual(['done', 'done', 'now']);
+    expect(a.say).toBe('Found a control channel · 773.794 MHz');
+    expect(b.say).toBe('Read the tower · site 3-55 of system D1C');
+    expect(c.say).toBe('Hearing calls · none for 30 s');
+  });
+  it('say what is playing', () => {
+    expect(steps({ ...base, state: 'voice', call }, 30)[2].say).toBe('Hearing calls · talkgroup 9100 playing');
+  });
+});
+
+describe('verdict', () => {
+  it('waits on a fresh tower and calls an old one quiet', () => {
+    expect(verdict(base, NO_PICKS, 20)).toEqual({ say: 'Reading the tower: 24 messages a second. Calls usually come within a minute.', action: null });
+    expect(verdict(base, NO_PICKS, QUIET_SECS + 60)).toEqual({ say: 'This tower is quiet: 24 messages a second but no call in 3 min.', action: 'other-band' });
+  });
+  it('tells a tower with only locked calls from one with calls to hear', () => {
+    const locked = { ...base, groups: [tg(4000, 30, 100, { encrypted: true })] };
+    expect(verdict(locked, NO_PICKS, 300)).toEqual({ say: 'Calls every 10 s here, all encrypted or Phase 2: nothing this receiver can play on this tower.', action: 'other-band' });
+    const open = { ...base, groups: [tg(2024, 6, 100), tg(4000, 30, 100, { encrypted: true })] };
+    expect(verdict(open, NO_PICKS, 300).say).toBe('A call you can hear every 50 s on this tower. Waiting for the next one.');
+  });
+  it('explains a hold', () => {
+    expect(verdict(base, { hold: 2024, skip: [] }, 300).say).toBe('Holding talkgroup 2024 · no call yet. Click the held talkgroup to let every talkgroup play.');
+  });
+});
+
+describe('channelBoard', () => {
+  it('puts the control channel first and lights channels with a call on them', () => {
+    const p = { ...base, now_secs: 110, groups: [tg(2024, 3, 108, { hz: 773_906_250 }), tg(4000, 9, 60, { hz: 774_606_250, encrypted: true })] };
+    expect(channelBoard(p).map((c) => [c.kind, c.hz, c.lit, c.playable])).toEqual([
+      ['control', 773_793_750, true, false],
+      ['voice', 773_906_250, true, true],
+      ['voice', 774_606_250, false, false],
+    ]);
+  });
+  it('splits each minute into calls to hear and calls that are locked', () => {
+    const bars = minuteBars([tg(2024, 3, 100), tg(4000, 9, 60, { encrypted: true })]);
+    expect(bars[9]).toEqual({ playable: 3, locked: 9 });
+    expect(bars[0]).toEqual({ playable: 0, locked: 0 });
   });
 });

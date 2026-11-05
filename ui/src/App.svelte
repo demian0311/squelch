@@ -7,7 +7,7 @@
   import { MODE_NAMES, allBookmarks, bandAt, captureCenter, bookmarkNear, namedFrequencies, notOnAir, bandEntryHz, fmtHz, fmtMHz, label, modeAt, Persistence, placeCards, anchor, withoutDeadAir, fmChannel, rdsName, rdsNow, snapTune, withRds, sondeDrift, sondeName, sondeSummary, withSondes, type Saved, type Signal } from './lib/radio';
   import { apply as applyTheme, groupHue, lut, mix, rampGradient, resolve, waterfallStops } from './lib/theme';
   import { hdLabel, hdState, nextHd, trafficGrid } from './lib/hd';
-  import { NO_PICKS, WINDOW_MIN, barPx, folded, groupRows, holdSay, p25Site, p25Summary, sinceSay, systemKey, type Picks } from './lib/p25';
+  import { NO_PICKS, folded, groupRows, holdSay, p25Site, p25Summary, systemKey, type Picks } from './lib/p25';
   import { ACARS_CENTRE_HZ, LOG_DAYS, MAX_MESSAGES, acarsPosition, acarsSummary, acarsTime, acarsWho, filterMessages, joinBlocks, labelName, mergeMessages } from './lib/acars';
   import { ageDays, ageLabel, clock, dayLabel, freshness, freshnessNote, groundAt, issRailLine, issTitle, localTime, utcTime, overhead, RECEPTION_DB, until, upcoming } from './lib/iss';
   import BandRail from './components/BandRail.svelte';
@@ -20,6 +20,8 @@
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import AirplanesScreen from './components/AirplanesScreen.svelte';
+  import EmsScreen from './components/EmsScreen.svelte';
+  import Talkgroups from './components/Talkgroups.svelte';
   import { AIR_TURNS, oneAirplanes, type Talk } from './lib/airplanes';
   import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import * as store from './lib/store';
@@ -533,6 +535,8 @@
   let seeRadio = $state(false);
   let airListen = $state<Talk | null>(null);
   let planesScreen = $derived(band?.id === 'air' && !seeRadio);
+  // The EMS screen: the receiver's steps, a verdict, the tower's channels and the talkgroups; `seeRadio` is the waterfall.
+  let emsScreen = $derived(isEms(band) && !seeRadio);
   let airWatching = $derived(planesScreen && !airListen);
   // while watching, the waterfall shows the whole capture wherever the turns have put the dongle
   let airCentre = $derived(status?.center_hz ?? ACARS_CENTRE_HZ);
@@ -677,6 +681,26 @@
   $effect(() => {
     api.setP25Picks(picks.hold, picks.skip).catch(() => {});
   });
+  // when the lock came: the control channel's own frequency changes, or the search ends
+  let lockAt = $state(0);
+  $effect(() => {
+    const hz = p25?.control_hz;
+    const searching = p25?.state === 'searching';
+    untrack(() => {
+      if (hz === null || hz === undefined || searching) lockAt = 0;
+      else if (!lockAt) lockAt = nowS;
+    });
+  });
+  let lockSecs = $derived(lockAt ? Math.max(0, nowS - lockAt) : 0);
+  let otherEmsBand = $derived(plan.bands.find((b) => isEms(b) && b.id !== band?.id));
+  /** A quiet tower: start the search again on the other EMS band, at its own start. */
+  function goOtherEmsBand() {
+    const b = otherEmsBand;
+    if (!b) return;
+    delete lastHz[b.id];
+    emsSide = b.id;
+    pickBand(b);
+  }
   function setPicks(next: Picks) {
     const k = systemKey(p25);
     if (k === null) return;
@@ -708,7 +732,7 @@
     setHdProgram(nextHd(hdProgram, hd?.programs ?? []));
   }
   let tunedChannel = $derived(channelAt(band?.id, tuned));
-  let nowTitle = $derived(airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived(airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     airWatching ? `${onPlanesTurn ? 'Listening for planes' : 'Listening for messages'} · ${adsb?.aircraft.length ?? 0} overhead` :
@@ -915,7 +939,7 @@
     if (band?.decoder === 'acars') own.push('acars');
     if (band?.decoder === 'adsb') own.push('aircraft');
     if (band?.decoder === 'adsb' || band?.decoder === 'acars') own.push('flights');
-    if (p25) own.push('p25');
+    if (p25 && !emsScreen) own.push('p25');
     if (repReachKm !== undefined && (repInBand.length || (mapLoaded && iss?.site))) own.push('repeaters');
     if (band?.mode === 'wfm') own.push('stations');
     // what HD stations send besides audio, once there is some
@@ -1296,6 +1320,13 @@
           <button class="chip backair" onclick={() => { seeRadio = false; airListen = null; }}>Back to the map</button>
         {/if}
       {/if}
+      {#if isEms(band) && !bookmarksOpen}
+        {#if emsScreen}
+          <button class="chip backair" onclick={() => (seeRadio = true)} title="The waterfall and the whole band">See the radio</button>
+        {:else}
+          <button class="chip backair" onclick={() => (seeRadio = false)}>Back to the tower</button>
+        {/if}
+      {/if}
     </header>
 
     {#if onPlan}
@@ -1389,7 +1420,7 @@
             </div>
           {/if}
           <div class="wf">
-            {#if !planesScreen}{@render wfView()}{/if}
+            {#if !planesScreen && !emsScreen}{@render wfView()}{/if}
           </div>
           {#if maxPane !== 'panel'}
             {#if !hintSeen}
@@ -1582,38 +1613,7 @@
                 </div>
               </div>
               <div class="col">
-                <h2>Talkgroups <span class="dim">· last {WINDOW_MIN} min</span></h2>
-                {#each tgRows as r (r.group)}
-                  {@const live = p25.call?.group === r.group}
-                  {@const held = picks.hold === r.group}
-                  {@const skipped = picks.skip.includes(r.group)}
-                  {@const max = Math.max(...r.minutes)}
-                  <!-- the row is the control: click holds the talkgroup (only it plays), the chip skips it (never plays) -->
-                  <div class="item tg" class:sel={live} class:quiet={skipped} role="button" tabindex="0" title={held ? 'Only this talkgroup plays. Click to let every talkgroup play.' : 'Click to hear only this talkgroup'} onclick={() => holdGroup(r.group)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); holdGroup(r.group); } }}>
-                    <span class="name gl">
-                      {#if live}<span class="ic" title="Playing"><Icon name="speaker" size={14} /></span>
-                      {:else if r.emergency}<span class="ic alarm" title="An emergency call in the last {WINDOW_MIN} min"><Icon name="siren" size={14} /></span>{/if}
-                      <span>Talkgroup {r.group}</span>
-                      <span class="bars" title="{r.calls} {r.calls === 1 ? 'call' : 'calls'} in the last {WINDOW_MIN} min, a bar a minute">{#each r.minutes as m, i (i)}<i class:q={!m} style:height="{barPx(m, max)}px"></i>{/each}</span>
-                      <span class="dim age">{live ? 'playing' : skipped ? 'skipped' : sinceSay(p25.now_secs - r.last_secs)}</span>
-                      {#if held}
-                        <button class="act on" title="Only this talkgroup plays. Click to let every talkgroup play." onclick={(e) => { e.stopPropagation(); holdGroup(r.group); }}>held</button>
-                      {:else}
-                        <button class="act" class:on={skipped} title={skipped ? 'Never plays. Click to let it play again.' : 'Never play this talkgroup'} onclick={(e) => { e.stopPropagation(); skipGroup(r.group); }}>skip</button>
-                      {/if}
-                    </span>
-                  </div>
-                {:else}
-                  <p class="empty">{p25.groups.length ? 'Nothing to hear yet: every call so far was encrypted or Phase 2.' : 'No calls yet. Busy sites assign several a minute; quiet ones can go minutes between.'}</p>
-                {/each}
-                {#if fold.encrypted || fold.tdma}
-                  <p class="foot dim">
-                    {#if fold.encrypted}<span class="ic" title="Encrypted: no scanner can hear it"><Icon name="lock" size={13} /></span><span>{fold.encrypted}</span>{/if}
-                    {#if fold.encrypted && fold.tdma}<span>·</span>{/if}
-                    {#if fold.tdma}<span class="ic" title="Phase 2: two calls share one channel in turns, which this receiver cannot play yet"><Icon name="mute" size={13} /></span><span>{fold.tdma}</span>{/if}
-                    <span>This receiver cannot play them.</span>
-                  </p>
-                {/if}
+                <Talkgroups {p25} {picks} rows={tgRows} {fold} onHold={holdGroup} onSkip={skipGroup} />
               </div>
             </div>
           {:else if panel === 'iss'}
@@ -1680,6 +1680,9 @@
       {/if}
       {#if planesScreen && !bookmarksOpen}
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} {playing} recording={!!rec?.recording} onRecord={toggleRecord} palette={airPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+      {/if}
+      {#if emsScreen && !bookmarksOpen}
+        <EmsScreen {p25} {picks} {lockSecs} rows={tgRows} {fold} otherBand={otherEmsBand?.name ?? null} onHold={holdGroup} onSkip={skipGroup} onOtherBand={goOtherEmsBand} onSeeRadio={() => (seeRadio = true)} />
       {/if}
       {#if bookmarksOpen}
         <BookmarksScreen plan={bookmarkPlan} {saved} {hues} {tuned} {slots} now={nowS} {wakeError} onTune={tuneBookmark} onTuneAt={(t) => tuneSaved(Math.round(t.mhz * 1e6), t.mode)} onBand={pickBand} onSave={saveBookmark} onDelete={deleteBookmark} onSlots={setSlots} onClose={() => (bookmarksOpen = false)} />
@@ -2278,61 +2281,8 @@
     align-items: center;
     gap: 6px;
   }
-  .item .gl .ic {
-    display: inline-flex;
-  }
-  .item .gl .age {
-    margin-left: auto;
-    font-weight: 400;
-  }
   .item .alarm {
     color: var(--red);
-  }
-  .item.tg {
-    cursor: pointer;
-  }
-  .item .bars {
-    display: inline-flex;
-    gap: 1.5px;
-    align-items: flex-end;
-    height: 14px;
-    margin-left: 4px;
-  }
-  .item .bars i {
-    display: block;
-    width: 4px;
-    background: var(--accent);
-    border-radius: 1px;
-  }
-  .item .bars i.q {
-    background: var(--muted);
-  }
-  .item .act {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--fg-dim);
-    background: none;
-    border: 1px solid var(--muted);
-    border-radius: 5px;
-    padding: 1px 6px;
-    cursor: pointer;
-  }
-  .item .act.on {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  .foot {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 6px;
-    align-items: center;
-    font-size: 12px;
-    margin: 6px 0 0;
-    padding: 8px 12px 2px;
-    border-top: 1px dashed var(--muted);
-  }
-  .foot .ic {
-    display: inline-flex;
   }
   .empty {
     margin: 0;
