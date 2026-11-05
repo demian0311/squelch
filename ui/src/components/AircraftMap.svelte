@@ -18,6 +18,8 @@
     tracks?: Record<string, TrailPiece[]>;
     selected?: string | null;
     onpick?: (icao: string) => void;
+    /** a click on the map away from every plane */
+    onclear?: () => void;
     airports?: { id: string; label: string; name: string; x: number; y: number; big: boolean; hit: boolean }[];
     /** a dashed line, plane to airport */
     link?: { x1: number; y1: number; x2: number; y2: number } | null;
@@ -26,7 +28,7 @@
     /** shaded terrain under it all, in these colours */
     palette?: Palette;
   }
-  let { planes, centre, halfKm, here, trails = {}, tracks = {}, selected = null, onpick, airports = [], link = null, pins = [], palette }: Props = $props();
+  let { planes, centre, halfKm, here, trails = {}, tracks = {}, selected = null, onpick, onclear, airports = [], link = null, pins = [], palette }: Props = $props();
 
   // arrows and labels keep their size on screen whatever the panel's
   const ARROW_PX = 10;
@@ -89,7 +91,9 @@
   }
 </script>
 
-<svg bind:contentRect={box} viewBox="{-halfKm} {-halfKm} {2 * halfKm} {2 * halfKm}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{planes.length} aircraft on the map">
+<!-- the picked row's chevron also clears the pick, so the map needs no key handler -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+<svg bind:contentRect={box} viewBox="{-halfKm} {-halfKm} {2 * halfKm} {2 * halfKm}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{planes.length} aircraft on the map" onclick={(e) => { if (!(e.target as Element).closest('.plane')) onclear?.(); }}>
   {#if ground}
     <image href={ground.url} x={-ground.frame.halfWKm} y={-ground.frame.halfHKm} width={2 * ground.frame.halfWKm} height={2 * ground.frame.halfHKm} preserveAspectRatio="none" />
   {/if}

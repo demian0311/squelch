@@ -221,7 +221,7 @@
       {/if}
       <div class="mapbody">
       {#if frame}
-        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
+        <AircraftMap planes={mapPlanes} centre={frame.centre} halfKm={frame.halfKm} here={!!site} tracks={mapTracks} {selected} onpick={pickPlane} onclear={() => { if (pickId) pickPlane(pickId); }} airports={mapAirports} link={mapLink} pins={mapPins} {palette} />
       {:else}
         <p class="empty">Waiting for the first plane. Planes appear here once the radio hears one.</p>
       {/if}
