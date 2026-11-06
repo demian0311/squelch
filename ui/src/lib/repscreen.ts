@@ -56,7 +56,19 @@ export function bestCentre(points: RepeaterPoint[], rate: number, must: number |
   return Math.round(best);
 }
 
-export type RowState = 'playing' | 'talking' | 'quiet' | 'away';
+export type RowState = 'playing' | 'talking' | 'under' | 'quiet' | 'away';
+
+/** The facts a row shows as a glyph and a number; the sentence stays in `detail` for the sub-line and tooltips. */
+export interface RepFacts {
+  /** Seconds since the repeater last carried something; null when nothing in `REMEMBER_MS`. */
+  lastSecs: number | null;
+  /** The DMR call's destination, "Talkgroup 31088" or "Radio 3104321, private"; null without a call. */
+  to: string | null;
+  /** How long the call has run, "42 s" or "1:05". */
+  length: string | null;
+  /** Which slots carry a call, and whether that call is encrypted. */
+  slots: { call: boolean; encrypted: boolean }[];
+}
 
 export interface RepRow {
   p: RepeaterPoint;
@@ -69,6 +81,9 @@ export interface RepRow {
   say: string;
   /** The small line under it. */
   detail: string;
+  /** The strongest carrier on the output now, dB above the floor; null when none is detected or the row is out of the capture. */
+  snr: number | null;
+  facts: RepFacts;
 }
 
 /** A row's live state from the engine. */
@@ -86,7 +101,19 @@ function lastSay(dmr: boolean, remembered: number | undefined, nowMs: number): s
   return remembered === undefined ? `nothing heard in ${Math.round(REMEMBER_MS / 86_400_000)} days` : `${what} ${sinceSay((nowMs - remembered) / 1000)}`;
 }
 
-export function repRows(points: RepeaterPoint[], scan: RepeaterScan | null, memory: Record<string, number>, nowMs: number): RepRow[] {
+/**
+ * `levels`: the strongest detected carrier per output (`liveOutputs` with no squelch), so a carrier under
+ * the mark shows as `under` with its level, where the engine's `on_air` (judged against the squelch) says quiet.
+ */
+/** "40 s", "6 min", "2 h", "3 d": the number beside the clock glyph. */
+export function shortAgo(secs: number): string {
+  if (secs < 60) return `${Math.round(secs)} s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)} min`;
+  if (secs < 86_400) return `${Math.floor(secs / 3600)} h`;
+  return `${Math.floor(secs / 86_400)} d`;
+}
+
+export function repRows(points: RepeaterPoint[], scan: RepeaterScan | null, memory: Record<string, number>, nowMs: number, levels: Map<number, number> = new Map()): RepRow[] {
   return points
     .filter((p) => !undecoded(p))
     .map((p) => {
@@ -95,19 +122,27 @@ export function repRows(points: RepeaterPoint[], scan: RepeaterScan | null, memo
       const held = scan?.hold !== null && scan?.hold !== undefined && Math.abs(scan.hold - p.hz) < 1;
       const playing = scan?.playing !== null && scan?.playing !== undefined && Math.abs(scan.playing - p.hz) < 1;
       const remembered = memory[String(p.hz)];
+      const lastSecs = remembered === undefined ? null : Math.max(0, (nowMs - remembered) / 1000);
+      const slots = (st?.dmr?.slots ?? []).map((s) => ({ call: !!s.call, encrypted: !!s.call?.encrypted }));
+      const quietFacts: RepFacts = { lastSecs, to: null, length: null, slots };
       if (!st || !st.heard) {
-        return { p, dmr, heard: false, held, state: 'away' as const, say: 'Out of the capture', detail: `click to move there · ${lastSay(dmr, remembered, nowMs)}` };
+        return { p, dmr, heard: false, held, state: 'away' as const, say: 'Out of the capture', detail: `click to move there · ${lastSay(dmr, remembered, nowMs)}`, snr: null, facts: quietFacts };
       }
+      const snr = levels.get(p.hz) ?? null;
       const call = dmr ? dmrCall(st) : null;
       if (call) {
         const say = call.encrypted ? 'Talking · encrypted, muted' : playing ? 'Talking · playing' : 'Talking';
         const slot = st.dmr!.slots.filter((s) => s.call).length === 2 ? ' · both slots busy' : ` · slot ${call.slot}`;
-        return { p, dmr, heard: true, held, state: playing ? ('playing' as const) : ('talking' as const), say, detail: `${callSay(call)} · ${lengthSay(call)}${slot}` };
+        const facts: RepFacts = { lastSecs: 0, to: callSay(call), length: lengthSay(call), slots };
+        return { p, dmr, heard: true, held, state: playing ? ('playing' as const) : ('talking' as const), say, detail: `${callSay(call)} · ${lengthSay(call)}${slot}`, snr, facts };
       }
       if (!dmr && st.on_air) {
-        return { p, dmr, heard: true, held, state: playing ? ('playing' as const) : ('talking' as const), say: playing ? 'On air · playing' : 'On air', detail: playing ? 'a carrier now' : 'a carrier now · click to hear it' };
+        return { p, dmr, heard: true, held, state: playing ? ('playing' as const) : ('talking' as const), say: playing ? 'On air · playing' : 'On air', detail: playing ? 'a carrier now' : 'a carrier now · click to hear it', snr, facts: { ...quietFacts, lastSecs: 0 } };
       }
-      return { p, dmr, heard: true, held, state: 'quiet' as const, say: playing ? 'Quiet · ready to play' : 'Quiet', detail: lastSay(dmr, remembered, nowMs) };
+      if (!dmr && snr !== null) {
+        return { p, dmr, heard: true, held, state: 'under' as const, say: 'Carrier under the mark', detail: `${snr.toFixed(0)} dB, muted · ${lastSay(dmr, remembered, nowMs)}`, snr, facts: quietFacts };
+      }
+      return { p, dmr, heard: true, held, state: 'quiet' as const, say: playing ? 'Quiet · ready to play' : 'Quiet', detail: lastSay(dmr, remembered, nowMs), snr, facts: quietFacts };
     });
 }
 
@@ -128,43 +163,4 @@ export function rememberHeard(memory: Record<string, number>, scan: RepeaterScan
     }
   }
   return next;
-}
-
-export interface RepStep {
-  n: 1 | 2 | 3;
-  say: string;
-  state: 'done' | 'now' | 'todo';
-}
-
-export function repSteps(rows: RepRow[]): RepStep[] {
-  const near = rows.filter((r) => r.p.reach).length;
-  const heard = rows.filter((r) => r.heard).length;
-  const playing = rows.find((r) => r.state === 'playing');
-  const held = rows.find((r) => r.held);
-  const s1: RepStep = near ? { n: 1, say: `${near} ${near === 1 ? 'repeater' : 'repeaters'} in reach`, state: 'done' } : { n: 1, say: 'No repeater in reach', state: 'now' };
-  const s2: RepStep = heard ? { n: 2, say: `${heard} in the capture, heard at once`, state: 'done' } : { n: 2, say: 'none in the capture', state: near ? 'now' : 'todo' };
-  const s3: RepStep = playing ? { n: 3, say: `playing ${playing.p.call}`, state: 'now' } : held ? { n: 3, say: `holding ${held.p.call}`, state: 'now' } : { n: 3, say: 'waiting for someone to talk', state: heard ? 'now' : 'todo' };
-  return [s1, s2, s3];
-}
-
-/** One sentence on what the radio is doing and what a click does. */
-export function repVerdict(rows: RepRow[], memory: Record<string, number>, nowMs: number): string {
-  const heard = rows.filter((r) => r.heard);
-  if (!rows.length) return 'No repeater this radio can play is listed near you on this band.';
-  if (!heard.length) return 'No repeater is inside the capture. Click a row to move the radio onto it.';
-  const held = rows.find((r) => r.held);
-  const playing = rows.find((r) => r.state === 'playing');
-  const quiet = heard.filter((r) => r.state === 'quiet');
-  const recent = quiet.map((r) => ({ r, at: memory[String(r.p.hz)] })).filter((x) => x.at !== undefined).sort((a, b) => b.at! - a.at!)[0];
-  const lastLine = recent ? ` ${recent.r.p.call} was last heard ${sinceSay((nowMs - recent.at!) / 1000)}.` : '';
-  if (held) {
-    const doing = playing && playing === held ? (held.dmr ? 'carries a call' : 'is on air') : 'is quiet';
-    return `Holding ${held.p.call} in ${held.p.city}: only it plays, and it ${doing}. Click it again to let the radio play whoever talks.`;
-  }
-  if (playing) {
-    const others = heard.length - 1;
-    const quietLine = others ? ` ${others === 1 ? 'One other repeater sits' : `${others} other repeaters sit`} in this capture and ${others === 1 ? 'is' : 'are'} quiet.` : '';
-    return `${playing.dmr ? 'Someone is talking' : 'A carrier is on'} ${playing.p.call} in ${playing.p.city}.${quietLine}${lastLine} Click a row to stay on it; otherwise the radio plays whoever talks next.`;
-  }
-  return `Quiet. ${heard.length === 1 ? 'One repeater is' : `${heard.length} repeaters are`} heard at once; the first to carry a call plays.${lastLine}`;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DmrCall, DmrSlot, RepeaterScan } from './api';
 import type { RepeaterPoint } from './repeaters';
-import { REMEMBER_MS, bestCentre, rememberHeard, repRows, repSteps, repVerdict, scanChannels } from './repscreen';
+import { REMEMBER_MS, bestCentre, rememberHeard, repRows, scanChannels, shortAgo } from './repscreen';
 
 const pt = (hz: number, call: string, digital: string | null = null, reach = true): RepeaterPoint => ({ id: call, hz, call, city: 'Miami', x: 0, y: 0, km: reach ? 3 : 60, reach, digital });
 const points = [pt(443_075_000, 'KZ4TI', 'DMR'), pt(443_550_000, 'WA4SRL'), pt(444_900_000, 'W2GGI', 'DMR'), pt(444_900_000, 'K7HJE', 'DMR'), pt(446_000_000, 'W4ABC', 'D-STAR'), pt(449_000_000, 'N2GKG', null, false)];
@@ -58,18 +58,32 @@ describe('repRows', () => {
     expect(rows[4]).toMatchObject({ heard: false, state: 'away', say: 'Out of the capture' });
     expect(rows[4].detail).toBe('click to move there · nothing heard in 7 days');
   });
-  it('steps and verdict follow the rows', () => {
-    const rows = repRows(points, scan, memory, now);
-    expect(repSteps(rows).map((s) => [s.say, s.state])).toEqual([
-      ['4 repeaters in reach', 'done'],
-      ['4 in the capture, heard at once', 'done'],
-      ['playing KZ4TI', 'now'],
+  it('shows the level, a carrier under the mark, and the facts as numbers', () => {
+    const levels = new Map([
+      [443_075_000, 31],
+      [443_550_000, 24],
+      [444_900_000, 6],
     ]);
-    expect(repVerdict(rows, memory, now)).toBe('Someone is talking KZ4TI in Miami. 3 other repeaters sit in this capture and are quiet. W2GGI was last heard 6 min ago. Click a row to stay on it; otherwise the radio plays whoever talks next.');
-    const held = repRows(points, { ...scan, hold: 444_900_000, playing: 444_900_000 }, memory, now);
-    expect(repVerdict(held, memory, now)).toMatch(/^Holding W2GGI in Miami: only it plays, and it is quiet\./);
-    expect(repSteps(held)[2].say).toBe('holding W2GGI');
-    expect(repVerdict(repRows(points, null, {}, now), {}, now)).toBe('No repeater is inside the capture. Click a row to move the radio onto it.');
+    const rows = repRows(points, scan, memory, now, levels);
+    expect(rows[0].snr).toBe(31);
+    expect(rows[0].facts).toMatchObject({ to: 'Talkgroup 31088 ← radio 3104321', length: '10 s', lastSecs: 0 });
+    expect(rows[0].facts.slots).toEqual([
+      { call: false, encrypted: false },
+      { call: true, encrypted: false },
+    ]);
+    expect(rows[1]).toMatchObject({ state: 'talking', snr: 24 });
+    // a DMR output with a carrier but no call stays quiet: the level still shows
+    expect(rows[2]).toMatchObject({ state: 'quiet', snr: 6 });
+    expect(rows[2].facts.lastSecs).toBe(360);
+    expect(rows[4]).toMatchObject({ state: 'away', snr: null });
+    expect(rows[4].facts.lastSecs).toBeNull();
+    // an FM carrier the engine judged under the squelch
+    const under = repRows(points, { ...scan, channels: scan.channels.map((c) => (c.hz === 443_550_000 ? { ...c, on_air: false } : c)) }, memory, now, levels);
+    expect(under[1]).toMatchObject({ state: 'under', snr: 24, say: 'Carrier under the mark' });
+    expect(repRows(points, { ...scan, channels: scan.channels.map((c) => (c.hz === 443_550_000 ? { ...c, on_air: false } : c)) }, memory, now)[1].state).toBe('quiet');
+  });
+  it('shortAgo keeps to one unit', () => {
+    expect([shortAgo(40), shortAgo(360), shortAgo(7200), shortAgo(3 * 86_400)]).toEqual(['40 s', '6 min', '2 h', '3 d']);
   });
 });
 

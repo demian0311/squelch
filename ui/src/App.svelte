@@ -39,7 +39,7 @@
   import { ADSB_CENTRE_HZ, TRAIL_KEEP_MS, adsbSummary, aircraftFacts, aircraftLine, aircraftRows, extendTrails, trailPath, filterFlights, flightDays, flightLine, flightName, isAlarm, mapFrame, pickedFirst, trackPath, type Trails } from './lib/adsb';
   import Level from './components/Level.svelte';
   import { DEFAULT_VIEW, REACH_KM, WIDEST_KM, heldOutputs, liveOutputs, repeaterPoints, type HeardOutput, type MapView } from './lib/repeaters';
-  import { bestCentre, rememberHeard, repRows, repSteps, repVerdict, scanChannels } from './lib/repscreen';
+  import { bestCentre, rememberHeard, repRows, scanChannels } from './lib/repscreen';
   import Icon from './components/Icon.svelte';
   import ChannelBoard from './components/ChannelBoard.svelte';
   import BoardActivity from './components/BoardActivity.svelte';
@@ -590,7 +590,9 @@
   let repHold = $state<number | null>(null);
   /** Per output frequency, when it last carried something; kept across runs. */
   let repMemory = $state<Record<string, number>>(store.getState('repeaters.heard', {}));
-  let repRowList = $derived(repRows(repShown, status?.repeaters ?? null, repMemory, nowS * 1000));
+  /** Every detected carrier on a repeater's output, no squelch: the rows show a carrier under the mark too. */
+  let repLevels = $derived(liveOutputs(repShown, status?.signals ?? []));
+  let repRowList = $derived(repRows(repShown, status?.repeaters ?? null, repMemory, nowS * 1000, repLevels));
   let repPlayingRow = $derived(repRowList.find((r) => r.state === 'playing') ?? null);
   let repScanOn = false;
   $effect(() => {
@@ -2028,7 +2030,7 @@
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
       {/if}
       {#if repScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <RepeatersScreen rows={repRowList} steps={repSteps(repRowList)} verdict={repVerdict(repRowList, repMemory, nowS * 1000)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)}>
+        <RepeatersScreen rows={repRowList} band={{ lo: (band?.low_mhz ?? 0) * 1e6, hi: (band?.high_mhz ?? 1) * 1e6 }} capture={{ centre: center, half: rate * 0.45 }} {squelch} meterDb={METER_DB} onSquelch={(db) => (squelch = db)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)}>
           {#snippet map()}
             {#if iss?.site}
               <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={repRowClick} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
