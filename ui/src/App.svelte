@@ -30,7 +30,8 @@
   import DmrPanel from './components/DmrPanel.svelte';
   import RepeatersScreen from './components/RepeatersScreen.svelte';
   import { AIR_TURNS, airportTalk, airportWindow, followChannel, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
-  import { awakeUntil, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
+  import { awakeUntil, newId, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
+  import { bookingOf, earlyMinutes, followPasses, passWindow, recordSpan, slotWindow, toggleBooking, VOICE_MHZ } from './lib/passbook';
   import * as store from './lib/store';
   import IssMap from './components/IssMap.svelte';
   import RepeaterMap from './components/RepeaterMap.svelte';
@@ -485,6 +486,14 @@
   let issTrack = $state.raw<GroundPoint[]>([]);
   // The pass under the pointer (or focused): the map draws it instead of the live position.
   let issHover = $state.raw<IssPass | null>(null);
+  // a booked pass recording follows its pass: fresh orbit data moves the slot, old data widens it
+  $effect(() => {
+    const passes = iss?.passes;
+    if (!passes?.length) return;
+    const next = followPasses(slots, passes, issAge, nowS);
+    if (next) setSlots(next);
+  });
+  let anyBooked = $derived(iss?.passes.some((p) => bookingOf(slots, p)) ?? false);
   let issHere = $derived(groundAt(issTrack, nowS));
   // Zoom the map to the listener only while a pass is under way and its channel has signal.
   let issLocal = $derived(issUp !== null && (status?.channel_snr_db ?? 0) >= RECEPTION_DB);
@@ -1952,6 +1961,9 @@
                   {#each issNext as p (p.rise)}
                     {@const now = p === issUp}
                     {@const colour = passColour(p.max_elevation)}
+                    {@const booked = bookingOf(slots, p)}
+                    {@const recNow = !!booked && onPlan?.slot.id === booked.id}
+                    {@const w = (booked && slotWindow(booked)) || passWindow(p, issAge)}
                     <div class="item pass" class:sel={now} role="button" tabindex="0" title={`${passWhy(p.max_elevation)} ${Math.round((p.set - p.rise) / 60)} min above the horizon, rises ${compass(p.rise_az)}, sets ${compass(p.set_az)}.`} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
                       <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`} <small>– {clock(p.set)}</small></span>
                       <span class="arcline">
@@ -1965,9 +1977,13 @@
                         <span class="big" style:color={colour}>{passWord(p.max_elevation)}</span>
                         <small class="mono">{Math.round(p.max_elevation)}°</small>
                       </span>
+                      <!-- one click books a recording of the pass; the slot lives in schedule.toml like any other -->
+                      <button class="pill" class:set={!!booked} class:now={recNow} title={booked ? (recNow ? `Recording ${VOICE_MHZ} MHz until ${clock(w.end)}. Click to stop and cancel.` : `Booked: records ${VOICE_MHZ} MHz, ${recordSpan(w)}. Also at the foot of Bookmarks (B). Click to cancel.`) : `Record this pass on ${VOICE_MHZ} MHz (voice and pictures), ${recordSpan(w)}: ${earlyMinutes(issAge)} min early and late for the orbit data's age. Moves if fresh orbit data moves the pass.`} onclick={(e) => { e.stopPropagation(); if (recNow) endPlan(); setSlots(toggleBooking(slots, p, issAge, newId())); }}>
+                        <i></i>{recNow ? 'Recording' : booked ? 'Will record' : 'Record'} <span class="mono">{recordSpan(w)}</span>
+                      </button>
                     </div>
                   {/each}
-                  <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time.</p>
+                  <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time. A booked recording starts {earlyMinutes(issAge)} min early and ends {earlyMinutes(issAge)} min late, and moves with fresh orbit data.{#if anyBooked && wakeError} The computer cannot wake for it yet: Bookmarks (B) has the one-time command.{/if}</p>
                 {/if}
               </div>
             </div>
@@ -2783,6 +2799,49 @@
   .item.pass:hover,
   .item.pass:focus-visible {
     border-color: var(--fg-dim);
+  }
+  .item.pass .pill {
+    justify-self: start;
+    margin-top: 3px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 18px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 9px 0 6px;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .item.pass .pill i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+  }
+  .item.pass .pill .mono {
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .item.pass .pill:hover,
+  .item.pass .pill:focus-visible {
+    border-color: var(--fg);
+    outline: none;
+  }
+  .item.pass .pill.set {
+    border-color: var(--red);
+  }
+  .item.pass .pill.set i {
+    background: var(--red);
+  }
+  .item.pass .pill.set .mono {
+    color: var(--fg);
+  }
+  .item.pass .pill.now {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 30%, transparent);
   }
   .item.pass .name small {
     font-size: 12px;

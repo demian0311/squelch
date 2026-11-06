@@ -13,6 +13,7 @@ const SCHEDULE_HEADER: &str = "# Times to tune in. Squelch rereads this file whe
 # time is local; times = [\"09:00\", \"21:00\"] for several a day. days = [\"mon\", \"wed\"] repeats weekly; without days,
 # date = \"2026-11-08\" is once. week = 1 to 4, or 5 for the last, keeps only that week of the month.
 # minutes is how long it runs (60). action is remind, tune or record; go_back = true returns to the earlier frequency.
+# pass marks a slot booked from a space station pass; the app moves it when the orbit data changes.
 #
 # [[slot]]
 # name = \"Tuesday net\"
@@ -81,6 +82,10 @@ pub struct Slot {
     /// When it ends, back to the frequency it took over from.
     #[serde(default)]
     pub go_back: bool,
+    /// Booked from a space station pass: the pass's predicted rise (Unix seconds) when it was booked,
+    /// so the page can move the slot when fresh orbit data moves the pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pass: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +108,7 @@ struct FileSlot {
     action: Action,
     #[serde(default)]
     go_back: bool,
+    pass: Option<i64>,
 }
 
 fn default_mode() -> Mode {
@@ -184,7 +190,7 @@ pub fn parse_schedule(text: &str) -> Result<Vec<Slot>> {
                 .iter()
                 .map(|d| day_number(d).with_context(|| format!("slot {at}: day {d:?} is not one of {DAYS:?}")))
                 .collect::<Result<_>>()?;
-            Ok(Slot { at: Some(i), name: s.name, mhz: s.mhz, mode: s.mode, times, days, date: s.date, week: s.week, minutes: s.minutes, action: s.action, go_back: s.go_back })
+            Ok(Slot { at: Some(i), name: s.name, mhz: s.mhz, mode: s.mode, times, days, date: s.date, week: s.week, minutes: s.minutes, action: s.action, go_back: s.go_back, pass: s.pass })
         })
         .collect()
 }
@@ -300,6 +306,7 @@ fn set_slot(t: &mut Table, s: &Slot) -> Result<()> {
     let action = (t.contains_key("action") || s.action != Action::default()).then(|| toml::Value::try_from(s.action)).transpose()?;
     put(t, "action", action.map(|a| a.as_str().unwrap_or_default().into()));
     put(t, "go_back", s.go_back.then(|| true.into()));
+    put(t, "pass", s.pass.map(Value::from));
     Ok(())
 }
 
@@ -379,7 +386,7 @@ mod tests {
     use super::*;
 
     fn slot(name: &str) -> Slot {
-        Slot { at: None, name: name.into(), mhz: 146.52, mode: Mode::Nfm, times: vec!["19:30".into()], days: vec![2, 4], date: None, week: None, minutes: 60, action: Action::Remind, go_back: false }
+        Slot { at: None, name: name.into(), mhz: 146.52, mode: Mode::Nfm, times: vec!["19:30".into()], days: vec![2, 4], date: None, week: None, minutes: 60, action: Action::Remind, go_back: false, pass: None }
     }
 
     const FILE: &str = "# my nets

@@ -22,6 +22,8 @@ export interface Slot {
   action: Action;
   /** When it ends, back to the frequency it took over from. */
   go_back: boolean;
+  /** Booked from a space station pass: that pass's predicted rise (Unix seconds) at booking. */
+  pass?: number | null;
 }
 
 export type Action = 'remind' | 'tune' | 'record';
@@ -154,7 +156,7 @@ export function byNext(slots: Slot[], now: Date): Slot[] {
   return [...slots].sort((a, b) => t(a) - t(b));
 }
 
-const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** A new slot on the given frequency, with no time yet. */
 export function newSlot(name: string, mhz: number, mode: Mode, now: Date): Slot {
@@ -203,7 +205,7 @@ export function withIds(prev: Slot[], read: ReadSlot[]): Slot[] {
     const i = free.findIndex(match);
     return i < 0 ? undefined : free.splice(i, 1)[0].id;
   };
-  const alike = (a: ReadSlot, b: ReadSlot) => a.name === b.name && a.mhz === b.mhz && a.mode === b.mode && a.times.join() === b.times.join() && (a.date ?? '') === (b.date ?? '') && a.days.join() === b.days.join() && (a.week ?? 0) === (b.week ?? 0) && a.minutes === b.minutes && a.action === b.action && a.go_back === b.go_back;
+  const alike = (a: ReadSlot, b: ReadSlot) => a.name === b.name && a.mhz === b.mhz && a.mode === b.mode && a.times.join() === b.times.join() && (a.date ?? '') === (b.date ?? '') && a.days.join() === b.days.join() && (a.week ?? 0) === (b.week ?? 0) && a.minutes === b.minutes && a.action === b.action && a.go_back === b.go_back && (a.pass ?? 0) === (b.pass ?? 0);
   const same = read.map((s) => claim((p) => alike(p, s)));
   return read.map((s, i) => ({ ...s, id: same[i] ?? claim((p) => p.at === s.at) ?? newId() }));
 }
