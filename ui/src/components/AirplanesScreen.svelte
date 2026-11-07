@@ -465,6 +465,8 @@
     container-type: inline-size;
     display: flex;
     flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px;
     background: var(--bg);
   }
   .map {
@@ -472,7 +474,6 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    background: var(--bg-darker);
   }
   .mapbody {
     position: relative;

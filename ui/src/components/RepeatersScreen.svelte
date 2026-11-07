@@ -468,9 +468,6 @@
   .map {
     position: relative;
     min-height: 0;
-    overflow: hidden;
-    border-radius: var(--r);
-    background: var(--bg-darker);
   }
   .foot {
     display: flex;

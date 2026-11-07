@@ -11,8 +11,10 @@
     onShare: (share: number, save: boolean) => void;
     map: Snippet;
     rows: Snippet;
+    /** space around the split, px, where the host has no padding of its own (the panels) */
+    inset?: number;
   }
-  let { share, onShare, map, rows }: Props = $props();
+  let { share, onShare, map, rows, inset = 0 }: Props = $props();
 
   const STACK_UNDER = 1000;
   const MIN_SHARE = 20;
@@ -42,7 +44,7 @@
   }
 </script>
 
-<div class="split" class:stacked bind:this={el} bind:clientWidth={width} style:--share="{share}%">
+<div class="split" class:stacked bind:this={el} bind:clientWidth={width} style:--share="{share}%" style:padding="{inset}px">
   <div class="cell map">{@render map()}</div>
   <button class="divider" aria-label="Resize the rows" title="Drag to give the rows or the map more room" onpointerdown={startDivider}></button>
   <div class="cell rows">{@render rows()}</div>
@@ -61,13 +63,18 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) 10px minmax(120px, var(--share));
   }
-  /* a cell stretches its one child to fill it */
+  /* a cell stretches its one child to fill it; the map is the one rounded box every screen shares */
   .cell {
     display: grid;
     grid-template-rows: minmax(0, 1fr);
     grid-template-columns: minmax(0, 1fr);
     min-height: 0;
     min-width: 0;
+  }
+  .cell.map {
+    overflow: hidden;
+    border-radius: var(--r);
+    background: var(--bg-darker);
   }
   .divider {
     position: relative;

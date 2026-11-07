@@ -1821,7 +1821,7 @@
               {/each}
             </div>
           {:else if panel === 'aircraft'}
-            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+            <MapSplit share={panelSplit} onShare={setPanelSplit} inset={10}>
               {#snippet map()}{#if planeMap}
                 <div class="mapbox">
                   <AircraftMap planes={planeMap.planes} centre={planeMap.centre} halfKm={planeMap.halfKm} here={!!iss?.site} trails={trailPaths} selected={planePick} onpick={pickPlane} />
@@ -1857,7 +1857,7 @@
               </div>{/snippet}
             </MapSplit>
           {:else if panel === 'flights'}
-            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+            <MapSplit share={panelSplit} onShare={setPanelSplit} inset={10}>
               {#snippet map()}{#if flightMap}
                 <div class="mapbox">
                   <AircraftMap planes={[]} centre={flightMap.centre} halfKm={flightMap.halfKm} here={!!iss?.site} trails={flightPath} selected={flightPick?.icao ?? null} />
@@ -1958,7 +1958,7 @@
               <DmrPanel {dmr} onFm={() => tuneSaved(tuned, 'nfm')} />
             </div>
           {:else if panel === 'iss'}
-            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+            <MapSplit share={panelSplit} onShare={setPanelSplit} inset={10}>
               {#snippet map()}<div class="mapbox">
                 <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} pass={issHover} />
                 {#if issHover}<span class="mapcap">{issHover === issUp ? 'Overhead now' : `${dayLabel(issHover.rise, nowS)} ${clock(issHover.rise)}`} · {Math.round(issHover.max_elevation)}° high</span>{/if}
@@ -2750,14 +2750,15 @@
     position: relative;
     overflow: hidden;
     min-height: 0;
-    background: var(--bg-darker);
   }
   .mapbox.only {
     flex: 1;
+    margin: 10px;
+    border-radius: var(--r);
+    background: var(--bg-darker);
   }
   .list {
     min-height: 0;
-    padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
