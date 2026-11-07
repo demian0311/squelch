@@ -11,6 +11,39 @@ pub fn u8_to_iq(raw: &[u8], out: &mut Vec<C32>) {
     out.extend(raw.chunks_exact(2).map(|p| C32::new((p[0] as f32 - 127.4) / 128.0, (p[1] as f32 - 127.4) / 128.0)));
 }
 
+/// The share of a block's mean that moves the DC estimate: about ten blocks to settle.
+const DC_TRACK: f32 = 0.1;
+
+/// Takes the dongle's DC offset out of a capture. The chip's own spike sits at the capture
+/// centre, 37–45 dB above the floor in direct sampling (2026-11-06, Nooelec v5), where the
+/// tuner path's own blocking is bypassed. A slow mean of I and Q, subtracted per block.
+#[derive(Default)]
+pub struct DcRemove {
+    dc: Option<C32>,
+}
+
+impl DcRemove {
+    pub fn apply(&mut self, iq: &mut [C32]) {
+        if iq.is_empty() {
+            return;
+        }
+        let mean = iq.iter().sum::<C32>() / iq.len() as f32;
+        let dc = match self.dc {
+            None => mean,
+            Some(dc) => dc + (mean - dc) * DC_TRACK,
+        };
+        self.dc = Some(dc);
+        for s in iq.iter_mut() {
+            *s -= dc;
+        }
+    }
+
+    /// Forget the estimate: the next block sets it outright.
+    pub fn reset(&mut self) {
+        self.dc = None;
+    }
+}
+
 /// Low-pass taps. `cutoff` and `transition` are fractions of the sample rate.
 pub fn lowpass(cutoff: f32, transition: f32) -> Vec<f32> {
     // Hamming window: about 3.3 / transition taps for ~53 dB stopband.
@@ -469,6 +502,23 @@ pub fn power_db(buf: &[C32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dc_remove_takes_the_offset_and_keeps_the_tone() {
+        let mut dc = DcRemove::default();
+        let tone = |i: usize| C32::from_polar(0.3, i as f32 * 0.2);
+        let mut block: Vec<C32> = (0..4096).map(|i| tone(i) + C32::new(0.25, -0.1)).collect();
+        dc.apply(&mut block);
+        let mean = block.iter().sum::<C32>() / block.len() as f32;
+        assert!(mean.norm() < 1e-3, "offset left: {mean}");
+        let err = block.iter().enumerate().map(|(i, s)| (s - tone(i)).norm()).fold(0.0, f32::max);
+        assert!(err < 0.02, "the tone changed by {err}");
+        // a later block with the same offset settles further, never overshoots
+        let mut again: Vec<C32> = (0..4096).map(|i| tone(i) + C32::new(0.25, -0.1)).collect();
+        dc.apply(&mut again);
+        let mean = again.iter().sum::<C32>() / again.len() as f32;
+        assert!(mean.norm() < 1e-3, "offset left on the second block: {mean}");
+    }
 
     #[test]
     fn lowpass_has_unity_dc_gain() {

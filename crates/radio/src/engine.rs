@@ -29,6 +29,8 @@ pub const ROWS_PER_SEC: u32 = 30;
 /// Spectrum rows are sent as bytes: 0 is `floor - BELOW_FLOOR_DB`, 255 is `RANGE_DB` above that.
 pub const BELOW_FLOOR_DB: f32 = 8.0;
 pub const RANGE_DB: f32 = 60.0;
+/// In direct sampling, nothing this close to the capture centre counts as a signal: the DC spike's width.
+const DIRECT_DC_SKIP_HZ: f64 = 10_000.0;
 /// Signals must stand this far above the noise floor to be reported.
 pub const DETECT_DB: f32 = 8.0;
 const READ_BYTES: usize = 131_072;
@@ -302,6 +304,8 @@ fn run(
     let mut spectrum = Spectrum::new(FFT_SIZE, rate, ROWS_PER_SEC);
     let mut raw = vec![0u8; READ_BYTES];
     let mut iq: Vec<C32> = Vec::new();
+    let mut dc_remove = crate::dsp::DcRemove::default();
+
     let mut pcm: Vec<f32> = Vec::new();
     let mut rows: Vec<Vec<f32>> = Vec::new();
     let mut floor = Floor::new();
@@ -606,6 +610,12 @@ fn run(
         };
         prof.lap("read");
         u8_to_iq(&raw[..n], &mut iq);
+        // direct sampling bypasses the tuner path's DC blocking: the chip's spike would be the loudest thing in the band
+        if src.direct() {
+            dc_remove.apply(&mut iq);
+        } else {
+            dc_remove.reset();
+        }
         prof.lap("convert");
         if let Some(h) = &hd {
             h.feed(&iq);
@@ -668,6 +678,10 @@ fn run(
                 }
             }
             signals = detect(&avg, floor.db, DETECT_DB, center, rate as f64, 3);
+            if src.direct() {
+                // what the blocker leaves of the spike is still no signal
+                signals.retain(|d| (d.hz - center).abs() > DIRECT_DC_SKIP_HZ);
+            }
             if mode == Mode::Wfm {
                 crate::hd::drop_sidebands(&mut signals);
                 crate::hd::mark_sidebands(&mut signals, &avg, floor.db, center, rate as f64);
