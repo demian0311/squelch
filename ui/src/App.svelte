@@ -237,13 +237,13 @@
     let s = Math.min(Math.max(nve - nvs, MIN_SPAN), maxSpan);
     const mid = (nvs + nve) / 2;
     nvs = Math.max(0, mid - s / 2); // below the tuner the view goes down to 0 Hz; the engine keeps the capture above it
+    // a band the view holds whole stays whole in it: a drag never slides AM radio off its edge
+    if (band && s >= (band.high_mhz - band.low_mhz) * 1e6) nvs = Math.min(band.low_mhz * 1e6, Math.max(band.high_mhz * 1e6 - s, nvs));
     vs = nvs;
     ve = nvs + s;
     panning = true;
     clearTimeout(panTimer);
     panTimer = setTimeout(() => (panning = false), 200);
-    // a band the view holds whole stays whole in it: a drag never slides AM radio off its edge
-    if (band && s >= (band.high_mhz - band.low_mhz) * 1e6) nvs = Math.min(band.low_mhz * 1e6, Math.max(band.high_mhz * 1e6 - s, nvs));
     recenter();
   }
 
