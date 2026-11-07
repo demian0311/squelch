@@ -45,6 +45,7 @@
     restore: ['M4 10h10v10H4z', 'M8 10V5h12v12h-6'],
     chevronRight: ['M9 6l6 6-6 6'],
     chevronDown: ['M6 9l6 6 6-6'],
+    chevronUp: ['M6 15l6-6 6 6'],
     arrowUp: ['M12 19V5', 'M5 12l7-7 7 7'],
     climb: ['M7 17 17 7', 'M8 7h9v9'],
     descend: ['M7 7l10 10', 'M17 8v9H8'],

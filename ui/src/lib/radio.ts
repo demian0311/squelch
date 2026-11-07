@@ -1,6 +1,7 @@
 // Pure helpers: frequency text, band lookup, labelling detected signals and placing their cards.
 import { ACARS_CENTRE_HZ } from './acars';
 import type { Band, BandPlan, Bookmark, Detected, Mode, Rds, Sonde } from './api';
+import { segmentAt } from './bandplan';
 import { channelAt } from './channels';
 
 export const MODE_NAMES: Record<Mode, string> = {
@@ -143,12 +144,12 @@ export function bookmarkNear(saved: Saved[], hz: number, tolHz: number): Saved |
   return best;
 }
 
-/** The mode to use at `hz`: a named frequency's own mode, else the band's, else `fallback`. */
+/** The mode to use at `hz`: a named frequency's own mode, else its channel's, else its band-plan segment's (`bandplan.ts`), else the band's, else `fallback`. */
 export function modeAt(plan: BandPlan, named: Saved[], hz: number, fallback: Mode): Mode {
   const mark = bookmarkNear(named, hz, 3_000);
   if (mark?.mode) return mark.mode;
   const band = bandAt(plan, hz);
-  return channelAt(band?.id, hz)?.mode ?? band?.mode ?? fallback;
+  return channelAt(band?.id, hz)?.mode ?? segmentAt(band?.id, hz)?.mode ?? band?.mode ?? fallback;
 }
 
 export interface Signal {

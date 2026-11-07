@@ -14,6 +14,8 @@
   import BandRail from './components/BandRail.svelte';
   import Waterfall from './components/Waterfall.svelte';
   import BandStrip from './components/BandStrip.svelte';
+  import BandPlanRuler from './components/BandPlanRuler.svelte';
+  import { BAND_PLANS } from './lib/bandplan';
   import EmsStrip from './components/EmsStrip.svelte';
   import { addLine, emsRanges, isEms, oneEms, railId, type LookLine } from './lib/ems';
   import StationList from './components/StationList.svelte';
@@ -67,6 +69,9 @@
   const WF_AXIS = 22;
   const WF_MIN = 60;
   const BAND_STRIP_H = 31;
+  // BandPlanRuler.svelte open and folded, border included
+  const PLAN_H = 18;
+  const PLAN_THIN_H = 10;
   // EmsStrip.svelte: scale, picture and words, with its border
   const EMS_STRIP_H = 80;
   // the waterfall's spectrum line while the panel has the screen
@@ -185,7 +190,7 @@
   let fit = $derived.by(() => {
     const lanes = band?.id === 'fm' ? FM_LANES : LANES;
     if (!boxH) return { level: 0, lane: lanes[0], spec: SPEC_H };
-    const room = boxH - (hasStrip ? BAND_STRIP_H : emsLook ? EMS_STRIP_H : 0) - WF_AXIS - WF_MIN;
+    const room = boxH - (hasStrip ? BAND_STRIP_H : emsLook ? EMS_STRIP_H : 0) - (hasPlan ? (planOpen ? PLAN_H : PLAN_THIN_H) : 0) - WF_AXIS - WF_MIN;
     const at = lanes.findIndex((h) => room - h >= SPEC_MIN);
     const level = at < 0 ? lanes.length - 1 : at;
     return { level, lane: lanes[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - lanes[level])) };
@@ -456,6 +461,13 @@
   });
 
   let hasStrip = $derived(!!band && STRIP_BANDS.includes(band.id));
+  // the band plan ruler: on bands lib/bandplan.ts has a plan for; folded or open is remembered
+  let hasPlan = $derived(!!band && !!BAND_PLANS[band.id]);
+  let planOpen = $state(store.getState('plan.open', true));
+  function togglePlan() {
+    planOpen = !planOpen;
+    store.setState('plan.open', planOpen);
+  }
   // below the tuner stations are remembered by channel only; the band's own names and the bookmarks name them
   let stripMarks = $derived(
     !band || !hasStrip
@@ -1479,6 +1491,7 @@
       else openRecordings();
     }
     else if (e.key === '?') toggleGuide();
+    else if (e.key === 'p' && hasPlan) togglePlan();
     else if (e.key === 'F11') toggleFull();
     else if (e.key === 'Escape' && guideOpen) guideOpen = false;
     else if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
@@ -1776,6 +1789,9 @@
               }}
               onGlide={slideView}
             />
+          {/if}
+          {#if hasPlan && band && maxPane !== 'panel'}
+            <BandPlanRuler bandId={band.id} {vs} {ve} open={planOpen} onToggle={togglePlan} onTune={tuneCentered} />
           {/if}
           {#if emsLook && maxPane !== 'panel'}
             <EmsStrip ranges={emsLook} lines={emsLines} looking={!!status?.look?.looking} agoS={emsLineAt === null ? null : Math.max(0, nowS - emsLineAt)} {vs} {ve} {tuned} scan={p25?.scan ?? null} tried={p25?.tried ?? []} palette={stripPalette} {hue} onTune={tuneCentered} />
@@ -2169,6 +2185,7 @@
       <dt><kbd>b</kbd></dt><dd>bookmarks</dd>
       <dt><kbd>r</kbd></dt><dd>recordings</dd>
       <dt><kbd>?</kbd></dt><dd>about this band</dd>
+      <dt><kbd>p</kbd></dt><dd>show or hide the band plan</dd>
       <dt><kbd>s</kbd></dt><dd>settings</dd>
       <dt><kbd>F11</kbd></dt><dd>full screen</dd>
       <dt><kbd>Esc</kbd></dt><dd>back</dd>
