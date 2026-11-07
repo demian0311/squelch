@@ -29,6 +29,7 @@
   import Talkgroups from './components/Talkgroups.svelte';
   import DmrPanel from './components/DmrPanel.svelte';
   import RepeatersScreen from './components/RepeatersScreen.svelte';
+  import MapSplit from './components/MapSplit.svelte';
   import { AIR_TURNS, airportTalk, airportWindow, followChannel, hearingSay, oneAirplanes, type Hearing, type Talk } from './lib/airplanes';
   import { awakeUntil, newId, nextWake, openWindows, reminders, when, withIds, type Slot, type Window } from './lib/schedule';
   import { bookingOf, earlyMinutes, followPasses, passWindow, recordSpan, slotWindow, toggleBooking, VOICE_MHZ } from './lib/passbook';
@@ -1276,6 +1277,16 @@
   // the panel's share of the width (or height when stacked), dragged at the divider
   let panelShare = $state(store.getState('panel.size', 30));
   let stacked = $state(false);
+  // the rows' share of a panel's map split (the Aircraft, Flights log and Space station panels), saved once the divider is let go
+  let panelSplit = $state(store.getState('panel.split', 65));
+  function setPanelSplit(v: number, save: boolean) {
+    if (save) store.setState('panel.split', panelSplit);
+    else panelSplit = v;
+  }
+  function setPanelShare(v: number, save: boolean) {
+    if (save) store.setState('panel.size', panelShare);
+    else panelShare = v;
+  }
   let mainEl: HTMLElement;
   function startDivider(e: PointerEvent) {
     if (e.button !== 0) return;
@@ -1810,14 +1821,14 @@
               {/each}
             </div>
           {:else if panel === 'aircraft'}
-            <div class="split">
-              {#if planeMap}
-                <div class="mapbox repmap">
+            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+              {#snippet map()}{#if planeMap}
+                <div class="mapbox">
                   <AircraftMap planes={planeMap.planes} centre={planeMap.centre} halfKm={planeMap.halfKm} here={!!iss?.site} trails={trailPaths} selected={planePick} onpick={pickPlane} />
                   <span class="maplabel">{iss?.site ? 'Arrows point along the track; faded: no position for 30 s' : 'Centred on the aircraft; set your location to see distances'}</span>
                 </div>
-              {/if}
-              <div class="list" bind:this={planeList}>
+              {/if}{/snippet}
+              {#snippet rows()}<div class="list" bind:this={planeList}>
                 {#each pickedFirst(planeRows, planePick) as r (r.a.icao)}
                   <button class="reprow" class:sel={planePick === r.a.icao} class:alarm={isAlarm(r.a)} onclick={() => pickPlane(r.a.icao)}>
                     <span class="name">{r.name}</span>
@@ -1843,17 +1854,17 @@
                   <p class="empty">None heard yet. Aircraft broadcast every second or so; a line of sight to the sky matters most, and an antenna outdoors reaches a few hundred kilometres.</p>
                   {#if !iss?.site}<p class="empty">Set your location in Settings (S) to see how far each one is.</p>{/if}
                 {/each}
-              </div>
-            </div>
+              </div>{/snippet}
+            </MapSplit>
           {:else if panel === 'flights'}
-            <div class="split">
-              {#if flightMap}
-                <div class="mapbox repmap">
+            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+              {#snippet map()}{#if flightMap}
+                <div class="mapbox">
                   <AircraftMap planes={[]} centre={flightMap.centre} halfKm={flightMap.halfKm} here={!!iss?.site} trails={flightPath} selected={flightPick?.icao ?? null} />
                   <span class="maplabel">{flightPick ? flightName(flightPick) : ''}: where it was heard</span>
                 </div>
-              {/if}
-              <div class="list">
+              {/if}{/snippet}
+              {#snippet rows()}<div class="list">
                 {#if flightList.length}<input class="in airfind" bind:value={flightQuery} placeholder="Find a flight, aircraft, type or country" aria-label="Find a flight" />{/if}
                 {#each flightShown as d (d.day)}
                   <p class="airday">{d.day}</p>
@@ -1867,8 +1878,8 @@
                 {:else}
                   <p class="empty">{flightList.length ? 'Nothing matches.' : 'Nothing logged yet. Every aircraft heard stays here, with its track, across runs.'}</p>
                 {/each}
-              </div>
-            </div>
+              </div>{/snippet}
+            </MapSplit>
           {:else if panel === 'stations'}
             <div class="stationsbody">
               {#if hd}
@@ -1947,13 +1958,13 @@
               <DmrPanel {dmr} onFm={() => tuneSaved(tuned, 'nfm')} />
             </div>
           {:else if panel === 'iss'}
-            <div class="split over">
-              <div class="mapbox issmap">
+            <MapSplit share={panelSplit} onShare={setPanelSplit}>
+              {#snippet map()}<div class="mapbox">
                 <IssMap track={issTrack} now={nowS} site={iss?.site ?? null} local={issLocal} pass={issHover} />
                 {#if issHover}<span class="mapcap">{issHover === issUp ? 'Overhead now' : `${dayLabel(issHover.rise, nowS)} ${clock(issHover.rise)}`} · {Math.round(issHover.max_elevation)}° high</span>{/if}
                 <span class="maplabel" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale' || freshness(issAge) === 'none'}>{ageLabel(issAge)}</span>
               </div>
-              <div class="list passes">
+              {/snippet}{#snippet rows()}<div class="list passes">
                 {#if iss?.bad_location}<p class="empty err">Your location in Settings is not a US ZIP code, state or “lat, lon”.</p>{/if}
                 {#if iss?.approximate}<p class="empty">Times are for the middle of the state: within a minute nearby, a few minutes off in a far corner of a big state. A ZIP code is closer.</p>{/if}
                 {#if issNote || freshness(issAge) !== 'fresh'}<p class="empty" class:warn={freshness(issAge) === 'aging'} class:err={freshness(issAge) === 'stale'}>{issNote || `${ageLabel(issAge)}.`}</p>{/if}
@@ -1987,8 +1998,8 @@
                   {/each}
                   <p class="empty">Passes below about 10° are hard to hear. Voice and pictures are on 145.800 MHz, APRS on 145.825 MHz; the station transmits only some of the time. A booked recording starts {earlyMinutes(issAge)} min early and ends {earlyMinutes(issAge)} min late, and moves with fresh orbit data.{#if anyBooked && wakeError} The computer cannot wake for it yet: Bookmarks (B) has the one-time command.{/if}</p>
                 {/if}
-              </div>
-            </div>
+              </div>{/snippet}
+            </MapSplit>
           {:else if panel === 'board' && board}
             <ChannelBoard {board} live={boardLive} {tuned} sides={boardSides} fullDb={METER_DB} onTune={tuneClick} />
           {:else if panel === 'activity' && board}
@@ -2012,14 +2023,14 @@
             {#if iss?.site && !repInBand.length}
               <p class="empty pbody">No repeaters on this band near your location in ~/.config/squelch/repeaters.toml.</p>
             {:else if iss?.site}
-              <div class="split">
-                <div class="mapbox repmap">
+
+              <div class="mapbox only">
                   <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={(hz) => tuneSaved(hz, modeAt(plan, named, hz, 'nfm'))} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
                   {#if repTuned}
                     <span class="maplabel">{repTuned.call} · {channelAt(band?.id, repTuned.hz)?.group ?? repTuned.city} · {Math.round(repTuned.km)} km{repTuned.digital ? ` · may be ${repTuned.digital} only` : ''}</span>
                   {/if}
                 </div>
-              </div>
+
             {:else}
               <p class="empty pbody">Set your location in Settings (S) to see which repeaters are near you.</p>
             {/if}
@@ -2027,10 +2038,10 @@
         </Pane>
       {/if}
       {#if planesScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} />
+        <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} share={panelShare} onShare={setPanelShare} />
       {/if}
       {#if repScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <RepeatersScreen rows={repRowList} band={{ lo: (band?.low_mhz ?? 0) * 1e6, hi: (band?.high_mhz ?? 1) * 1e6 }} capture={{ centre: center, half: rate * 0.45 }} {squelch} meterDb={METER_DB} onSquelch={(db) => (squelch = db)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)}>
+        <RepeatersScreen rows={repRowList} band={{ lo: (band?.low_mhz ?? 0) * 1e6, hi: (band?.high_mhz ?? 1) * 1e6 }} capture={{ centre: center, half: rate * 0.45 }} {squelch} meterDb={METER_DB} onSquelch={(db) => (squelch = db)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)} share={panelShare} onShare={setPanelShare}>
           {#snippet map()}
             {#if iss?.site}
               <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={repRowClick} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />
@@ -2734,32 +2745,17 @@
     margin: 0;
     line-height: 1.45;
   }
-  /* map and list: side by side when the panel is wide, map over list when it is narrow;
-     the space station's world map is always on top at its own shape, passes below */
-  .split {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
+  /* a map beside rows is MapSplit; the map box fills its cell, the rows list scrolls */
   .mapbox {
     position: relative;
     overflow: hidden;
-    flex: 0 0 auto;
+    min-height: 0;
     background: var(--bg-darker);
   }
-  .issmap {
-    aspect-ratio: 2;
-    width: 100%;
-    max-width: 640px;
-    align-self: center;
-  }
-  .repmap {
-    flex: 1 1 55%;
-    min-height: 0;
+  .mapbox.only {
+    flex: 1;
   }
   .list {
-    flex: 1 1 0;
     min-height: 0;
     padding: 10px;
     display: flex;
@@ -2767,29 +2763,14 @@
     gap: 8px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    border-top: 1px solid var(--muted);
   }
-  .over .list {
+  .list.passes {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     align-content: start;
   }
-  .over .list .empty {
+  .list.passes .empty {
     grid-column: 1 / -1;
-  }
-  @container (min-width: 620px) {
-    .split:not(.over) {
-      flex-direction: row;
-    }
-    .repmap {
-      flex: 2 1 0;
-      height: 100%;
-    }
-    .split:not(.over) .list {
-      flex: 1 1 260px;
-      border-top: 0;
-      border-left: 1px solid var(--muted);
-    }
   }
   /* Pass cards: short, so every pass in the next two days fits without scrolling. The colour says how well it will be heard. */
   .item.pass {
@@ -2864,9 +2845,6 @@
     height: 26px;
     fill: none;
     stroke-linecap: round;
-  }
-  .over .list.passes {
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   }
   .mapcap {
     position: absolute;

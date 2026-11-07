@@ -1,6 +1,7 @@
 <script lang="ts">
   // Everything about aircraft, for someone who has never heard of a band: a map, and each plane with what is known
   // about it from every source. Covers `main`; App owns the radio and tells this screen whether it is listening.
+  import MapSplit from './MapSplit.svelte';
   import AircraftMap from './AircraftMap.svelte';
   import Icon from './Icon.svelte';
   import { untrack } from 'svelte';
@@ -37,8 +38,11 @@
     onStopListening: () => void;
     onRecord: () => void;
     onSettings: () => void;
+    /** the rows' share of the width, App's own panel share: the map is the waterfall's place */
+    share: number;
+    onShare: (share: number, save: boolean) => void;
   }
-  let { live, messages, waterfall, trails, site, listening, hearing, signals, capture, playing, recording, recLit, palette, onListen, onListenAirport, onStopListening, onRecord, onSettings }: Props = $props();
+  let { live, messages, waterfall, trails, site, listening, hearing, signals, capture, playing, recording, recLit, palette, onListen, onListenAirport, onStopListening, onRecord, onSettings, share, onShare }: Props = $props();
 
   const FLIGHT_DAYS = 60;
   const FLIGHTS_REFRESH_MS = 60_000;
@@ -262,8 +266,7 @@
   </div>
 {/snippet}
 
-<div class="air">
-  <div class="body">
+{#snippet mapCell()}
     <div class="map" class:paused={!!listening}>
       {#if listening}
         <!-- the listening strip: who, why, what has been heard, and the one way out -->
@@ -297,6 +300,8 @@
       </div>
       </div>
     </div>
+{/snippet}
+{#snippet rowsCell()}
     <div class="side" class:watching={!listening}>
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'now'} onclick={() => goTab('now')} title="Planes overhead right now"><Icon name="plane" size={16} />Overhead</button>
@@ -446,7 +451,10 @@
         <div class="sidewf">{@render waterfall()}</div>
       {/if}
     </div>
-  </div>
+{/snippet}
+
+<div class="air">
+  <MapSplit {share} {onShare} map={mapCell} rows={rowsCell} />
 </div>
 
 <style>
@@ -458,22 +466,6 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
-  }
-  .body {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-  }
-  @container (max-width: 760px) {
-    .body {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-    }
-    .side {
-      border-left: 0 !important;
-      border-top: 1px solid var(--muted);
-    }
   }
   .map {
     display: flex;
@@ -699,7 +691,6 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    border-left: 1px solid var(--muted);
   }
   .tabs {
     display: flex;

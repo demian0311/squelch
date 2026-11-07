@@ -2,6 +2,7 @@
   // The Repeaters screen: who is talking near you, FM or DMR, and one click to listen. No sentence says
   // what goes on: the ruler shows where the capture sits, the row's place says whether it is heard, the
   // glyph and the level bar say what it carries, and the open row holds the squelch mark and the facts.
+  import MapSplit from './MapSplit.svelte';
   import type { Snippet } from 'svelte';
   import { fmtMHz } from '../lib/radio';
   import { shortAgo, type RepRow } from '../lib/repscreen';
@@ -19,9 +20,12 @@
     onSquelch: (db: number) => void;
     onRow: (hz: number) => void;
     onSeeRadio: () => void;
+    /** the rows' share of the width, App's own panel share: the map is the waterfall's place */
+    share: number;
+    onShare: (share: number, save: boolean) => void;
     map: Snippet;
   }
-  let { rows, band, capture, squelch, meterDb, onSquelch, onRow, onSeeRadio, map }: Props = $props();
+  let { rows, band, capture, squelch, meterDb, onSquelch, onRow, onSeeRadio, map, share, onShare }: Props = $props();
 
   const STATE_ICON = { playing: 'speaker', talking: 'zap', under: 'mute', quiet: 'quiet', away: 'arrowRight' } as const;
   let heard = $derived(rows.filter((r) => r.p.reach && r.heard));
@@ -70,8 +74,7 @@
   }
 </script>
 
-<div class="rep">
-  <div class="body">
+{#snippet rowsCell()}
     <div class="list">
       <div class="ruler" title={GLOSS.ruler}>
         <span class="end">{fmtMHz(band.lo, 1)}</span><span class="end r">{fmtMHz(band.hi, 1)}</span>
@@ -128,8 +131,13 @@
         {/if}
       </div>
     </div>
+{/snippet}
+{#snippet mapCell()}
     <div class="map">{@render map()}</div>
-  </div>
+{/snippet}
+
+<div class="rep">
+  <MapSplit {share} {onShare} map={mapCell} rows={rowsCell} />
 
   <p class="foot">
     <button class="act" onclick={onSeeRadio} title="The waterfall and the whole band">See the radio</button>
@@ -148,19 +156,6 @@
     background: var(--bg);
     overflow: hidden;
     container-type: inline-size;
-  }
-  .body {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: 14px;
-  }
-  @container (max-width: 820px) {
-    .body {
-      grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 3fr) minmax(200px, 2fr);
-    }
   }
   .list {
     min-height: 0;
