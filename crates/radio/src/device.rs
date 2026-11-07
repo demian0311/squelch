@@ -32,6 +32,7 @@ type rtlsdr_dev_t = c_void;
 extern "C" {
     fn rtlsdr_get_device_count() -> u32;
     fn rtlsdr_get_device_name(index: u32) -> *const c_char;
+    fn rtlsdr_get_device_usb_strings(index: u32, manufact: *mut c_char, product: *mut c_char, serial: *mut c_char) -> c_int;
     fn rtlsdr_open(dev: *mut *mut rtlsdr_dev_t, index: u32) -> c_int;
     fn rtlsdr_close(dev: *mut rtlsdr_dev_t) -> c_int;
     fn rtlsdr_set_center_freq(dev: *mut rtlsdr_dev_t, freq: u32) -> c_int;
@@ -95,6 +96,24 @@ impl RtlSdr {
         unsafe { rtlsdr_get_device_count() }
     }
 
+    /// What the dongle says about itself over USB: maker, product and serial.
+    /// librtlsdr's own name comes from a table of USB ids, where every maker that kept
+    /// Realtek's id (Nooelec among them) reads "Generic RTL2832U OEM".
+    /// `None` when the strings cannot be read or say nothing.
+    fn usb_name(index: u32) -> Option<String> {
+        // librtlsdr writes at most 256 bytes into each, NUL-terminated
+        let mut maker = [0 as c_char; 256];
+        let mut product = [0 as c_char; 256];
+        let mut serial = [0 as c_char; 256];
+        let r = unsafe { rtlsdr_get_device_usb_strings(index, maker.as_mut_ptr(), product.as_mut_ptr(), serial.as_mut_ptr()) };
+        if r != 0 {
+            return None;
+        }
+        let read = |b: &[c_char]| unsafe { CStr::from_ptr(b.as_ptr()) }.to_string_lossy().trim().to_string();
+        Some(usb_name(&read(&maker), &read(&product), &read(&serial)))
+            .filter(|n| !n.is_empty())
+    }
+
     pub fn open(index: u32, rate: u32) -> Result<Self> {
         if Self::device_count() <= index {
             bail!("no RTL-SDR dongle found");
@@ -104,9 +123,11 @@ impl RtlSdr {
         if r < 0 || dev.is_null() {
             bail!("could not open the dongle (error {r}); is another app using it?");
         }
-        let name = unsafe { CStr::from_ptr(rtlsdr_get_device_name(index)) }
-            .to_string_lossy()
-            .into_owned();
+        let name = Self::usb_name(index).unwrap_or_else(|| {
+            unsafe { CStr::from_ptr(rtlsdr_get_device_name(index)) }
+                .to_string_lossy()
+                .into_owned()
+        });
         let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
         let mut s = RtlSdr { dev, name, rate, gains: Vec::new(), rx, stream: None, usb: None, pending: Vec::new(), taken: 0 };
         unsafe {
@@ -344,5 +365,43 @@ impl IqSource for SimSource {
             }
         }
         Ok(buf.len())
+    }
+}
+
+
+/// One line from the USB strings: the product, led by the maker unless the product
+/// already names it, then the serial. Empty when the dongle says nothing.
+pub fn usb_name(maker: &str, product: &str, serial: &str) -> String {
+    let mut name = if product.is_empty() {
+        maker.to_string()
+    } else if maker.is_empty() || product.to_lowercase().contains(&maker.to_lowercase()) {
+        product.to_string()
+    } else {
+        format!("{maker} {product}")
+    };
+    if !serial.is_empty() && !name.is_empty() {
+        name.push_str(&format!(" · serial {serial}"));
+    }
+    name
+}
+
+#[cfg(test)]
+mod usb_name_tests {
+    use super::usb_name;
+
+    #[test]
+    fn nooelec_v5_reads_maker_product_and_serial() {
+        assert_eq!(usb_name("Nooelec", "NESDR SMArt v5", "28058249"), "Nooelec NESDR SMArt v5 · serial 28058249");
+    }
+
+    #[test]
+    fn a_maker_already_in_the_product_is_not_repeated() {
+        assert_eq!(usb_name("Realtek", "Realtek RTL2838UHIDIR", "00000001"), "Realtek RTL2838UHIDIR · serial 00000001");
+    }
+
+    #[test]
+    fn silent_strings_give_nothing_so_the_table_name_is_used() {
+        assert_eq!(usb_name("", "", "00000001"), "");
+        assert_eq!(usb_name("", "RTL2838", ""), "RTL2838");
     }
 }
