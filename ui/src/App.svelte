@@ -17,7 +17,7 @@
   import EmsStrip from './components/EmsStrip.svelte';
   import { addLine, emsRanges, isEms, oneEms, railId, type LookLine } from './lib/ems';
   import StationList from './components/StationList.svelte';
-  import { AM_SLACK_HZ, STRIP_BANDS, dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
+  import { AM_GRID, AM_SLACK_HZ, STRIP_BANDS, SW_GRID, noteCarriers, dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import GuideScreen from './components/GuideScreen.svelte';
@@ -437,13 +437,13 @@
   });
 
   let hasStrip = $derived(!!band && STRIP_BANDS.includes(band.id));
-  // below the tuner nothing is remembered per station yet: the band's own names and the bookmarks are the ticks
+  // below the tuner stations are remembered by channel only; the band's own names and the bookmarks name them
   let stripMarks = $derived(
     !band || !hasStrip
       ? []
       : band.id === 'fm'
         ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6)
-        : stripTicks([], [...(band.names ?? []), ...saved.filter((x) => x.band.id === band!.id)], startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6, AM_SLACK_HZ),
+        : stripTicks(heard[band.id] ?? [], [...(band.names ?? []), ...saved.filter((x) => x.band.id === band!.id)], startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6, AM_SLACK_HZ),
   );
 
   function step(dir: 1 | -1) {
@@ -1495,6 +1495,15 @@
             const ch = fmChannel(s.tuned_hz);
             const old = rdsHeard.get(ch);
             if (JSON.stringify(old) !== JSON.stringify(s.rds)) rdsHeard = new Map(rdsHeard).set(ch, s.rds);
+          }
+          if (band && (band.id === 'am' || band.id === 'sw')) {
+            const list = heard[band.id] ?? [];
+            const grid = { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, ...(band.id === 'am' ? AM_GRID : SW_GRID) };
+            const next = noteCarriers(list, s.signals, grid, Date.now());
+            if (next !== list) {
+              heard = { ...heard, [band.id]: next };
+              store.setState('stations', heard);
+            }
           }
           if (s.mode === 'wfm' && band?.id === 'fm') {
             const list = heard.fm ?? [];

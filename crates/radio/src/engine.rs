@@ -995,9 +995,10 @@ pub fn demo_signals() -> Vec<SimSignal> {
         nfm(146.94, 0.3, 800.0),
         nfm(162.55, 0.3, 1_000.0),
         SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0, symbols: None },
-        // below the tuner: an AM station, a shortwave broadcaster and a 20 m voice (a tone 1 kHz up, USB)
-        SimSignal { hz: 0.85e6, amp: 0.3, fm_dev: 0.0, am_depth: 0.7, tone_hz: 500.0, symbols: None },
-        SimSignal { hz: 9.58e6, amp: 0.15, fm_dev: 0.0, am_depth: 0.7, tone_hz: 900.0, symbols: None },
+        // below the tuner: an AM station, a shortwave broadcaster and a 20 m voice (a tone 1 kHz up, USB);
+        // the stations' 3 kHz tones make them as wide as speech, so the page tells them from a bare spur
+        SimSignal { hz: 0.85e6, amp: 0.3, fm_dev: 0.0, am_depth: 0.7, tone_hz: 3_000.0, symbols: None },
+        SimSignal { hz: 9.58e6, amp: 0.15, fm_dev: 0.0, am_depth: 0.7, tone_hz: 3_000.0, symbols: None },
         SimSignal { hz: 14.201e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.0, tone_hz: 0.0, symbols: None },
         // EMS: both bands, for the whole-band strip
         nfm(770.26875, 0.2, 600.0),

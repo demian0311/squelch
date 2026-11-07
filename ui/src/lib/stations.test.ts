@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { AM_SLACK_HZ, MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
+import { AM_GRID, AM_SLACK_HZ, SW_GRID, noteCarriers, MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
 import type { FmStation } from './api';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
@@ -45,6 +45,25 @@ describe('noteHeard', () => {
   it('forgets stations not heard for MAX_AGE_MS', () => {
     const list: Heard[] = [{ hz: 88.1e6, at: 0, snrDb: 10 }];
     expect(noteHeard(list, [], new Map(), MAX_AGE_MS + 1)).toEqual([]);
+  });
+});
+
+describe('noteCarriers', () => {
+  const am = { lo: 0.53e6, hi: 1.71e6, ...AM_GRID };
+  it('keeps a station on its 10 kHz channel and drops bare carriers', () => {
+    const got = noteCarriers([], [
+      { hz: 850_400, snr_db: 30, width_hz: 9_000 },
+      { hz: 600_000, snr_db: 28, width_hz: 3_500 },
+      { hz: 1_205_000, snr_db: 20, width_hz: 8_000 },
+      { hz: 2.4e6, snr_db: 20, width_hz: 9_000 },
+    ], am, 1000);
+    expect(got.map((h) => h.hz)).toEqual([850_000]);
+  });
+  it('puts shortwave on 5 kHz steps and returns the same list when nothing changed', () => {
+    const sw = { lo: 2.3e6, hi: 13.9e6, ...SW_GRID };
+    const once = noteCarriers([], [{ hz: 9_580_300, snr_db: 25, width_hz: 9_000 }], sw, 1000);
+    expect(once.map((h) => h.hz)).toEqual([9_580_000]);
+    expect(noteCarriers(once, [{ hz: 9_580_300, snr_db: 25, width_hz: 9_000 }], sw, 2000)).toBe(once);
   });
 });
 

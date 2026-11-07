@@ -46,6 +46,45 @@ export function noteHeard(list: Heard[], signals: { hz: number; snr_db: number; 
   return changed ? next.sort((a, b) => a.hz - b.hz) : list;
 }
 
+/** A channel grid below the tuner: where its stations sit and how far off one may be heard. */
+export interface Grid {
+  lo: number;
+  hi: number;
+  /** Channel spacing: 10 kHz on AM, 5 kHz on shortwave. */
+  step: number;
+  slack: number;
+}
+
+export const AM_GRID: Omit<Grid, 'lo' | 'hi'> = { step: 10_000, slack: 3_000 };
+export const SW_GRID: Omit<Grid, 'lo' | 'hi'> = { step: 5_000, slack: 1_500 };
+
+/**
+ * Narrower than this is a bare carrier, not a station: the dongle's clock spurs in direct sampling
+ * measured 1.2–4.7 kHz (2026-11-06), an AM station's sidebands reach 5 kHz either side.
+ */
+export const MIN_AM_WIDTH_HZ = 5_000;
+
+/**
+ * Records AM and shortwave stations among `signals` in `list`, on the band's channel grid. No names: nothing
+ * below the tuner sends one. Returns `list` itself when nothing is worth storing.
+ */
+export function noteCarriers(list: Heard[], signals: { hz: number; snr_db: number; width_hz: number }[], grid: Grid, now: number): Heard[] {
+  let changed = false;
+  const next = list.filter((h) => now - h.at <= MAX_AGE_MS);
+  if (next.length !== list.length) changed = true;
+  for (const s of signals) {
+    if (s.hz < grid.lo || s.hz > grid.hi || s.snr_db < MIN_SNR_DB || s.width_hz < MIN_AM_WIDTH_HZ) continue;
+    const ch = Math.round(s.hz / grid.step) * grid.step;
+    if (Math.abs(s.hz - ch) > grid.slack) continue;
+    const i = next.findIndex((h) => h.hz === ch);
+    const old = i >= 0 ? next[i] : undefined;
+    if (old && now - old.at < TOUCH_MS) continue;
+    next[i >= 0 ? i : next.length] = { hz: ch, at: now, snrDb: Math.round(s.snr_db) };
+    changed = true;
+  }
+  return changed ? next.sort((a, b) => a.hz - b.hz) : list;
+}
+
 /** What a remembered station plays, for the channel `hz` is on. */
 export function heardType(list: Heard[], hz: number): string | undefined {
   return list.find((h) => h.hz === fmChannel(hz))?.type;
