@@ -38,6 +38,7 @@ extern "C" {
     fn rtlsdr_set_center_freq(dev: *mut rtlsdr_dev_t, freq: u32) -> c_int;
     fn rtlsdr_set_freq_correction(dev: *mut rtlsdr_dev_t, ppm: c_int) -> c_int;
     fn rtlsdr_set_sample_rate(dev: *mut rtlsdr_dev_t, rate: u32) -> c_int;
+    fn rtlsdr_set_direct_sampling(dev: *mut rtlsdr_dev_t, on: c_int) -> c_int;
     fn rtlsdr_get_tuner_gains(dev: *mut rtlsdr_dev_t, gains: *mut c_int) -> c_int;
     fn rtlsdr_set_tuner_gain_mode(dev: *mut rtlsdr_dev_t, manual: c_int) -> c_int;
     fn rtlsdr_set_tuner_gain(dev: *mut rtlsdr_dev_t, gain: c_int) -> c_int;
@@ -112,6 +113,19 @@ impl RtlSdr {
         let read = |b: &[c_char]| unsafe { CStr::from_ptr(b.as_ptr()) }.to_string_lossy().trim().to_string();
         Some(usb_name(&read(&maker), &read(&product), &read(&serial)))
             .filter(|n| !n.is_empty())
+    }
+
+    /// Direct sampling: the tuner is bypassed and the RTL2832U samples the antenna at its
+    /// 28.8 MHz clock, so `set_center` moves the chip's own down-converter over 0–14.4 MHz
+    /// (above that the band folds back). `branch` 1 = I, 2 = Q (the RTL-SDR v3 and the
+    /// Nooelec v5 wire HF to Q), 0 = back to the tuner. No tuner gain in this mode.
+    pub fn set_direct_sampling(&mut self, branch: u32) -> Result<()> {
+        if unsafe { rtlsdr_set_direct_sampling(self.dev, branch as c_int) } < 0 {
+            bail!("dongle refused direct sampling {branch}");
+        }
+        while self.rx.try_recv().is_ok() {}
+        self.taken = self.pending.len();
+        Ok(())
     }
 
     pub fn open(index: u32, rate: u32) -> Result<Self> {
