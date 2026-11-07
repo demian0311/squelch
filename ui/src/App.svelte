@@ -236,7 +236,7 @@
   function setView(nvs: number, nve: number) {
     let s = Math.min(Math.max(nve - nvs, MIN_SPAN), maxSpan);
     const mid = (nvs + nve) / 2;
-    nvs = Math.max(24e6, mid - s / 2);
+    nvs = Math.max(0, mid - s / 2); // below the tuner the view goes down to 0 Hz; the engine keeps the capture above it
     vs = nvs;
     ve = nvs + s;
     panning = true;
@@ -1513,7 +1513,8 @@
             const old = rdsHeard.get(ch);
             if (JSON.stringify(old) !== JSON.stringify(s.rds)) rdsHeard = new Map(rdsHeard).set(ch, s.rds);
           }
-          if (band && (band.id === 'am' || band.id === 'sw')) {
+          // the simulator's stations are not on the air: keep them out of the shared state file
+          if (band && (band.id === 'am' || band.id === 'sw') && !s.simulated) {
             const list = heard[band.id] ?? [];
             const grid = { lo: band.low_mhz * 1e6, hi: band.high_mhz * 1e6, ...(band.id === 'am' ? AM_GRID : SW_GRID) };
             const next = noteCarriers(list, s.signals, grid, Date.now());
