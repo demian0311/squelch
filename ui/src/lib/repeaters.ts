@@ -1,5 +1,6 @@
 // Repeaters on the map: where each sits from the listener, and whether it is likely in reach.
 import type { Band, Repeater } from './api';
+import { clampView as clampMapView, viewOf, zoomView as zoomMapView, type MapLimits, type MapView } from './mapview';
 
 /**
  * Typical reach per band, in km. The RepeaterBook export has no power or antenna height,
@@ -114,32 +115,14 @@ export function heldOutputs(prev: Map<number, HeardOutput>, live: Map<number, nu
   return held;
 }
 
-/** Where the map looks: its centre in km east and south of the listener, and how far it shows above and below the centre. */
-export interface MapView {
-  x: number;
-  y: number;
-  halfKm: number;
-}
-export const DEFAULT_VIEW: MapView = { x: 0, y: 0, halfKm: WIDEST_KM };
-
-/** Never closer than `NEAREST_KM`, never wider than `WIDEST_KM`, and the edge never leaves the widest view: no bare ground past it. */
-export function clampView(v: MapView): MapView {
-  const halfKm = Math.min(WIDEST_KM, Math.max(NEAREST_KM, v.halfKm));
-  const lim = WIDEST_KM - halfKm;
-  // `|| 0` keeps a -0 out of the view
-  return { x: Math.min(lim, Math.max(-lim, v.x)) || 0, y: Math.min(lim, Math.max(-lim, v.y)) || 0, halfKm };
-}
-
-/**
- * The view zoomed by `factor` (under 1 = closer) so that the place `at` (km) stays where it was on screen,
- * the way a street map zooms around the pointer. Without `at` it zooms around the centre.
- */
-export function zoomView(v: MapView, factor: number, at?: { x: number; y: number }): MapView {
-  const halfKm = Math.min(WIDEST_KM, Math.max(NEAREST_KM, v.halfKm * factor));
-  const f = halfKm / v.halfKm;
-  const a = at ?? { x: v.x, y: v.y };
-  return clampView({ x: a.x + (v.x - a.x) * f, y: a.y + (v.y - a.y) * f, halfKm });
-}
+/** The Repeaters map's limits: never closer than `NEAREST_KM`, never wider than `WIDEST_KM`. */
+export const REP_LIMITS: MapLimits = { nearestKm: NEAREST_KM, widestKm: WIDEST_KM };
+export type { MapView };
+export const DEFAULT_VIEW: MapView = viewOf(WIDEST_KM);
+/** `mapview`'s clamp with this map's limits. */
+export const clampView = (v: MapView) => clampMapView(v, REP_LIMITS);
+/** `mapview`'s zoom with this map's limits. */
+export const zoomView = (v: MapView, factor: number, at?: { x: number; y: number }) => zoomMapView(v, factor, REP_LIMITS, at);
 
 /**
  * How far in to go, in km above and below the centre, for a badge's repeaters to come apart: one click opens it.
