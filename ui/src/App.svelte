@@ -17,7 +17,7 @@
   import EmsStrip from './components/EmsStrip.svelte';
   import { addLine, emsRanges, isEms, oneEms, railId, type LookLine } from './lib/ems';
   import StationList from './components/StationList.svelte';
-  import { AM_GRID, AM_SLACK_HZ, STRIP_BANDS, SW_GRID, noteCarriers, dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
+  import { AM_GRID, AM_SLACK_HZ, STRIP_BANDS, SW_GRID, amName, amStationAt, amStripStations, noteCarriers, withAmNames, dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import GuideScreen from './components/GuideScreen.svelte';
@@ -344,16 +344,33 @@
     });
   });
   let fmLocal = $derived(localStations(fmNearby, heard.fm ?? [], rdsHeard));
+  // the FCC's AM stations near the location, asked for once the AM band opens
+  let amNearby = $state.raw<api.AmStation[]>([]);
+  let onAm = $derived(band?.id === 'am');
+  $effect(() => {
+    const at = location;
+    if (!onAm) return;
+    api.amStations(at).then((list) => {
+      if (at === location) amNearby = list;
+    });
+  });
+  const amNameAt = (hz: number) => {
+    const s = onAm ? amStationAt(amNearby, hz) : undefined;
+    return s ? amName(s) : undefined;
+  };
   const stationName = (hz: number) => localName(fmNearby.length > 0, fmLocal, heard.fm ?? [], hz);
 
   let signals = $derived<(Signal & { steady: boolean })[]>(
     withSondes(
-      withHeard(
-        withRds(
-          (status?.signals ?? []).map((d) => label(plan, named, d)),
-          rdsHeard,
+      withAmNames(
+        withHeard(
+          withRds(
+            (status?.signals ?? []).map((d) => label(plan, named, d)),
+            rdsHeard,
+          ),
+          (hz) => stationName(hz),
         ),
-        (hz) => stationName(hz),
+        amNameAt,
       ),
       status?.sondes ?? [],
     ).map((s) => ({ ...s, steady: persist.steady(s, Date.now(), UPDATES_PER_WINDOW) })),
@@ -443,7 +460,7 @@
       ? []
       : band.id === 'fm'
         ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6)
-        : stripTicks(heard[band.id] ?? [], [...(band.names ?? []), ...saved.filter((x) => x.band.id === band!.id)], startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6, AM_SLACK_HZ),
+        : stripTicks(band.id === 'am' ? amStripStations(amNearby, heard.am ?? []) : (heard[band.id] ?? []), [...(band.names ?? []), ...saved.filter((x) => x.band.id === band!.id)], startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6, AM_SLACK_HZ),
   );
 
   function step(dir: 1 | -1) {
@@ -942,7 +959,7 @@
     const same = d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
     return same ? 'today' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
   }
-  let nowTitle = $derived(playTitle ?? airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (repScreen ? (repPlayingRow?.p.call ?? band?.name ?? 'Repeaters') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
+  let nowTitle = $derived(playTitle ?? airListen?.name ?? (planesScreen ? 'Airplanes' : undefined) ?? (emsScreen ? (band?.name ?? 'EMS') : undefined) ?? (repScreen ? (repPlayingRow?.p.call ?? band?.name ?? 'Repeaters') : undefined) ?? (rds && rdsName(rds)) ?? listeningMark?.name ?? (mode === 'wfm' ? stationName(tuned) : undefined) ?? amNameAt(tuned) ?? (listening?.byFreq ? null : listening?.title) ?? tunedChannel?.name ?? (band ? band.name : 'Tuned'));
   let muted = $derived(playing && status?.squelch_open === false);
   let nowSub = $derived(
     playSub ? playSub :

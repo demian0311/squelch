@@ -85,6 +85,49 @@ export function noteCarriers(list: Heard[], signals: { hz: number; snr_db: numbe
   return changed ? next.sort((a, b) => a.hz - b.hz) : list;
 }
 
+/** The AM channel `hz` is on, or none when it sits between channels. */
+const amChannel = (hz: number) => {
+  const ch = Math.round(hz / AM_GRID.step) * AM_GRID.step;
+  return Math.abs(hz - ch) <= AM_GRID.slack ? ch : null;
+};
+
+/**
+ * Who is on an AM channel from here: the nearest station in reach by day, else the nearest clear-channel one heard
+ * after dark. Several stations share each channel across the country, so a far one is never guessed.
+ */
+export function amStationAt(list: { hz: number; call: string; city: string; km: number; in_reach: boolean; at_night: boolean }[], hz: number) {
+  const ch = amChannel(hz);
+  if (ch === null) return undefined;
+  const on = list.filter((s) => s.hz === ch);
+  return on.find((s) => s.in_reach) ?? on.find((s) => s.at_night);
+}
+
+/** An AM station as a card or the top bar names it. */
+export const amName = (s: { call: string; city: string }) => `${s.call} ${s.city}`;
+
+/** AM signals named from the list, the way `withHeard` names FM ones. */
+export function withAmNames<T extends Signal>(signals: T[], nameAt: (hz: number) => string | undefined): T[] {
+  return signals.map((sig) => {
+    const name = nameAt(sig.hz);
+    // a bookmark or a named channel says more than the list; an AM label is the band's name otherwise
+    if (!name || sig.saved || sig.channelHz !== undefined) return sig;
+    return { ...sig, title: `${name} ${Math.round(sig.hz / 1e4) * 10}`, byFreq: false };
+  });
+}
+
+/** The AM strip's stations: those heard, named from the list, then those the list puts in reach, not yet heard. */
+export function amStripStations(list: { hz: number; call: string; city: string; km: number; in_reach: boolean; at_night: boolean }[], heard: Heard[]): Heard[] {
+  const out: Heard[] = heard.map((h) => {
+    const s = amStationAt(list, h.hz);
+    return s ? { ...h, name: amName(s) } : h;
+  });
+  for (const s of list) {
+    if (!s.in_reach || out.some((h) => h.hz === s.hz)) continue;
+    out.push({ hz: s.hz, at: 0, snrDb: 0, name: amName(s) });
+  }
+  return out.sort((a, b) => a.hz - b.hz);
+}
+
 /** What a remembered station plays, for the channel `hz` is on. */
 export function heardType(list: Heard[], hz: number): string | undefined {
   return list.find((h) => h.hz === fmChannel(hz))?.type;

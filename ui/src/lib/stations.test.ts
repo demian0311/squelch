@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { AM_GRID, AM_SLACK_HZ, SW_GRID, noteCarriers, MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
+import { amStationAt, amStripStations, withAmNames, AM_GRID, AM_SLACK_HZ, SW_GRID, noteCarriers, MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
 import type { FmStation } from './api';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
@@ -45,6 +45,29 @@ describe('noteHeard', () => {
   it('forgets stations not heard for MAX_AGE_MS', () => {
     const list: Heard[] = [{ hz: 88.1e6, at: 0, snrDb: 10 }];
     expect(noteHeard(list, [], new Map(), MAX_AGE_MS + 1)).toEqual([]);
+  });
+});
+
+describe('AM station names', () => {
+  const list = [
+    { hz: 850_000, call: 'KOA', city: 'Denver', km: 25, in_reach: true, at_night: true },
+    { hz: 820_000, call: 'WBAP', city: 'Fort Worth', km: 1060, in_reach: false, at_night: true },
+    { hz: 820_000, call: 'KFAR', city: 'Far', km: 280, in_reach: false, at_night: false },
+    { hz: 1_430_000, call: 'KEZW', city: 'Aurora', km: 20, in_reach: true, at_night: false },
+  ];
+  it('names a channel by the station in reach, else the clear channel heard at night, never a far guess', () => {
+    expect(amStationAt(list, 850_400)?.call).toBe('KOA');
+    expect(amStationAt(list, 820_000)?.call).toBe('WBAP');
+    expect(amStationAt(list, 855_000)).toBeUndefined();
+    expect(amStationAt(list, 1_000_000)).toBeUndefined();
+  });
+  it('titles a card by call, city and kHz', () => {
+    const [s] = withAmNames([{ hz: 850_200, title: 'AM radio signal', saved: false } as never], (hz) => (hz > 800_000 ? 'KOA Denver' : undefined));
+    expect((s as { title: string }).title).toBe('KOA Denver 850');
+  });
+  it('puts heard stations and those in reach on the strip, once each', () => {
+    const got = amStripStations(list, [{ hz: 850_000, at: 5, snrDb: 30 }]);
+    expect(got.map((h) => [h.hz, h.name, h.at])).toEqual([[850_000, 'KOA Denver', 5], [1_430_000, 'KEZW Aurora', 0]]);
   });
 });
 

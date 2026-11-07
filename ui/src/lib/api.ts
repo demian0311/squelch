@@ -77,6 +77,18 @@ export interface FmStation {
   in_reach: boolean;
 }
 
+export interface AmStation {
+  hz: number;
+  call: string;
+  city: string;
+  state: string;
+  km: number;
+  /** By day, a guess from its daytime power. */
+  in_reach: boolean;
+  /** A clear-channel station heard after dark from far away. */
+  at_night: boolean;
+}
+
 export interface Status {
   device: string;
   simulated: boolean;
@@ -490,6 +502,7 @@ export interface Airport {
 export const airportsNear = (lat: number, lon: number) => invoke<Airport[]>('airports_near', { lat, lon });
 export const airportsByCode = (codes: string[]) => invoke<Airport[]>('airports_by_code', { codes });
 export const fmStations = (location: string) => invoke<FmStation[]>('fm_stations', { location });
+export const amStations = (location: string) => invoke<AmStation[]>('am_stations', { location });
 export const repeatersMap = (location: string) => invoke<Repeater[]>('repeaters_map', { location });
 export const theme = () => invoke<Theme>('theme');
 export const tune = (centerHz: number, tunedHz: number) => invoke('tune', { centerHz, tunedHz });
