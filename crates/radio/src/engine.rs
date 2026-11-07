@@ -680,7 +680,7 @@ fn run(
             signals = detect(&avg, floor.db, DETECT_DB, center, rate as f64, 3);
             if src.direct() {
                 // what the blocker leaves of the spike is still no signal
-                signals.retain(|d| (d.hz - center).abs() > DIRECT_DC_SKIP_HZ);
+                signals.retain(|d| (d.hz - center).abs() > DIRECT_DC_SKIP_HZ && !crate::detect::is_clock_spur(d));
             }
             if mode == Mode::Wfm {
                 crate::hd::drop_sidebands(&mut signals);

@@ -61,9 +61,32 @@ pub fn detect(row: &[f32], floor: f32, threshold_db: f32, center_hz: f64, rate: 
     out
 }
 
+/// In direct sampling the RTL2832U's 28.8 MHz clock leaks into the capture at multiples of 300 kHz
+/// (28.8 MHz / 96): on the Nooelec v5 at 0.6, 2.1 and 2.4 MHz, 15–28 dB, 1.2–4.7 kHz wide (2026-11-06).
+pub const CLOCK_SPUR_STEP_HZ: f64 = 300_000.0;
+/// How far off its multiple a spur was seen.
+const SPUR_TOL_HZ: f64 = 2_000.0;
+/// A spur is a bare line; an AM station's sidebands make it wider than this.
+const SPUR_MAX_WIDTH_HZ: f64 = 5_000.0;
+
+/// One of the dongle's own clock spurs, not a station. A real station on the same channel is wider and stays.
+pub fn is_clock_spur(d: &Detected) -> bool {
+    let off = d.hz - (d.hz / CLOCK_SPUR_STEP_HZ).round() * CLOCK_SPUR_STEP_HZ;
+    off.abs() <= SPUR_TOL_HZ && d.width_hz < SPUR_MAX_WIDTH_HZ
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clock_spurs_go_and_stations_on_their_channels_stay() {
+        let d = |hz: f64, width_hz: f64| Detected { hz, width_hz, snr_db: 25.0, hd: None };
+        assert!(is_clock_spur(&d(601_000.0, 3_500.0)));
+        assert!(is_clock_spur(&d(2_100_000.0, 3_500.0)));
+        assert!(!is_clock_spur(&d(600_000.0, 9_000.0)), "a station on 600 kHz is wider than a spur");
+        assert!(!is_clock_spur(&d(850_000.0, 3_500.0)), "850 kHz is no multiple of 300 kHz");
+    }
 
     /// A carrier exactly on a known frequency, through the real transform, is reported on it.
     #[test]
