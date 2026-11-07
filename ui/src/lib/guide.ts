@@ -13,11 +13,15 @@ const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/
 export const GUIDES: Record<string, string> = Object.fromEntries(Object.entries(pages).map(([p, s]) => [nameOf(p), s]));
 export const DIAGRAMS: Record<string, string> = Object.fromEntries(Object.entries(diagrams).map(([p, s]) => [nameOf(p), s]));
 
-/** The guide a band belongs to: the four EMS bands share one, the aircraft bands share the Airplanes one. */
+/** The ham bands below the tuner, one guide between them. */
+export const HF_HAM_IDS = ['80m', '40m', '20m'];
+
+/** The guide a band belongs to: the four EMS bands share one, the aircraft bands share the Airplanes one, the HF ham bands theirs. */
 export function guideFor(bandId: string | null | undefined): string | null {
   if (!bandId) return null;
   if (EMS_IDS.includes(bandId)) return 'ems';
   if (bandId === 'adsb' || bandId === 'acars') return 'air';
+  if (HF_HAM_IDS.includes(bandId)) return 'hf';
   return bandId in GUIDES ? bandId : null;
 }
 

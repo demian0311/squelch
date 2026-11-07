@@ -42,6 +42,31 @@ high_mhz = 108.0
 start_mhz = 101.1
 
 [[band]]
+id = "am"
+group = "listen"
+name = "AM radio"
+icon = "radio"
+mode = "am"
+low_mhz = 0.53
+high_mhz = 1.71
+start_mhz = 0.85
+
+[[band]]
+id = "sw"
+group = "listen"
+name = "Shortwave"
+icon = "dish"
+mode = "am"
+low_mhz = 2.3
+high_mhz = 13.9
+start_mhz = 9.6
+names = [
+  { mhz = 2.5, name = "WWV time signal" },
+  { mhz = 5.0, name = "WWV time signal" },
+  { mhz = 10.0, name = "WWV time signal" },
+]
+
+[[band]]
 id = "air"
 group = "listen"
 name = "Aircraft"
@@ -233,6 +258,52 @@ names = [
 ]
 
 # ── Ham ────────────────────────────────────────────────
+
+[[band]]
+id = "80m"
+group = "ham"
+name = "80 m"
+icon = "wave"
+mode = "lsb"
+low_mhz = 3.5
+high_mhz = 4.0
+start_mhz = 3.85
+names = [
+  { mhz = 3.573, name = "FT8" },
+  { mhz = 3.845, name = "Slow-scan TV" },
+  { mhz = 3.885, name = "AM calling", mode = "am" },
+]
+
+[[band]]
+id = "40m"
+group = "ham"
+name = "40 m"
+icon = "wave"
+mode = "lsb"
+low_mhz = 7.0
+high_mhz = 7.3
+start_mhz = 7.2
+names = [
+  { mhz = 7.074, name = "FT8" },
+  { mhz = 7.171, name = "Slow-scan TV" },
+  { mhz = 7.290, name = "AM calling", mode = "am" },
+]
+
+[[band]]
+id = "20m"
+group = "ham"
+name = "20 m"
+icon = "wave"
+mode = "usb"
+low_mhz = 14.0
+high_mhz = 14.35
+start_mhz = 14.225
+names = [
+  { mhz = 14.074, name = "FT8" },
+  { mhz = 14.100, name = "Beacons" },
+  { mhz = 14.230, name = "Slow-scan TV" },
+  { mhz = 14.286, name = "AM calling", mode = "am" },
+]
 
 [[band]]
 id = "10m"

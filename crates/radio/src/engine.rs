@@ -8,7 +8,7 @@ use crate::playback::Player;
 use crate::record::Recorder;
 use crate::demod::{Demodulator, Mode, AUDIO_RATE};
 use crate::detect::{detect, Detected};
-use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource};
+use crate::device::{Gain, IqSource, RtlSdr, SimSignal, SimSource, DIRECT_BELOW_HZ};
 use crate::dsp::{u8_to_iq, Mixer, C32};
 use crate::hd::{Hd, HdImage, HdInfo};
 use crate::look::{BandLook, Hop};
@@ -104,6 +104,8 @@ pub struct Status {
     pub mode: Mode,
     pub playing: bool,
     pub gains: Vec<i32>,
+    /// Tuner bypassed, antenna sampled straight (below `DIRECT_BELOW_HZ`): no gain applies.
+    pub direct: bool,
     pub floor_db: f32,
     /// Strongest bin inside the tuned channel, dB above the floor, lightly smoothed.
     pub channel_snr_db: f32,
@@ -367,7 +369,8 @@ fn run(
                         }
                     }
                     if center_moved {
-                        center = center_hz;
+                        // sampled straight, the capture's low edge cannot go under 0 Hz
+                        center = if center_hz < DIRECT_BELOW_HZ as f64 { center_hz.max(rate as f64 / 2.0) } else { center_hz };
                         if let Err(e) = src.set_center(center as u32) {
                             error = Some(e.to_string());
                         }
@@ -583,7 +586,7 @@ fn run(
                 if let Some(l) = &mut look {
                     l.abort();
                 }
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), src.direct(), floor.db, 0.0, squelch_db, squelch.is_open(), &scanner, None, &adsb, &[], hd_sidebands, None, None, None, None, None, None, None, ppm, crystal, player.as_ref().map(Player::info));
                 std::thread::sleep(Duration::from_millis(500));
                 // a sleep or a replug kills the USB handle: close it and open the dongle again
                 if !simulated {
@@ -633,7 +636,7 @@ fn run(
             }
             if last_status.elapsed() >= Duration::from_millis(200) {
                 last_status = Instant::now();
-                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+                send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), src.direct(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, None, &adsb, &signals, hd_sidebands, None, None, p25.as_ref().map(P25::info), dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
             }
             prof.report();
             continue;
@@ -827,7 +830,7 @@ fn run(
                     crystal = Some(Crystal { ppm: ppm as f64 - p, hz });
                 }
             }
-            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
+            send_status(&on_status, &device, simulated, &error, rate, center, tuned, mode, playing, src.gains(), src.direct(), floor.db, snr, squelch_db, squelch.is_open(), &scanner, demod.rds.as_ref().map(|r| r.info().clone()), &adsb, &signals, hd_sidebands, hd.as_ref().map(Hd::info), hd.as_mut().and_then(Hd::new_images), p25_info, dmr.as_ref().map(Dmr::info), repscan.as_ref().map(|r| r.info(center)), look.as_ref().map(BandLook::info), acars.as_ref().map(Acars::info), ppm, crystal, player.as_ref().map(Player::info));
         }
         prof.lap("status");
         prof.report();
@@ -909,6 +912,7 @@ fn send_status(
     mode: Mode,
     playing: bool,
     gains: Vec<i32>,
+    direct: bool,
     floor: f32,
     snr: f32,
     squelch_db: Option<f32>,
@@ -939,6 +943,7 @@ fn send_status(
         mode,
         playing,
         gains,
+        direct,
         floor_db: floor,
         channel_snr_db: snr,
         squelch_db,
@@ -976,6 +981,10 @@ pub fn demo_signals() -> Vec<SimSignal> {
         nfm(146.94, 0.3, 800.0),
         nfm(162.55, 0.3, 1_000.0),
         SimSignal { hz: 119.1e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.7, tone_hz: 700.0, symbols: None },
+        // below the tuner: an AM station, a shortwave broadcaster and a 20 m voice (a tone 1 kHz up, USB)
+        SimSignal { hz: 0.85e6, amp: 0.3, fm_dev: 0.0, am_depth: 0.7, tone_hz: 500.0, symbols: None },
+        SimSignal { hz: 9.58e6, amp: 0.15, fm_dev: 0.0, am_depth: 0.7, tone_hz: 900.0, symbols: None },
+        SimSignal { hz: 14.201e6, amp: 0.2, fm_dev: 0.0, am_depth: 0.0, tone_hz: 0.0, symbols: None },
         // EMS: both bands, for the whole-band strip
         nfm(770.26875, 0.2, 600.0),
         nfm(773.05625, 0.1, 500.0),
@@ -1102,6 +1111,20 @@ mod tests {
     }
 
     /// Dragging the waterfall sends the same tune every frame; that must not touch what is playing.
+    #[test]
+    fn below_the_tuner_the_capture_stays_above_zero_hz() {
+        let centers = Arc::new(Mutex::new(Vec::<f64>::new()));
+        let log = centers.clone();
+        let source = Box::new(SimSource::new(SAMPLE_RATE, demo_signals(), true));
+        let engine = Engine::start(source, None, |_| {}, move |s| log.lock().unwrap().push(s.center_hz));
+        engine.send(Command::SetPlaying(false));
+        engine.send(Command::Tune { center_hz: 0.6e6, tuned_hz: 0.6e6 });
+        std::thread::sleep(Duration::from_millis(600));
+        let seen = centers.lock().unwrap();
+        assert!(seen.contains(&(SAMPLE_RATE as f64 / 2.0)), "the centre should stop at half the rate: {seen:?}");
+        assert!(!seen.contains(&0.6e6), "the capture reached under 0 Hz");
+    }
+
     #[test]
     fn repeating_a_tune_leaves_the_channel_alone() {
         let seen = Arc::new(Mutex::new(Vec::new()));

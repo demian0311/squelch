@@ -87,6 +87,8 @@ export interface Status {
   mode: Mode;
   playing: boolean;
   gains: number[];
+  /** Tuner bypassed below 24 MHz, the antenna sampled straight: no signal boost applies. */
+  direct: boolean;
   floor_db: number;
   channel_snr_db: number;
   squelch_db: number | null;

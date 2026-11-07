@@ -2075,13 +2075,17 @@
   </label>
   <label class="field">
     <span class="lbl"><Icon name="zap" size={14} />Signal boost</span>
-    <select bind:value={gain}>
-      <option value="auto">Auto</option>
-      {#each status?.gains ?? [] as g}
-        <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
-      {/each}
-    </select>
-    <small>Auto suits most antennas. More helps a weak signal; less helps when strong stations bleed across the band.</small>
+    {#if status?.direct}
+      <small>None below 24 MHz: the dongle samples the antenna straight, so the antenna sets the level. A long wire hears far more than a whip.</small>
+    {:else}
+      <select bind:value={gain}>
+        <option value="auto">Auto</option>
+        {#each status?.gains ?? [] as g}
+          <option value={String(g)}>{(g / 10).toFixed(1)} dB</option>
+        {/each}
+      </select>
+      <small>Auto suits most antennas. More helps a weak signal; less helps when strong stations bleed across the band.</small>
+    {/if}
   </label>
   <label class="field">
     <span class="lbl"><Icon name="gauge" size={14} />Tuning accuracy<small class="mono">ppm</small></span>

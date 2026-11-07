@@ -58,7 +58,7 @@ Bands show under their group, in file order. The first nine in the rail get the 
 
 Rules:
 
-- The dongle tunes 24–1766 MHz. A band outside that range opens but shows nothing.
+- The dongle's tuner covers 24–1766 MHz. Below 24 MHz it samples the antenna straight (direct sampling), which reads true up to 14.4 MHz, so AM radio, shortwave and the 80, 40 and 20 m ham bands work with no tuner gain; 14.4–24 MHz is out of reach. A band outside those ranges opens but shows nothing.
 - One screen shows at most about 1.9 MHz. A wider band works, but you scroll to see all of it.
 - Bands can overlap. At a given frequency, the narrowest band wins: its `mode` is used and its name is shown. A small band of local repeaters inside a wider ham band therefore takes over for its range.
 

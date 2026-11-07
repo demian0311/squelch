@@ -32,7 +32,7 @@ describe('renderGuide', () => {
 });
 
 describe('the guides', () => {
-  const rail = ['fm', 'air', 'mil', 'wx', 'marine', 'cb', 'walkie', 'murs', 'rail', 'ems', '10m', '6m', '2m', '125', '70cm', '33cm', '23cm', 'sonde', 'ism315', 'ism433', 'ism915', 'iss'];
+  const rail = ['fm', 'am', 'sw', 'air', 'mil', 'wx', 'marine', 'cb', 'walkie', 'murs', 'rail', 'ems', 'hf', '10m', '6m', '2m', '125', '70cm', '33cm', '23cm', 'sonde', 'ism315', 'ism433', 'ism915', 'iss'];
   it('has one for every rail entry', () => {
     expect(Object.keys(GUIDES).sort()).toEqual([...rail].sort());
   });

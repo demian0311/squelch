@@ -1,7 +1,8 @@
 //! Direct sampling below 24 MHz: switch the dongle's tuner out, tune the chip's own
 //! down-converter, and print what the engine sees (floor and every signal above it).
-//! cargo run -p radio --release --example hf_probe -- [centre MHz] [secs] [branch 1|2] [mode]
+//! cargo run -p radio --release --example hf_probe -- [centre MHz] [secs] [mode]
 //! The whole 0.5–14.4 MHz span is six captures; a run with no centre walks them all.
+//! It ends back on 101.1 MHz FM, so the way out of direct sampling (tuner back, gain back) is run too.
 
 use radio::demod::Mode;
 use radio::device::{IqSource, RtlSdr};
@@ -12,12 +13,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let centre: Option<f64> = args.get(1).and_then(|s| s.parse().ok());
     let secs: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(6);
-    let branch: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(2);
-    let mode: Mode = args.get(4).map(|s| toml::Value::String(s.clone()).try_into().unwrap()).unwrap_or(Mode::Am);
+    let mode: Mode = args.get(3).map(|s| toml::Value::String(s.clone()).try_into().unwrap()).unwrap_or(Mode::Am);
 
-    let mut dongle = RtlSdr::open(0, SAMPLE_RATE).expect("no dongle (close the app first)");
-    dongle.set_direct_sampling(branch).expect("direct sampling");
-    println!("{}  direct sampling branch {branch}", dongle.name());
+    let dongle = RtlSdr::open(0, SAMPLE_RATE).expect("no dongle (close the app first)");
+    // the device switches into direct sampling by itself below DIRECT_BELOW_HZ
+    println!("{}", dongle.name());
 
     let last = Arc::new(Mutex::new(None));
     let rows = Arc::new(Mutex::new(0usize));
@@ -44,7 +44,10 @@ fn main() {
         Some(c) => vec![c],
         None => (0..6).map(|i| 1.5 + 2.1 * i as f64).collect(),
     };
-    for c in centres {
+    for c in centres.into_iter().chain([101.1]) {
+        if c > 24.0 {
+            engine.send(Command::SetMode(Mode::Wfm));
+        }
         engine.send(Command::Tune { center_hz: c * 1e6, tuned_hz: c * 1e6 });
         *rows.lock().unwrap() = 0;
         sum.lock().unwrap().iter_mut().for_each(|a| *a = 0.0);
@@ -53,11 +56,14 @@ fn main() {
         let mut v: Vec<_> = s.signals.iter().collect();
         v.sort_by(|a, b| b.snr_db.total_cmp(&a.snr_db));
         println!(
-            "centre {c:.3} MHz  rows/s {:.1}  floor {:.1} dBFS  {} signals{}",
+            "centre {:.3} MHz  {}  rows/s {:.1}  floor {:.1} dBFS  {} signals{}{}",
+            s.center_hz / 1e6,
+            if s.direct { "direct" } else { "tuner " },
             *rows.lock().unwrap() as f64 / secs as f64,
             s.floor_db,
             v.len(),
-            s.error.map(|e| format!("  error: {e}")).unwrap_or_default()
+            s.error.map(|e| format!("  error: {e}")).unwrap_or_default(),
+            s.rds.as_ref().and_then(|r| r.ps.clone()).map(|ps| format!("  rds {ps}")).unwrap_or_default()
         );
         for d in v.iter().take(12) {
             println!("  {:>8.4} MHz  width {:>6.1} kHz  {:>5.1} dB", d.hz / 1e6, d.width_hz / 1e3, d.snr_db);
@@ -65,7 +71,8 @@ fn main() {
         // the averaged row's peaks: dB above the floor, 10 kHz apart at least
         let n = (*rows.lock().unwrap()).max(1) as f32;
         let bin_hz = SAMPLE_RATE as f64 / FFT_SIZE as f64;
-        let lo = c * 1e6 - SAMPLE_RATE as f64 / 2.0;
+        // the engine keeps the capture above 0 Hz, so the rows' centre, not the one asked for
+        let lo = s.center_hz - SAMPLE_RATE as f64 / 2.0;
         let mut peaks: Vec<(f64, f32)> = sum
             .lock()
             .unwrap()

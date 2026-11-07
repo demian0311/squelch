@@ -372,9 +372,11 @@ describe('readFrequency', () => {
     expect(readFrequency(' 146,52 ')).toEqual({ hz: 146_520_000 });
   });
   it('says why a number cannot be tuned', () => {
-    expect(readFrequency('2.4')).toEqual({ problem: 'below 24 MHz' });
-    expect(readFrequency('1800')).toEqual({ problem: 'above 1766 MHz' });
-    expect(readFrequency('1800000')).toEqual({ problem: 'above 1766 MHz' });
+    expect(readFrequency('2.4')).toEqual({ hz: 2_400_000 });
+    expect(readFrequency('0.3')).toEqual({ problem: 'below 0.5 MHz' });
+    expect(readFrequency('18')).toEqual({ problem: 'between 14.4 and 24 MHz, which the dongle cannot reach' });
+    expect(readFrequency('1800')).toEqual({ hz: 1_800_000 });
+    expect(readFrequency('1800000000')).toEqual({ problem: 'above 1766 MHz' });
   });
   it('is quiet while the text is empty or not a number', () => {
     expect(readFrequency('')).toEqual({});

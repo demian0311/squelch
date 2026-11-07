@@ -22,6 +22,10 @@ pub trait IqSource: Send {
     fn set_ppm(&mut self, ppm: i32) -> Result<()>;
     /// Gains the tuner supports, in tenths of a dB.
     fn gains(&self) -> Vec<i32>;
+    /// True while the tuner is bypassed and the antenna is sampled straight (below `DIRECT_BELOW_HZ`).
+    fn direct(&self) -> bool {
+        false
+    }
     /// Fill `buf` with interleaved unsigned 8-bit I/Q. Returns bytes read.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
 }
@@ -72,11 +76,25 @@ struct DevPtr(*mut rtlsdr_dev_t);
 // librtlsdr allows control calls from other threads while one thread streams.
 unsafe impl Send for DevPtr {}
 
+/// Below this the tuner cannot reach, so the dongle samples the antenna straight (direct
+/// sampling): the RTL2832U's own down-converter tunes 0–`DIRECT_TOP_HZ` and the band above that
+/// folds back under it. The R820T's own floor is 24 MHz.
+pub const DIRECT_BELOW_HZ: u32 = 24_000_000;
+/// Half the chip's 28.8 MHz clock: the top of what direct sampling reads true.
+pub const DIRECT_TOP_HZ: u32 = 14_400_000;
+/// The input wired to the antenna for HF on the RTL-SDR v3 and the Nooelec NESDR SMArt v5
+/// (checked 2026-11-06 on the v5: the I branch hears only clock spurs).
+const HF_BRANCH: u32 = 2;
+
 pub struct RtlSdr {
     dev: *mut rtlsdr_dev_t,
     name: String,
     rate: u32,
     gains: Vec<i32>,
+    /// Tuner bypassed, antenna sampled straight.
+    direct: bool,
+    /// The gain asked for, re-applied when the tuner comes back after direct sampling.
+    gain: Gain,
     rx: std::sync::mpsc::Receiver<Vec<u8>>,
     stream: Option<Box<Stream>>,
     usb: Option<std::thread::JoinHandle<()>>,
@@ -123,9 +141,29 @@ impl RtlSdr {
         if unsafe { rtlsdr_set_direct_sampling(self.dev, branch as c_int) } < 0 {
             bail!("dongle refused direct sampling {branch}");
         }
+        self.direct = branch != 0;
+        if !self.direct {
+            // librtlsdr re-initialises the tuner on the way back; its gain is whatever that left
+            self.apply_gain(self.gain);
+        }
         while self.rx.try_recv().is_ok() {}
         self.taken = self.pending.len();
         Ok(())
+    }
+
+    fn apply_gain(&self, gain: Gain) {
+        unsafe {
+            match gain {
+                Gain::Auto => {
+                    rtlsdr_set_tuner_gain_mode(self.dev, 0);
+                    rtlsdr_set_agc_mode(self.dev, 0);
+                }
+                Gain::Tenths(g) => {
+                    rtlsdr_set_tuner_gain_mode(self.dev, 1);
+                    rtlsdr_set_tuner_gain(self.dev, g);
+                }
+            }
+        }
     }
 
     pub fn open(index: u32, rate: u32) -> Result<Self> {
@@ -143,7 +181,7 @@ impl RtlSdr {
                 .into_owned()
         });
         let (tx, rx) = std::sync::mpsc::sync_channel(QUEUE);
-        let mut s = RtlSdr { dev, name, rate, gains: Vec::new(), rx, stream: None, usb: None, pending: Vec::new(), taken: 0 };
+        let mut s = RtlSdr { dev, name, rate, gains: Vec::new(), direct: false, gain: Gain::Auto, rx, stream: None, usb: None, pending: Vec::new(), taken: 0 };
         unsafe {
             if rtlsdr_set_sample_rate(dev, rate) < 0 {
                 bail!("dongle refused sample rate {rate}");
@@ -191,6 +229,12 @@ impl IqSource for RtlSdr {
         self.rate
     }
     fn set_center(&mut self, hz: u32) -> Result<()> {
+        // the tuner stops at 24 MHz; below it the antenna is sampled straight, and the
+        // chip's own down-converter takes the same centre call
+        let want = hz < DIRECT_BELOW_HZ;
+        if want != self.direct {
+            self.set_direct_sampling(if want { HF_BRANCH } else { 0 })?;
+        }
         if unsafe { rtlsdr_set_center_freq(self.dev, hz) } < 0 {
             bail!("dongle cannot tune to {hz} Hz");
         }
@@ -210,22 +254,18 @@ impl IqSource for RtlSdr {
         Ok(())
     }
     fn set_gain(&mut self, gain: Gain) -> Result<()> {
-        unsafe {
-            match gain {
-                Gain::Auto => {
-                    rtlsdr_set_tuner_gain_mode(self.dev, 0);
-                    rtlsdr_set_agc_mode(self.dev, 0);
-                }
-                Gain::Tenths(g) => {
-                    rtlsdr_set_tuner_gain_mode(self.dev, 1);
-                    rtlsdr_set_tuner_gain(self.dev, g);
-                }
-            }
+        self.gain = gain;
+        // no tuner in the path while direct sampling: the antenna sets the level
+        if !self.direct {
+            self.apply_gain(gain);
         }
         Ok(())
     }
     fn gains(&self) -> Vec<i32> {
         self.gains.clone()
+    }
+    fn direct(&self) -> bool {
+        self.direct
     }
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut filled = 0;

@@ -388,8 +388,9 @@ mod tests {
             assert!(plan.groups.iter().any(|g| g.id == b.group), "{} has unknown group", b.id);
             assert!(b.low_mhz < b.high_mhz, "{}", b.id);
             assert!(b.start_mhz >= b.low_mhz && b.start_mhz <= b.high_mhz, "{} start outside band", b.id);
-            // the R820T tuner covers roughly 24–1766 MHz
-            assert!(b.low_mhz >= 24.0 && b.high_mhz <= 1766.0, "{} outside tuner range", b.id);
+            // the R820T tuner covers roughly 24–1766 MHz; below it direct sampling reads true to 14.4 MHz
+            let direct = b.high_mhz * 1e6 <= crate::device::DIRECT_TOP_HZ as f64;
+            assert!(direct || (b.low_mhz >= 24.0 && b.high_mhz <= 1766.0), "{} outside tuner range", b.id);
             for m in &b.names {
                 assert!(m.mhz >= b.low_mhz && m.mhz <= b.high_mhz, "{} bookmark {} outside band", b.id, m.name);
             }
