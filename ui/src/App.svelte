@@ -2041,7 +2041,7 @@
         <AirplanesScreen waterfall={wfView} live={adsb?.aircraft ?? []} messages={joinBlocks(acarsList)} {trails} site={iss?.site ?? null} listening={airListen} hearing={airHearing} signals={status?.signals ?? []} capture={{ center, half: rate * 0.45 }} onListenAirport={listenAirport} {playing} recording={!!rec?.recording} recLit={recLit} onRecord={toggleRecord} palette={mapPalette} onListen={listenTo} onStopListening={stopListening} onSettings={() => (settingsOpen = true)} share={panelShare} onShare={setPanelShare} />
       {/if}
       {#if repScreen && !bookmarksOpen && !recordingsOpen && !guideOpen}
-        <RepeatersScreen rows={repRowList} band={{ lo: (band?.low_mhz ?? 0) * 1e6, hi: (band?.high_mhz ?? 1) * 1e6 }} capture={{ centre: center, half: rate * 0.45 }} {squelch} meterDb={METER_DB} onSquelch={(db) => (squelch = db)} onRow={repRowClick} onSeeRadio={() => (seeRadio = true)} share={panelShare} onShare={setPanelShare}>
+        <RepeatersScreen rows={repRowList} band={{ lo: (band?.low_mhz ?? 0) * 1e6, hi: (band?.high_mhz ?? 1) * 1e6 }} capture={{ centre: center, half: rate * 0.45 }} {squelch} meterDb={METER_DB} onSquelch={(db) => (squelch = db)} onRow={repRowClick} share={panelShare} onShare={setPanelShare}>
           {#snippet map()}
             {#if iss?.site}
               <RepeaterMap points={repPoints} reachKm={repReachKm ?? 0} tunedId={repTuned?.id ?? null} live={repLive} onTune={repRowClick} view={repView} onView={setRepView} site={iss.site} palette={mapPalette} />

@@ -19,13 +19,12 @@
     meterDb: number;
     onSquelch: (db: number) => void;
     onRow: (hz: number) => void;
-    onSeeRadio: () => void;
     /** the rows' share of the width, App's own panel share: the map is the waterfall's place */
     share: number;
     onShare: (share: number, save: boolean) => void;
     map: Snippet;
   }
-  let { rows, band, capture, squelch, meterDb, onSquelch, onRow, onSeeRadio, map, share, onShare }: Props = $props();
+  let { rows, band, capture, squelch, meterDb, onSquelch, onRow, map, share, onShare }: Props = $props();
 
   const STATE_ICON = { playing: 'speaker', talking: 'zap', under: 'mute', quiet: 'quiet', away: 'arrowRight' } as const;
   let heard = $derived(rows.filter((r) => r.p.reach && r.heard));
@@ -138,10 +137,6 @@
 
 <div class="rep">
   <MapSplit {share} {onShare} map={mapCell} rows={rowsCell} />
-
-  <p class="foot">
-    <button class="act" onclick={onSeeRadio} title="The waterfall and the whole band">See the radio</button>
-  </p>
 </div>
 
 <style>
@@ -468,22 +463,6 @@
   .map {
     position: relative;
     min-height: 0;
-  }
-  .foot {
-    display: flex;
-    justify-content: flex-end;
-    margin: 0;
-  }
-  .act {
-    font-family: var(--mono);
-    font-size: 12px;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-    background: none;
-    border-radius: var(--r-sm);
-    padding: 3px 10px;
-    cursor: pointer;
-    white-space: nowrap;
   }
   @container (max-width: 600px) {
     .row {
