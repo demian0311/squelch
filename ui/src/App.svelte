@@ -242,6 +242,8 @@
     panning = true;
     clearTimeout(panTimer);
     panTimer = setTimeout(() => (panning = false), 200);
+    // a band the view holds whole stays whole in it: a drag never slides AM radio off its edge
+    if (band && s >= (band.high_mhz - band.low_mhz) * 1e6) nvs = Math.min(band.low_mhz * 1e6, Math.max(band.high_mhz * 1e6 - s, nvs));
     recenter();
   }
 
