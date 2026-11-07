@@ -79,6 +79,8 @@ describe('noteCarriers', () => {
       { hz: 600_000, snr_db: 28, width_hz: 3_500 },
       { hz: 1_205_000, snr_db: 20, width_hz: 8_000 },
       { hz: 2.4e6, snr_db: 20, width_hz: 9_000 },
+      { hz: 1_340_000, snr_db: 9, width_hz: 8_000 },
+      { hz: 1_500_000, snr_db: 15, width_hz: 83_000 },
     ], am, 1000);
     expect(got.map((h) => h.hz)).toEqual([850_000]);
   });

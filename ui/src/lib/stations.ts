@@ -63,6 +63,10 @@ export const SW_GRID: Omit<Grid, 'lo' | 'hi'> = { step: 5_000, slack: 1_500 };
  * measured 1.2–4.7 kHz (2026-11-06), an AM station's sidebands reach 5 kHz either side.
  */
 export const MIN_AM_WIDTH_HZ = 5_000;
+/** Wider than this is noise: the power-supply humps on the whip read 60–100 kHz wide at 9.7 and 10.9 MHz (2026-11-06). */
+export const MAX_AM_WIDTH_HZ = 20_000;
+/** Weaker than this a carrier below the tuner is noise more often than a station: the humps' pieces read 8–11 dB. */
+export const MIN_CARRIER_SNR_DB = 12;
 
 /**
  * Records AM and shortwave stations among `signals` in `list`, on the band's channel grid. No names: nothing
@@ -73,7 +77,7 @@ export function noteCarriers(list: Heard[], signals: { hz: number; snr_db: numbe
   const next = list.filter((h) => now - h.at <= MAX_AGE_MS);
   if (next.length !== list.length) changed = true;
   for (const s of signals) {
-    if (s.hz < grid.lo || s.hz > grid.hi || s.snr_db < MIN_SNR_DB || s.width_hz < MIN_AM_WIDTH_HZ) continue;
+    if (s.hz < grid.lo || s.hz > grid.hi || s.snr_db < MIN_CARRIER_SNR_DB || s.width_hz < MIN_AM_WIDTH_HZ || s.width_hz > MAX_AM_WIDTH_HZ) continue;
     const ch = Math.round(s.hz / grid.step) * grid.step;
     if (Math.abs(s.hz - ch) > grid.slack) continue;
     const i = next.findIndex((h) => h.hz === ch);
