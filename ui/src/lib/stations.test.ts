@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Rds } from './api';
-import { MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
+import { AM_SLACK_HZ, MAX_AGE_MS, TOUCH_MS, HOLD_DB, heardType, noteHeard, pickTick, stripLabels, stripTicks, withHeard, dialRows, sortDial, holdSignals, localStations, localName, localType, heardName, type Heard } from './stations';
 import type { FmStation } from './api';
 
 const rds = (ps: string): Rds => ({ ps, call: null, radiotext: null, pty: null, title: null, artist: null }) as unknown as Rds;
@@ -49,6 +49,10 @@ describe('noteHeard', () => {
 });
 
 describe('stripTicks', () => {
+  it('keeps AM channels 10 kHz apart and prints kHz precision below 30 MHz', () => {
+    const t = stripTicks([], [{ mhz: 0.85, name: 'KOA' }, { mhz: 0.86, name: 'Next' }, { mhz: 10, name: 'WWV time signal' }], 0, 0.53e6, 13.9e6, AM_SLACK_HZ);
+    expect(t.map((x) => x.title)).toEqual(['0.850 KOA', '0.860 Next', '10.000 WWV time signal']);
+  });
   it('marks this run as fresh and merges a bookmark into its station', () => {
     const heard: Heard[] = [
       { hz: 97.3e6, at: 50, snrDb: 30, name: 'KBCO' },

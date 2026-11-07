@@ -182,19 +182,28 @@ export interface Tick {
   saved: boolean;
 }
 
-/** Strip ticks: remembered stations plus bookmarks in the band; a bookmark on a station's channel merges into it. */
-export function stripTicks(heard: Heard[], saved: { mhz: number; name: string }[], since: number, lo: number, hi: number): Tick[] {
+/** Bands drawn whole above the waterfall (`BandStrip.svelte`): FM, and the two broadcast bands below the tuner. */
+export const STRIP_BANDS = ['fm', 'am', 'sw'];
+
+/** AM channels are 10 kHz apart: two names merge only on the same channel. */
+export const AM_SLACK_HZ = 4_000;
+
+/** A tick's frequency as the band prints it: tenths on FM, kHz precision below 30 MHz. */
+const tickMHz = (hz: number) => (hz / 1e6).toFixed(hz < 30e6 ? 3 : 1);
+
+/** Strip ticks: remembered stations plus bookmarks in the band; a bookmark within `slackHz` of a station merges into it. */
+export function stripTicks(heard: Heard[], saved: { mhz: number; name: string }[], since: number, lo: number, hi: number, slackHz = GRID_SLACK_HZ): Tick[] {
   const ticks: Tick[] = heard
     .filter((h) => h.hz >= lo && h.hz <= hi)
-    .map((h) => ({ hz: h.hz, title: `${(h.hz / 1e6).toFixed(1)}${h.name ? ' ' + h.name : ''}`, fresh: h.at >= since, strength: Math.min(1, Math.max(0, h.snrDb / 40)), saved: false }));
+    .map((h) => ({ hz: h.hz, title: `${tickMHz(h.hz)}${h.name ? ' ' + h.name : ''}`, fresh: h.at >= since, strength: Math.min(1, Math.max(0, h.snrDb / 40)), saved: false }));
   for (const s of saved) {
     const hz = s.mhz * 1e6;
     if (hz < lo || hz > hi) continue;
-    const t = ticks.find((t) => Math.abs(t.hz - hz) < GRID_SLACK_HZ);
+    const t = ticks.find((t) => Math.abs(t.hz - hz) < slackHz);
     if (t) {
       t.saved = true;
-      t.title = `${(t.hz / 1e6).toFixed(1)} ${s.name}`;
-    } else ticks.push({ hz, title: `${s.mhz.toFixed(1)} ${s.name}`, fresh: false, strength: 0.3, saved: true });
+      t.title = `${tickMHz(t.hz)} ${s.name}`;
+    } else ticks.push({ hz, title: `${tickMHz(hz)} ${s.name}`, fresh: false, strength: 0.3, saved: true });
   }
   return ticks.sort((a, b) => a.hz - b.hz);
 }

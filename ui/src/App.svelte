@@ -17,7 +17,7 @@
   import EmsStrip from './components/EmsStrip.svelte';
   import { addLine, emsRanges, isEms, oneEms, railId, type LookLine } from './lib/ems';
   import StationList from './components/StationList.svelte';
-  import { dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
+  import { AM_SLACK_HZ, STRIP_BANDS, dialRows, localName, localStations, localType, noteHeard, stripTicks, withHeard, type Heard } from './lib/stations';
   import Pane from './components/Pane.svelte';
   import BookmarksScreen from './components/BookmarksScreen.svelte';
   import GuideScreen from './components/GuideScreen.svelte';
@@ -185,7 +185,7 @@
   let fit = $derived.by(() => {
     const lanes = band?.id === 'fm' ? FM_LANES : LANES;
     if (!boxH) return { level: 0, lane: lanes[0], spec: SPEC_H };
-    const room = boxH - (band?.id === 'fm' ? BAND_STRIP_H : emsLook ? EMS_STRIP_H : 0) - WF_AXIS - WF_MIN;
+    const room = boxH - (hasStrip ? BAND_STRIP_H : emsLook ? EMS_STRIP_H : 0) - WF_AXIS - WF_MIN;
     const at = lanes.findIndex((h) => room - h >= SPEC_MIN);
     const level = at < 0 ? lanes.length - 1 : at;
     return { level, lane: lanes[level], spec: Math.max(STRIP_SPEC_H, Math.min(SPEC_H, room - lanes[level])) };
@@ -436,7 +436,15 @@
     return [...hidden, ...steady];
   });
 
-  let stripMarks = $derived(band?.id === 'fm' ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6) : []);
+  let hasStrip = $derived(!!band && STRIP_BANDS.includes(band.id));
+  // below the tuner nothing is remembered per station yet: the band's own names and the bookmarks are the ticks
+  let stripMarks = $derived(
+    !band || !hasStrip
+      ? []
+      : band.id === 'fm'
+        ? stripTicks(heard.fm ?? [], saved.filter((x) => x.band.id === 'fm'), startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6)
+        : stripTicks([], [...(band.names ?? []), ...saved.filter((x) => x.band.id === band!.id)], startedAt, band.low_mhz * 1e6, band.high_mhz * 1e6, AM_SLACK_HZ),
+  );
 
   function step(dir: 1 | -1) {
     const heard = signals.filter((s) => showSteady || !s.steady).map((s) => s.hz);
@@ -1723,7 +1731,7 @@
           <button onclick={() => setView((vs + ve) / 2 - maxSpan / 2, (vs + ve) / 2 + maxSpan / 2)} title="Show as much of the band as fits">Widest</button>
         {/snippet}
         <div class="box" class:panning class:strip={maxPane === 'panel'} bind:clientWidth={boxW} bind:clientHeight={boxH}>
-          {#if band?.id === 'fm' && maxPane !== 'panel'}
+          {#if hasStrip && band && maxPane !== 'panel'}
             <BandStrip
               lo={band.low_mhz * 1e6}
               hi={band.high_mhz * 1e6}
