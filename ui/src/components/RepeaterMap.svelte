@@ -5,7 +5,9 @@
   import { untrack } from 'svelte';
   import { placeLabels } from '../lib/airplanes';
   import type { Mark, MapView, RepeaterPoint } from '../lib/repeaters';
-  import { APART_PX, NEAREST_KM, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, openHalfKm, ringReach, townLabels, zoomView } from '../lib/repeaters';
+  import { APART_PX, NEAREST_KM, REP_LIMITS, WIDEST_KM, badgeRadius, clampView, hueOf, mapMarks, openHalfKm, ringReach, townLabels, zoomView } from '../lib/repeaters';
+  import { mapGestures } from '../lib/mapview';
+  import MapZoom from './MapZoom.svelte';
   import { groundKey, linePaths, type Frame, type Lines, type Palette, type Site } from '../lib/terrain';
 
   interface Props {
@@ -32,10 +34,6 @@
   const TOWN_PX = 12;
   const YOU_PX = 13;
   const DIST_PX = 10;
-  // a wheel notch zooms this much; a line-mode wheel reports lines, not pixels
-  const WHEEL_STEP = 0.0015;
-  const LINE_PX = 16;
-  const BUTTON_STEP = 0.6;
   let box = $state<DOMRectReadOnly | undefined>();
   let halfKm = $derived(view.halfKm);
   let halfW = $derived(halfKm * (box?.width && box.height ? box.width / box.height : WIDTH_RATIO));
@@ -128,45 +126,11 @@
   }
 
   // ---- zoom and pan, like a street map ----
-  let svg = $state<SVGSVGElement | undefined>();
-  let drag: { id: number; x: number; y: number; view: MapView; moved: boolean } | null = null;
+  let svg = $state<SVGSVGElement>();
   let dragging = $state(false);
-  /** the last pointer-up ended a drag: the click that follows it must not tune */
-  let dragged = false;
-  function kmAt(e: { clientX: number; clientY: number }) {
-    const r = svg!.getBoundingClientRect();
-    return { x: view.x + (e.clientX - r.left - r.width / 2) * kmPerPx, y: view.y + (e.clientY - r.top - r.height / 2) * kmPerPx };
-  }
-  function onWheel(e: WheelEvent) {
-    e.preventDefault();
-    const dy = e.deltaMode === 1 ? e.deltaY * LINE_PX : e.deltaY;
-    onView(zoomView(view, Math.exp(dy * WHEEL_STEP), kmAt(e)));
-  }
-  function onDown(e: PointerEvent) {
-    if (e.button !== 0) return;
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, view, moved: false };
-  }
-  function onMove(e: PointerEvent) {
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    if (!drag.moved && Math.hypot(dx, dy) < 3) return;
-    // captured only once it is a drag: a plain press must still click the mark under it
-    if (!drag.moved) svg!.setPointerCapture(drag.id);
-    drag.moved = true;
-    dragging = true;
-    onView(clampView({ ...drag.view, x: drag.view.x - dx * kmPerPx, y: drag.view.y - dy * kmPerPx }));
-  }
-  function onUp() {
-    dragged = !!drag?.moved;
-    drag = null;
-    dragging = false;
-  }
-  function onDouble(e: MouseEvent) {
-    onView(zoomView(view, 0.5, kmAt(e)));
-  }
+  const g = mapGestures({ view: () => view, kmPerPx: () => kmPerPx, svg: () => svg, limits: () => REP_LIMITS, onView: (v) => onView(v), onDragging: (d) => (dragging = d) });
   function pick(go: () => void) {
-    if (dragged) return;
+    if (g.dragged()) return;
     go();
   }
   // one click takes a badge apart: the view closes on it just enough, and its tower comes to the centre
@@ -193,12 +157,12 @@
   role="group"
   aria-label="Repeaters around you. Scroll to zoom, drag to move, press one to tune it."
   class:dragging={dragging}
-  onwheel={onWheel}
-  onpointerdown={onDown}
-  onpointermove={onMove}
-  onpointerup={onUp}
-  onpointercancel={onUp}
-  ondblclick={onDouble}
+  onwheel={g.onwheel}
+  onpointerdown={g.onpointerdown}
+  onpointermove={g.onpointermove}
+  onpointerup={g.onpointerup}
+  onpointercancel={g.onpointerup}
+  ondblclick={g.ondblclick}
 >
   <rect x={-frame.halfWKm} y={-frame.halfHKm} width={2 * frame.halfWKm} height={2 * frame.halfHKm} class="ground" />
   {#if ground}
@@ -259,10 +223,7 @@
     {/each}
   </div>
 {/if}
-<div class="zoom">
-  <button type="button" aria-label="Closer" title="Closer (or scroll on the map)" disabled={halfKm <= NEAREST_KM} onclick={() => onView(zoomView(view, BUTTON_STEP))}>+</button>
-  <button type="button" aria-label="Wider" title="Wider (or scroll on the map)" disabled={halfKm >= WIDEST_KM} onclick={() => onView(zoomView(view, 1 / BUTTON_STEP))}>−</button>
-</div>
+<MapZoom {halfKm} limits={REP_LIMITS} onZoom={(f) => onView(zoomView(view, f))} />
 <!-- outside the drawing -->
 <span class="attrib">{ground ? 'Terrain: USGS · ' : ''}Natural Earth · US Census</span>
 
@@ -445,33 +406,6 @@
     .blip i {
       animation: none;
     }
-  }
-  .zoom {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .zoom button {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 1px solid var(--muted);
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--bg-darker) 85%, transparent);
-    color: var(--fg);
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-  }
-  .zoom button:disabled {
-    color: var(--muted);
-    cursor: default;
-  }
-  .zoom button:focus-visible {
-    outline: 2px solid var(--accent);
   }
   .site {
     fill: var(--yellow);

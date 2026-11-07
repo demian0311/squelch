@@ -7,7 +7,7 @@ import { toKm, type Site } from './terrain';
 /** A position older than this is drawn faded: the aircraft has moved on since. */
 export const STALE_POS_S = 30;
 /** Map half-heights to choose from, km: the smallest that holds every aircraft. */
-const MAP_STEPS_KM = [50, 100, 200, 400];
+export const MAP_STEPS_KM = [50, 100, 200, 400];
 
 export interface AircraftRow {
   a: Aircraft;
