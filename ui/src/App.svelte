@@ -1977,15 +1977,17 @@
                     {@const booked = bookingOf(slots, p)}
                     {@const recNow = !!booked && onPlan?.slot.id === booked.id}
                     {@const w = (booked && slotWindow(booked)) || passWindow(p, issAge)}
+                    {@const a = (Math.PI * Math.min(90, p.max_elevation)) / 180}
                     <div class="item pass" class:sel={now} role="button" tabindex="0" title={`${passWhy(p.max_elevation)} ${Math.round((p.set - p.rise) / 60)} min above the horizon, rises ${compass(p.rise_az)}, sets ${compass(p.set_az)}.`} onmouseenter={() => (issHover = p)} onmouseleave={() => (issHover = null)} onfocus={() => (issHover = p)} onblur={() => (issHover = null)}>
                       <span class="name">{now ? 'Overhead now' : `${dayLabel(p.rise, nowS)} ${clock(p.rise)}`} <small>– {clock(p.set)}</small></span>
                       <span class="arcline">
-                        <!-- how high it climbs: the horizon, the sky as an arc, the station at its peak -->
-                        <svg class="arc" viewBox="0 0 48 26" aria-hidden="true">
-                          <path d="M2 24h44" stroke="var(--muted)" />
-                          <path d="M4 24A20 20 0 0 1 44 24" stroke="var(--muted)" stroke-dasharray="2 3" />
-                          <path d="M4 24A20 20 0 0 1 {24 + 20 * Math.cos(Math.PI * (1 - Math.min(90, p.max_elevation) / 90))} {24 - 20 * Math.sin(Math.PI * Math.min(90, p.max_elevation) / 90)}" stroke={colour} stroke-width="2" />
-                          <circle cx={24 + 20 * Math.cos(Math.PI * (1 - Math.min(90, p.max_elevation) / 90))} cy={24 - 20 * Math.sin(Math.PI * Math.min(90, p.max_elevation) / 90)} r="3" fill={colour} stroke="none" />
+                        <!-- how high it climbs, as the angle from where you stand: you on the ground at the left, a line to the station at its peak, the angle marked at your feet (issue #41; before 2026-11-06 an arc filled to the peak, which read as a progress ring) -->
+                        <svg class="arc" viewBox="0 0 48 30" aria-hidden="true">
+                          <path d="M2 27h44" stroke="var(--muted)" />
+                          <path d="M16 27A9 9 0 0 0 {7 + 9 * Math.cos(a)} {27 - 9 * Math.sin(a)}" stroke="var(--fg-dim)" />
+                          <path d="M7 27L{7 + 26 * Math.cos(a)} {27 - 26 * Math.sin(a)}" stroke={colour} stroke-width="1.5" />
+                          <circle cx={7 + 26 * Math.cos(a)} cy={27 - 26 * Math.sin(a)} r="3" fill={colour} stroke="none" />
+                          <circle cx="7" cy="27" r="2" fill="var(--fg-bright)" stroke="none" />
                         </svg>
                         <span class="big" style:color={colour}>{passWord(p.max_elevation)}</span>
                         <small class="mono">{Math.round(p.max_elevation)}°</small>
@@ -2843,7 +2845,7 @@
   }
   .arc {
     width: 48px;
-    height: 26px;
+    height: 30px;
     fill: none;
     stroke-linecap: round;
   }
